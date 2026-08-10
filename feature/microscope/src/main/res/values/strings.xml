@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="microscope_placeholder">Microscope capture is not implemented yet. Plug-in detection, live preview and photo upload arrive with issue #1.</string>
+</resources>
