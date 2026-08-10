@@ -1,3 +1,12 @@
+---
+title: ADR 0001 — Tech stack
+audience: [contributor]
+content_mode: explanation
+track: developer-docs
+last_updated: 2026-08-10
+source_language: en
+---
+
 # ADR 0001 — Tech stack for kamerplanter-android
 
 - Status: accepted

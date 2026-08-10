@@ -6,6 +6,15 @@ build/
 # Local configuration (SDK path, signing secrets)
 local.properties
 
+# In-flight resume state of resumable skills/agents (spec/claude/resumable-work)
+/.resume/
+
+# Python virtual environment (docs tooling)
+.venv/
+
+# MkDocs build output
+/site/
+
 # IDE
 .idea/
 *.iml

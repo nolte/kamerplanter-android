@@ -1,0 +1,48 @@
+version: "3"
+
+# Canonical target vocabulary per spec/project/taskfile/. No remote includes
+# from nolte/taskfiles yet, deliberately: the collection's mkdocs include only
+# ships `start` (serve, not build) and its pre-commit include resolves against
+# a global ~/.venvs/development interpreter, which conflicts with this repo's
+# project-local .venv — so the CI-gate targets stay local per that spec.
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  setup:
+    desc: One-time onboarding — git hooks and the docs virtualenv
+    cmds:
+      - pre-commit install
+      - python3 -m venv .venv
+      - .venv/bin/pip install -r docs/requirements.txt
+
+  lint:
+    desc: Static analysis (detekt incl. ktlint rules, Android Lint)
+    cmds:
+      - ./gradlew detekt lint
+
+  test:
+    desc: JVM unit tests for all modules
+    cmds:
+      - ./gradlew test
+
+  check:
+    desc: Aggregated quality gate (composition owned by spec/project/quality-gate/)
+    cmds:
+      - task: lint
+      - task: test
+      - task: docs
+
+  docs:
+    desc: Build the MkDocs site (strict)
+    cmds:
+      - .venv/bin/mkdocs build --strict
+
+  assemble:
+    desc: Build a release APK
+    cmds:
+      - ./gradlew assembleRelease

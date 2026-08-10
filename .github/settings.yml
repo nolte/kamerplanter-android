@@ -1,0 +1,21 @@
+# These settings are synced to GitHub by https://probot.github.io/apps/settings/
+
+_extends: gh-plumbing:.github/commons-settings.yml
+
+repository:
+  name: kamerplanter-android
+  description: Native Android companion app for kamerplanter — USB/UVC microscope pest-photo capture
+  homepage: https://nolte.github.io/kamerplanter-android
+  topics: android, kotlin, jetpack-compose, uvc, usb-camera, kamerplanter, plant-management
+
+# Merges by `name` into the commons `develop` block; the commons deliberately
+# ship `contexts: []` and require each consumer to declare its own required
+# checks here. Context strings are the check-run names exactly as GitHub
+# reports them (a plain job reports its `name:`), not workflow file names.
+branches:
+  - name: develop
+    protection:
+      required_status_checks:
+        strict: true
+        contexts:
+          - Build, lint & test

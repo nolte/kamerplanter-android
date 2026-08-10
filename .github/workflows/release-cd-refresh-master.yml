@@ -1,0 +1,18 @@
+name: Release Deliver to Master
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh_presentation_branch:
+    uses: nolte/gh-plumbing/.github/workflows/reusable-release-cd-refresh-master.yml@d51e51ec3ec17ceea09fe9eb40ac00857b6fa1be # v2.0.0
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
+    with:
+      target_branch: main
+    permissions:
+      contents: write

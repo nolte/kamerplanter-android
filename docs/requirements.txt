@@ -1,0 +1,7 @@
+# MkDocs baseline per spec/project/mkdocs-structure/ — bounded ranges in the
+# portfolio style (see nolte/kamerplanter docs/requirements.txt).
+mkdocs>=1.6,<2.0
+mkdocs-material>=9.7,<10.0
+mkdocs-static-i18n>=1.2.0
+mkdocs-include-markdown-plugin>=7.0,<8.0
+pymdown-extensions>=10.5

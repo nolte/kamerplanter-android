@@ -1,0 +1,37 @@
+site_name: Kamerplanter Android
+site_url: https://nolte.github.io/kamerplanter-android/
+repo_url: https://github.com/nolte/kamerplanter-android
+edit_uri: edit/develop/docs/
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+          nav_translations:
+            Home: Start
+            Getting Started: Erste Schritte
+            Overview: Übersicht
+
+  - include-markdown
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started/index.md
+  - ADRs:
+      - Overview: adrs/index.md
+      - "ADR 0001 — Tech stack": adrs/0001-tech-stack.md

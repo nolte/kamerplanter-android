@@ -1,0 +1,15 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: ['--markdown-linebreak-ext=md']
+      - id: check-yaml
+        args: ['--allow-multiple-documents', '--unsafe']
+      - id: check-merge-conflict
+
+  # Kotlin/Android linting (detekt + ktlint formatting rules, Android Lint)
+  # runs through Gradle so local hooks and CI share one implementation.
+  # Wired as `task lint` rather than a pre-commit hook: a JVM cold start per
+  # commit is too slow for a hook, and CI enforces it anyway.
