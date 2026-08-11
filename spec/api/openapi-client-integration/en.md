@@ -19,8 +19,9 @@ The backend establishes the concrete surface this spec integrates against:
   is served at `/api/v1/openapi.json`.
 - **Two independent version axes:** the URL major (`/api/vN`) is *not* the backend
   application version. The application version is a SemVer string (`settings.app_version`,
-  surfaced as OpenAPI `info.version`). At the time of writing the backend app version is
-  `v0.1.0` while the API path is already `/api/v1` — the two axes must never be conflated.
+  surfaced as OpenAPI `info.version`). At the time of writing the backend release tag is
+  `v0.1.0`, while the on-the-wire `info.version` / `/api/health.version` is the bare SemVer
+  `0.1.0`; the API path is already `/api/v1` — the two axes must never be conflated.
 - **Health endpoint:** `GET /api/health` (root-level, documented "for M2M consumers")
   returns `{ "status": "healthy", "version": <app_version> }`.
 - **Multi-tenancy:** tenant-scoped routes take the form `/api/v1/t/{tenant_slug}/…`.
@@ -90,8 +91,8 @@ spec.
   axes; the client MUST NOT derive one from the other.
 - **R-VER-2 — MUST** declare, in client-owned configuration, the ordered set of API majors
   the client supports and a minimum supported backend application version
-  (`MIN_SUPPORTED`). The initial `MIN_SUPPORTED` floor is `v0.1.0` (the backend's current
-  release line) and tracks forward with the backend.
+  (`MIN_SUPPORTED`). The initial `MIN_SUPPORTED` floor is `0.1.0` (SemVer, matching the
+  backend's current `v0.1.0` release line) and tracks forward with the backend.
 
 ### Backward compatibility (tolerant reader)
 - **R-COMPAT-1 — MUST** deserialize JSON with unknown fields ignored
@@ -111,7 +112,8 @@ spec.
   offers and select the highest major supported by both client and server (highest common
   major).
 - **R-NEG-2 — MUST** use the negotiated major as the path prefix (`/api/vN/…`, including
-  tenant-scoped `/api/vN/t/{tenant_slug}/…`) for every request in that session.
+  tenant-scoped `/api/vN/t/{tenant_slug}/…`) for every versioned request in that session;
+  the root-level, version-independent `/api/health` is excluded from the prefix.
 - **R-NEG-3 — SHOULD** discover server majors by probing candidate majors from the highest
   client-known major downward (e.g. `GET`/`HEAD` `/api/v{n}/openapi.json`) until one
   responds, since the backend currently exposes no dedicated "supported majors" index
@@ -123,9 +125,10 @@ spec.
 ### Health gate & graceful degradation
 - **R-HEALTH-1 — MUST** query `GET /api/health` before exercising features, reading
   `status` and `version`.
-- **R-HEALTH-2 — MUST**, when `version` < `MIN_SUPPORTED`, show a visible, localized
-  warning and continue in a reduced mode (only features compatible with that server
-  version) rather than hard-failing.
+- **R-HEALTH-2 — MUST** compare `version` against `MIN_SUPPORTED` by SemVer precedence
+  (never lexical string comparison), normalizing an optional leading `v`; when
+  `version` < `MIN_SUPPORTED`, show a visible, localized warning and continue in a reduced
+  mode (only features compatible with that server version) rather than hard-failing.
 - **R-HEALTH-3 — MUST** surface a clear, localized error (no crash) when the server is
   unreachable or reports a non-healthy `status`.
 - **R-HEALTH-4 — SHOULD** disable, in reduced mode, precisely the features that need the
@@ -153,6 +156,14 @@ spec.
       stays usable in reduced mode (no hard fail, no crash). (R-HEALTH-2, R-HEALTH-4)
 - [ ] When the server is unreachable, a localized error appears instead of a crash.
       (R-HEALTH-3)
+- [ ] The client queries `/api/health` and reads `status` + `version` before exercising
+      any feature. (R-HEALTH-1)
+- [ ] The client declares an ordered set of supported API majors and a `MIN_SUPPORTED`
+      floor, and derives neither version axis from the other. (R-VER-1, R-VER-2)
+- [ ] The `version` vs. `MIN_SUPPORTED` gate uses SemVer precedence with optional-`v`
+      normalization: `0.10.0` ranks above `0.9.0`, not below. (R-HEALTH-2)
+- [ ] A field or endpoint introduced by a newer server is used only after its availability
+      is established (feature detection), exercised by a test. (R-COMPAT-3)
 
 ## Open Questions
 <!-- Unresolved decisions, known unknowns, things that need a stakeholder answer. -->

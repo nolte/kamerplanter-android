@@ -20,8 +20,9 @@ Das Backend legt die konkrete Schnittstelle fest, gegen die diese Spec integrier
 - **Zwei unabhängige Versions-Achsen:** die URL-Major (`/api/vN`) ist *nicht* die
   Backend-Anwendungsversion. Die Anwendungsversion ist ein SemVer-String
   (`settings.app_version`, ausgewiesen als OpenAPI `info.version`). Zum Zeitpunkt dieser
-  Spec steht die Backend-App-Version auf `v0.1.0`, während der API-Pfad bereits `/api/v1`
-  ist — die beiden Achsen dürfen nie vermischt werden.
+  Spec trägt das Backend-Release den Tag `v0.1.0`, während die on-the-wire-`info.version` /
+  `/api/health.version` der reine SemVer `0.1.0` ist; der API-Pfad ist bereits `/api/v1`
+  — die beiden Achsen dürfen nie vermischt werden.
 - **Health-Endpoint:** `GET /api/health` (Root-Ebene, dokumentiert „for M2M consumers")
   liefert `{ "status": "healthy", "version": <app_version> }`.
 - **Multi-Tenancy:** tenant-scoped Routen haben die Form `/api/v1/t/{tenant_slug}/…`.
@@ -80,7 +81,7 @@ treibende Anforderung dieser Spec.
   ausführen (`openapi-generator`, kotlin, `jvm-retrofit2`), dessen Ausgabe in
   `core/network/` landet; zweimaliges Ausführen auf derselben Eingabe MUSS identische
   Ausgabe erzeugen.
-- **R-GEN-5 — MUSS NICHT [MUST NOT]** den generierten Client oder irgendeinen
+- **R-GEN-5 — DARF NICHT [MUST NOT]** den generierten Client oder irgendeinen
   Networking-Typ außerhalb von `core/network/` leaken lassen; Feature-Module konsumieren die
   API ausschließlich über `core/network/`-eigene Interfaces (ADR-0001-Isolation, analog zur
   UVC-Regel).
@@ -94,12 +95,13 @@ treibende Anforderung dieser Spec.
 ### Zwei-Achsen-Versionsmodell
 - **R-VER-1 — MUSS [MUST]** die API-Major-Version (URL-Segment `/api/vN`) und die
   Backend-Anwendungsversion (SemVer aus `info.version` / `/api/health.version`) als zwei
-  getrennte Achsen modellieren; der Client MUSS NICHT [MUST NOT] die eine aus der anderen
+  getrennte Achsen modellieren; der Client DARF NICHT [MUST NOT] die eine aus der anderen
   ableiten.
 - **R-VER-2 — MUSS [MUST]** in client-eigener Konfiguration die geordnete Menge der vom
   Client unterstützten API-Majors und eine minimal unterstützte Backend-Anwendungsversion
-  (`MIN_SUPPORTED`) deklarieren. Die anfängliche `MIN_SUPPORTED`-Untergrenze ist `v0.1.0`
-  (die aktuelle Release-Linie des Backends) und wandert mit dem Backend mit.
+  (`MIN_SUPPORTED`) deklarieren. Die anfängliche `MIN_SUPPORTED`-Untergrenze ist `0.1.0`
+  (SemVer, passend zur aktuellen `v0.1.0`-Release-Linie des Backends) und wandert mit dem
+  Backend mit.
 
 ### Abwärtskompatibilität (Tolerant Reader)
 - **R-COMPAT-1 — MUSS [MUST]** JSON so deserialisieren, dass unbekannte Felder ignoriert
@@ -109,7 +111,7 @@ treibende Anforderung dieser Spec.
 - **R-COMPAT-2 — MUSS [MUST]** neu hinzugefügte Response-Felder als optional/nullable mit
   Defaults modellieren, sodass ein älterer Server, der sie weglässt, ohne Fehler
   deserialisiert.
-- **R-COMPAT-3 — MUSS NICHT [MUST NOT]** das Vorhandensein eines Feldes oder Endpoints
+- **R-COMPAT-3 — DARF NICHT [MUST NOT]** das Vorhandensein eines Feldes oder Endpoints
   annehmen, das von einer neueren Serverversion eingeführt wurde, ohne zuvor dessen
   Verfügbarkeit festzustellen (Feature-Detection statt Annahme).
 - **R-COMPAT-4 — SOLLTE [SHOULD]** einen fehlenden optionalen Endpoint auf einem älteren
@@ -120,8 +122,9 @@ treibende Anforderung dieser Spec.
   der Server anbietet, und die höchste von Client und Server gemeinsam unterstützte Major
   wählen (highest common major).
 - **R-NEG-2 — MUSS [MUST]** die ausgehandelte Major als Pfad-Präfix (`/api/vN/…`,
-  inklusive tenant-scoped `/api/vN/t/{tenant_slug}/…`) für jeden Request dieser Session
-  verwenden.
+  inklusive tenant-scoped `/api/vN/t/{tenant_slug}/…`) für jeden versionierten Request
+  dieser Session verwenden; das root-level, versionsunabhängige `/api/health` ist vom
+  Präfix ausgenommen.
 - **R-NEG-3 — SOLLTE [SHOULD]** Server-Majors durch Probing der Kandidaten-Majors vom
   höchsten client-bekannten Major abwärts entdecken (z. B. `GET`/`HEAD`
   `/api/v{n}/openapi.json`), bis einer antwortet, da das Backend derzeit keinen dedizierten
@@ -134,8 +137,10 @@ treibende Anforderung dieser Spec.
 ### Health-Gate & Graceful Degradation
 - **R-HEALTH-1 — MUSS [MUST]** `GET /api/health` abfragen, bevor Features genutzt werden,
   und `status` sowie `version` auslesen.
-- **R-HEALTH-2 — MUSS [MUST]** bei `version` < `MIN_SUPPORTED` eine sichtbare, lokalisierte
-  Warnung zeigen und in einem reduzierten Modus fortfahren (nur mit dieser Serverversion
+- **R-HEALTH-2 — MUSS [MUST]** `version` mit `MIN_SUPPORTED` nach SemVer-Präzedenz
+  vergleichen (nie lexikalischer String-Vergleich) und ein optionales führendes `v`
+  normalisieren; bei `version` < `MIN_SUPPORTED` eine sichtbare, lokalisierte Warnung
+  zeigen und in einem reduzierten Modus fortfahren (nur mit dieser Serverversion
   kompatible Features), statt hart zu scheitern.
 - **R-HEALTH-3 — MUSS [MUST]** einen klaren, lokalisierten Fehler (kein Crash) anzeigen,
   wenn der Server nicht erreichbar ist oder einen nicht-gesunden `status` meldet.
@@ -166,6 +171,16 @@ treibende Anforderung dieser Spec.
       R-HEALTH-4)
 - [ ] Bei nicht erreichbarem Server erscheint eine lokalisierte Fehlermeldung statt eines
       Crashs. (R-HEALTH-3)
+- [ ] Der Client fragt `/api/health` ab und liest `status` + `version`, bevor ein Feature
+      genutzt wird. (R-HEALTH-1)
+- [ ] Der Client deklariert eine geordnete Menge unterstützter API-Majors und eine
+      `MIN_SUPPORTED`-Untergrenze und leitet keine der beiden Versions-Achsen aus der
+      anderen ab. (R-VER-1, R-VER-2)
+- [ ] Das Gate `version` vs. `MIN_SUPPORTED` nutzt SemVer-Präzedenz mit Normalisierung
+      eines optionalen `v`: `0.10.0` rangiert über `0.9.0`, nicht darunter. (R-HEALTH-2)
+- [ ] Ein von einem neueren Server eingeführtes Feld oder Endpoint wird erst nach
+      Feststellung seiner Verfügbarkeit genutzt (Feature-Detection), durch einen Test
+      abgesichert. (R-COMPAT-3)
 
 ## Open Questions
 <!-- Unresolved decisions, known unknowns, things that need a stakeholder answer. -->
