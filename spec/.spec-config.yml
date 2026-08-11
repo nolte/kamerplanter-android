@@ -1,0 +1,11 @@
+# Per-repository spec configuration.
+#
+# Canonical language is authoritative; every other listed language is a
+# translation that must mirror the canonical file semantically and structurally.
+#
+# No `inherits:` key yet — this repo does not (yet) reference the portfolio-wide
+# inherited spec layer from the claude-shared hub. Add it deliberately if/when
+# portfolio-scope specs should be inherited.
+canonical_language: en
+languages: [en, de]
+spec_root: spec
