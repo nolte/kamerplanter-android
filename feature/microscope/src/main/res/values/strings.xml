@@ -7,6 +7,7 @@
     <string name="microscope_error">Microscope error: %1$s</string>
     <string name="microscope_camera_permission">The camera permission is required to show the microscope stream.</string>
     <string name="microscope_grant_permission">Grant permission</string>
+    <string name="microscope_retry">Try again</string>
     <string name="microscope_capture">Capture photo</string>
     <string name="microscope_zoom_in">+</string>
     <string name="microscope_zoom_out">−</string>

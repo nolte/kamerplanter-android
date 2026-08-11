@@ -14,10 +14,6 @@ import com.jiangdg.uvc.UVCCamera
  */
 internal object UvcEngine {
 
-    /** True when the device implements the UVC zoom control, so [CameraUVC.setZoom] bites. */
-    fun zoomSupported(camera: CameraUVC?): Boolean =
-        engineOf(camera)?.checkSupportFlag(UVCCamera.CTRL_ZOOM_ABS.toLong()) == true
-
     /**
      * Routes button presses to [onButton]. Both the button and the status callback stay
      * logged raw: bodies vary in how they number their buttons, and a device that does

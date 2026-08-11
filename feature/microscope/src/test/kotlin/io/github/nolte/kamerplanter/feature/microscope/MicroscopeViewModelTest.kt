@@ -114,6 +114,13 @@ class MicroscopeViewModelTest {
     }
 
     @Test
+    fun `retry restarts the camera so an engine error is not a dead end`() {
+        viewModel.retry()
+
+        assertEquals(listOf("stop", "start"), camera.lifecycleCalls)
+    }
+
+    @Test
     fun `start and stop delegate to the camera`() {
         viewModel.start()
         viewModel.stop()
@@ -136,6 +143,7 @@ private class FakeMicroscopeCamera : MicroscopeCamera {
         Result.failure(IllegalStateException("microscope is not streaming"))
     var started = false
     var stopped = false
+    val lifecycleCalls = mutableListOf<String>()
 
     override fun zoomBy(deltaPercent: Int) {
         zoomDeltas += deltaPercent
@@ -146,10 +154,12 @@ private class FakeMicroscopeCamera : MicroscopeCamera {
 
     override fun start() {
         started = true
+        lifecycleCalls += "start"
     }
 
     override fun stop() {
         stopped = true
+        lifecycleCalls += "stop"
     }
 
     override suspend fun captureFrame(): Result<CapturedFrame> = captureResult

@@ -68,6 +68,12 @@ class MicroscopeViewModel @Inject constructor(
         }
     }
 
+    /** Recovers from an engine error without making the user unplug the microscope. */
+    fun retry() {
+        camera.stop()
+        camera.start()
+    }
+
     fun zoomIn() = camera.zoomBy(ZOOM_STEP_PERCENT)
 
     fun zoomOut() = camera.zoomBy(-ZOOM_STEP_PERCENT)

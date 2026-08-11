@@ -1,12 +1,10 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
-import android.os.SystemClock
 import android.util.Log
 import android.view.TextureView
 import android.view.View
@@ -31,7 +29,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,6 +59,9 @@ internal class AusbcMicroscopeCamera @Inject constructor(
 
     private var client: MultiCameraClient? = null
     private var camera: CameraUVC? = null
+
+    /** The device the live stream belongs to; a hub delivers events for others too. */
+    private var boundDevice: UsbDevice? = null
     private var previewView: AspectRatioTextureView? = null
     private var surfaceReady = false
 
@@ -83,18 +83,26 @@ internal class AusbcMicroscopeCamera @Inject constructor(
     private val connectCallback = object : IDeviceConnectCallBack {
         override fun onAttachDev(device: UsbDevice?) {
             device ?: return
+            // AUSBC's device filter is broad, so a hub can attach an unrelated matching
+            // device — a phone in PTP mode, a serial adapter. Adopting it would drop a
+            // healthy stream into "waiting for permission" and hide the controls.
+            if (camera != null) {
+                return
+            }
+            boundDevice = device
             mutableState.value = MicroscopeState.AwaitingPermission
             client?.requestPermission(device)
         }
 
-        override fun onDetachDec(device: UsbDevice?) {
-            teardownCamera()
-            mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
-        }
+        override fun onDetachDec(device: UsbDevice?) = releaseIfOurs(device)
 
         override fun onConnectDev(device: UsbDevice?, ctrlBlock: USBMonitor.UsbControlBlock?) {
             device ?: return
             ctrlBlock ?: return
+            // A re-grant, or a second device, must not orphan the instance that still
+            // holds the USB handle and still reports state into the UI.
+            teardownCamera()
+            boundDevice = device
             camera = CameraUVC(context, device).apply {
                 setUsbControlBlock(ctrlBlock)
                 setCameraStateCallBack(cameraStateCallback)
@@ -102,13 +110,14 @@ internal class AusbcMicroscopeCamera @Inject constructor(
             openIfReady()
         }
 
-        override fun onDisConnectDec(device: UsbDevice?, ctrlBlock: USBMonitor.UsbControlBlock?) {
-            teardownCamera()
-            mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
-        }
+        override fun onDisConnectDec(device: UsbDevice?, ctrlBlock: USBMonitor.UsbControlBlock?) =
+            releaseIfOurs(device)
 
         override fun onCancelDev(device: UsbDevice?) {
-            mutableState.value = MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED)
+            if (isOurs(device)) {
+                boundDevice = null
+                mutableState.value = MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED)
+            }
         }
     }
 
@@ -118,18 +127,41 @@ internal class AusbcMicroscopeCamera @Inject constructor(
             code: ICameraStateCallBack.State,
             msg: String?,
         ) {
+            val reporting = self as? CameraUVC
+            if (reporting !== camera) {
+                // AUSBC reopens a resolution switch through a delayed post that teardown
+                // cannot cancel, so a stream can come back after we let go of it. Nothing
+                // else would ever close it, and it would keep the device claimed.
+                if (code == ICameraStateCallBack.State.OPENED) {
+                    Log.i(TAG, "closing a stream that opened after its owner was released")
+                    reporting?.closeCamera()
+                }
+                return
+            }
             opening.set(false)
             when (code) {
                 ICameraStateCallBack.State.OPENED -> {
-                    // `self`, not the field: a resolution switch reopens the stream, and
-                    // the field can be cleared by a concurrent detach.
-                    UvcEngine.observeButtons(self as? CameraUVC) { mutableButtonPresses.tryEmit(it) }
+                    UvcEngine.observeButtons(reporting) { mutableButtonPresses.tryEmit(it) }
                     mutableState.value = MicroscopeState.Streaming
                 }
                 ICameraStateCallBack.State.ERROR ->
                     mutableState.value = MicroscopeState.Error(msg ?: "unknown camera error")
                 ICameraStateCallBack.State.CLOSED -> Unit
             }
+        }
+    }
+
+    /** True while [device] is the one this stream belongs to, or nothing is bound yet. */
+    private fun isOurs(device: UsbDevice?): Boolean {
+        val bound = boundDevice ?: return true
+        return device == null || device.deviceName == bound.deviceName
+    }
+
+    private fun releaseIfOurs(device: UsbDevice?) {
+        if (isOurs(device)) {
+            teardownCamera()
+            boundDevice = null
+            mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
         }
     }
 
@@ -165,6 +197,12 @@ internal class AusbcMicroscopeCamera @Inject constructor(
     override fun stop() {
         teardownCamera()
         client?.unRegister()
+        boundDevice = null
+        // The preview view holds the Activity that created it. This class is a singleton,
+        // so keeping the reference past the screen would leak the Activity for the life
+        // of the process — and leave `surfaceReady` describing a view that is gone.
+        previewView = null
+        surfaceReady = false
         mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
     }
 
@@ -192,30 +230,9 @@ internal class AusbcMicroscopeCamera @Inject constructor(
         }
         result.onSuccess {
             Log.i(TAG, "captured ${it.width}x${it.height}, ${it.jpeg.size} bytes of JPEG")
-            keepForInspection(it)
+            it.writeForInspection(context)
         }.onFailure { Log.w(TAG, "capture failed", it) }
         return result
-    }
-
-    /**
-     * Debuggable builds also drop the capture into the app's external files dir, so a
-     * hardware session leaves a pullable artifact instead of a verbal report. Release
-     * builds keep the frame in memory only — the upload pipeline is its sole consumer.
-     */
-    private suspend fun keepForInspection(frame: CapturedFrame) {
-        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
-            return
-        }
-        // On a worker, not the caller's main thread — a diagnostic must not cost UI frames.
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val dir = context.getExternalFilesDir(null) ?: return@runCatching
-                val name = "capture-${frame.width}x${frame.height}-${SystemClock.uptimeMillis()}.jpg"
-                File(dir, name).apply { writeBytes(frame.jpeg) }.also {
-                    Log.i(TAG, "capture also written to ${it.absolutePath}")
-                }
-            }.onFailure { Log.w(TAG, "could not persist the capture for inspection", it) }
-        }
     }
 
     private fun openIfReady() {
