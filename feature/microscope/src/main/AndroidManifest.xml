@@ -1,2 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- AUSBC refuses to open any UVC device without the CAMERA runtime permission
+         when targetSdk >= 28, even though the stream comes over USB host, not the
+         platform camera framework. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+</manifest>

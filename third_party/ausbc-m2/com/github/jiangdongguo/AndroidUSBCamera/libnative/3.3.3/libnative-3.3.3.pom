@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<modelVersion>4.0.0</modelVersion>
+  <groupId>com.github.jiangdongguo.AndroidUSBCamera</groupId>
+  <artifactId>libnative</artifactId>
+  <version>3.3.3</version>
+  <packaging>aar</packaging>
+  <name>jiangdongguo/AndroidUSBCamera</name>
+  <description>🔥🔥🔥Flexible and useful UVC camera engine on Android platform, supporting multi-road cameras!</description>
+  <url>https://juejin.cn/post/7115229806844706847</url>
+  <inceptionYear>2017</inceptionYear>
+  <licenses>
+    <license>
+      <name>Apache License 2.0</name>
+      <url>https://api.github.com/licenses/apache-2.0</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>jiangdongguo</id>
+      <name>Mr.Jiang</name>
+      <email>765067602@qq.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git://github.com/jiangdongguo/AndroidUSBCamera.git</connection>
+    <developerConnection>scm:git://github.com/jiangdongguo/AndroidUSBCamera.git</developerConnection>
+    <url>git://github.com/jiangdongguo/AndroidUSBCamera.git</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>org.jetbrains.kotlin</groupId>
+      <artifactId>kotlin-stdlib-jdk8</artifactId>
+      <version>1.5.20</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>androidx.core</groupId>
+      <artifactId>core-ktx</artifactId>
+      <version>1.3.2</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>androidx.appcompat</groupId>
+      <artifactId>appcompat</artifactId>
+      <version>1.2.0</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.android.material</groupId>
+      <artifactId>material</artifactId>
+      <version>1.3.0</version>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -3,4 +3,15 @@
   // Portfolio-wide baseline, pinned to a gh-plumbing release tag so the
   // shared Renovate behaviour never drifts silently underneath this repo.
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
+  packageRules: [
+    {
+      // AUSBC is only half-published upstream: the 3.3.3 tag ships libausbc while its
+      // own libuvc and libnative were never built, so third_party/ausbc-m2/ supplies
+      // them. A version bump would resolve libausbc from JitPack and libuvc from the
+      // vendored repo at a version that no longer matches — the vendored artifacts have
+      // to be refreshed by hand, in the same change. See third_party/ausbc-m2/README.md.
+      matchPackageNames: ['com.github.jiangdongguo.AndroidUSBCamera:{/,}**'],
+      enabled: false,
+    },
+  ],
 }
