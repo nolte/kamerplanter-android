@@ -208,8 +208,13 @@ private fun StatusMessage(state: MicroscopeState, modifier: Modifier = Modifier)
 
 @Composable
 private fun CaptureThumbnail(frame: CapturedFrame, modifier: Modifier = Modifier) {
+    // Subsampled while decoding: a full 4K frame would be ~33 MB of ARGB_8888 held for a
+    // 140 dp thumbnail, which is an OOM candidate on a low-RAM device and jank everywhere.
     val bitmap = remember(frame) {
-        BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size)?.asImageBitmap()
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = maxOf(1, frame.width / THUMBNAIL_TARGET_PX)
+        }
+        BitmapFactory.decodeByteArray(frame.jpeg, 0, frame.jpeg.size, options)?.asImageBitmap()
     } ?: return
     Card(modifier = modifier.width(140.dp)) {
         Image(
@@ -233,3 +238,6 @@ private fun CaptureThumbnail(frame: CapturedFrame, modifier: Modifier = Modifier
 }
 
 private const val BYTES_PER_KILOBYTE = 1024
+
+/** Roughly the thumbnail's widest rendering, in pixels — the decode need not beat it. */
+private const val THUMBNAIL_TARGET_PX = 420

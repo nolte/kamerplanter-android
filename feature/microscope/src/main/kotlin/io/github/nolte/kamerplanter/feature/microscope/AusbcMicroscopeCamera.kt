@@ -19,6 +19,7 @@ import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.usb.USBMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -171,22 +173,28 @@ internal class AusbcMicroscopeCamera @Inject constructor(
         if (camera == null || !camera.isCameraOpened()) {
             return Result.failure(IllegalStateException("microscope is not streaming"))
         }
-        runCatching {
+        val result = runCatching {
             // Stills are worth the sensor's full resolution; the preview is not.
             camera.atLargestResolution {
                 val frame = withTimeout(CAPTURE_TIMEOUT_MS) { awaitNextNv21Frame(camera) }
-                // Capture what the preview shows, zoom included.
-                val region = zoomedRegion(frame.width, frame.height, zoomFactor)
-                CapturedFrame(
-                    jpeg = nv21ToJpeg(frame.data, frame.width, frame.height, region, JPEG_QUALITY),
-                    width = region.width,
-                    height = region.height,
-                )
+                // The caller is the main thread and a 4K frame is 12 MB of NV21 —
+                // encoding it where it arrives would stall the UI on every shutter press.
+                withContext(Dispatchers.Default) {
+                    // Capture what the preview shows, zoom included.
+                    val region = zoomedRegion(frame.width, frame.height, zoomFactor)
+                    CapturedFrame(
+                        jpeg = nv21ToJpeg(frame.data, frame.width, frame.height, region, JPEG_QUALITY),
+                        width = region.width,
+                        height = region.height,
+                    )
+                }
             }
-        }.onSuccess {
+        }
+        result.onSuccess {
             Log.i(TAG, "captured ${it.width}x${it.height}, ${it.jpeg.size} bytes of JPEG")
             keepForInspection(it)
         }.onFailure { Log.w(TAG, "capture failed", it) }
+        return result
     }
 
     /**
@@ -194,16 +202,20 @@ internal class AusbcMicroscopeCamera @Inject constructor(
      * hardware session leaves a pullable artifact instead of a verbal report. Release
      * builds keep the frame in memory only — the upload pipeline is its sole consumer.
      */
-    private fun keepForInspection(frame: CapturedFrame) {
+    private suspend fun keepForInspection(frame: CapturedFrame) {
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
             return
         }
-        runCatching {
-            val dir = context.getExternalFilesDir(null) ?: return
-            val file = File(dir, "capture-${frame.width}x${frame.height}-${SystemClock.uptimeMillis()}.jpg")
-            file.writeBytes(frame.jpeg)
-            Log.i(TAG, "capture also written to ${file.absolutePath}")
-        }.onFailure { Log.w(TAG, "could not persist the capture for inspection", it) }
+        // On a worker, not the caller's main thread — a diagnostic must not cost UI frames.
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val dir = context.getExternalFilesDir(null) ?: return@runCatching
+                val name = "capture-${frame.width}x${frame.height}-${SystemClock.uptimeMillis()}.jpg"
+                File(dir, name).apply { writeBytes(frame.jpeg) }.also {
+                    Log.i(TAG, "capture also written to ${it.absolutePath}")
+                }
+            }.onFailure { Log.w(TAG, "could not persist the capture for inspection", it) }
+        }
     }
 
     private fun openIfReady() {
@@ -219,7 +231,13 @@ internal class AusbcMicroscopeCamera @Inject constructor(
                 .setRenderMode(CameraRequest.RenderMode.NORMAL)
                 .setAspectRatioShow(true)
                 .create()
-            camera.openCamera(view, request)
+            // Without the reset, a synchronous failure would leave the guard latched and
+            // every later open attempt silently suppressed for the singleton's lifetime.
+            runCatching { camera.openCamera(view, request) }
+                .onFailure {
+                    opening.set(false)
+                    Log.w(TAG, "opening the microscope stream failed", it)
+                }
         }
     }
 
