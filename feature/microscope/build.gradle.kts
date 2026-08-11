@@ -3,6 +3,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -26,12 +28,24 @@ android {
 }
 
 dependencies {
-    // The UVC engine (libs.ausbc) is added here — and only here — when the capture
-    // feature is implemented. Isolation rule: ADR 0001, "Isolation rule for the UVC
-    // dependency". The rest of the app talks to MicroscopeCamera.
+    // The UVC engine lives here — and only here (isolation rule: ADR 0001, "Isolation
+    // rule for the UVC dependency"). The rest of the app talks to MicroscopeCamera.
+    implementation(libs.ausbc)
+    implementation(libs.ausbc.libuvc)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.kotlinx.coroutines.android)
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
 }
