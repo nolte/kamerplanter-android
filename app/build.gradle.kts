@@ -29,6 +29,15 @@ android {
         }
     }
 
+    lint {
+        // libuvc pulls in libuvccommon, which bundles a notification helper for consumers
+        // that run the camera from a foreground service. This app never reaches it —
+        // neither USBMonitor nor UVCCamera references it, and R8 strips it — so declaring
+        // POST_NOTIFICATIONS would be requesting a permission we never use, which
+        // permission minimalism forbids. Re-enable the moment this app posts anything.
+        disable += "NotificationPermission"
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -5,11 +5,10 @@
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
   packageRules: [
     {
-      // AUSBC is only half-published upstream: the 3.3.3 tag ships libausbc while its
-      // own libuvc and libnative were never built, so third_party/ausbc-m2/ supplies
-      // them. A version bump would resolve libausbc from JitPack and libuvc from the
-      // vendored repo at a version that no longer matches — the vendored artifacts have
-      // to be refreshed by hand, in the same change. See third_party/ausbc-m2/README.md.
+      // AUSBC is published incompletely upstream: the 3.3.x tags never built libuvc,
+      // and the 3.3.x line also renamed the package from com.serenegiant.* to
+      // com.jiangdg.*. A bump is therefore never mechanical — it is a source change plus
+      // a hardware retest. See spec/android/uvc-microscope/ in claude-android-engineering.
       matchPackageNames: ['com.github.jiangdongguo.AndroidUSBCamera:{/,}**'],
       enabled: false,
     },
