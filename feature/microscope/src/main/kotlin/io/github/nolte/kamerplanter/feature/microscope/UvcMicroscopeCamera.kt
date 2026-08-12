@@ -132,17 +132,19 @@ internal class UvcMicroscopeCamera @Inject constructor(
         TextureView(context).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                    // Logged on both edges: the surface round trip is the whole reason
-                    // this listener exists, and it left no trace to check a fix against.
-                    Log.i(TAG, "preview surface available at ${width}x$height")
-                    watcher.currentDevice()?.let(watcher::claim)
+                    // Logged on both edges, device included: the surface round trip is
+                    // the whole reason this listener exists, and a reopen that finds no
+                    // device is exactly the silent failure worth naming.
+                    val device = watcher.currentDevice()
+                    Log.i(TAG, "preview surface available at ${width}x$height, device=${device?.deviceName}")
+                    device?.let(watcher::claim)
                 }
 
                 override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) =
                     applyPreviewTransform()
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                    Log.i(TAG, "preview surface destroyed; closing the stream")
+                    Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
                     // The view itself survives this — the window merely stopped — so the
                     // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native
@@ -262,11 +264,14 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 }
             }.onFailure {
                 Log.w(TAG, "opening the microscope stream failed", it)
-                // Same generation check as the success path. An open that a teardown
-                // already superseded fails by design — its surface was taken away — and
-                // publishing that failure would put an error over a deliberate close.
-                if (opening == generation.get()) {
-                    mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                // Same generation check as the success path, and under the same lock: a
+                // teardown landing between the check and the write would still put an
+                // error over a deliberate close. An open that a teardown superseded fails
+                // by design — its surface was taken away — so it stays a log line.
+                synchronized(sessionLock) {
+                    if (opening == generation.get()) {
+                        mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                    }
                 }
             }
         }
@@ -286,7 +291,13 @@ internal class UvcMicroscopeCamera @Inject constructor(
             generation.incrementAndGet()
             // Leave Streaming behind: otherwise the capture and zoom controls stay on
             // screen over a stream that is gone, and capture only yields "not streaming".
-            mutableState.compareAndSet(MicroscopeState.Streaming, next)
+            // Error goes with it — it belongs to the session being torn down, and nothing
+            // else clears it, so it would greet the next visit to this screen. A pending
+            // permission state is left alone: that one is still being answered.
+            when (mutableState.value) {
+                MicroscopeState.Streaming, is MicroscopeState.Error -> mutableState.value = next
+                else -> Unit
+            }
             session.getAndSet(null)
         }
         // Wake a capture suspended in awaitFrame() so it fails fast instead of hanging the

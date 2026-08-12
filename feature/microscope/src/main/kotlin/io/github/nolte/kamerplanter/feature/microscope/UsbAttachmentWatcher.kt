@@ -116,8 +116,16 @@ internal class UsbAttachmentWatcher(
 
     private fun lose(device: UsbDevice) {
         onLost(device)
-        if (currentDevice() == null) {
+        // A hub can hold a second camera. Claiming it here is recovery, not theft — the
+        // stream that guarded against stealing has just died with its device — and it is
+        // the only way out: no surface event and no attach broadcast is coming, so
+        // without this the screen would wait for a stream nothing would ever open.
+        val remaining = currentDevice()
+        if (remaining == null) {
             onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
+        } else {
+            Log.i(TAG, "${device.deviceName} is gone; falling back to ${remaining.deviceName}")
+            claim(remaining)
         }
     }
 
