@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.Flow
  * against an in-memory fake, without DataStore or a device. The production implementation
  * is [DataStoreConnectionStore].
  *
- * Secrets do **not** travel through here: the refresh token, access token and API key are
- * stored encrypted under an Android Keystore-backed key (R17), which is a separate seam of
- * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8). What this store
- * holds is exactly what Settings may display (R26).
+ * Secrets do **not** travel through here: the refresh token, access token and API key go to
+ * [CredentialStore], which encrypts them under an Android Keystore-backed key (R17). What
+ * this store holds is exactly what Settings may display (R26). The two halves are written
+ * and erased together by [SettingsViewModel].
  */
 interface ConnectionStore {
 

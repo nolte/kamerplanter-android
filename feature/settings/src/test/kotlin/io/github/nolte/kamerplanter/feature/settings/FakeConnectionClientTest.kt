@@ -15,27 +15,36 @@ class FakeConnectionClientTest {
     fun `any ordinary pairing code verifies against the single canned tenant`() = runTest {
         val result = client.connect(ConnectionRequest.QrPairing(baseUrl = "https://x", code = "ABC123"))
 
-        assertEquals(
-            ConnectionResult.Verified(
-                identity = FakeConnectionClient.FAKE_IDENTITY,
-                tenants = listOf(FakeConnectionClient.FAKE_TENANT),
-            ),
-            result,
-        )
+        val verified = result as ConnectionResult.Verified
+        assertEquals(FakeConnectionClient.FAKE_IDENTITY, verified.identity)
+        assertEquals(listOf(FakeConnectionClient.FAKE_TENANT), verified.tenants)
     }
 
     @Test
-    fun `an api key verifies the same way`() = runTest {
+    fun `a redeemed pairing code answers with a session`() = runTest {
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl = "https://x", code = "ABC123"))
+
+        val session = (result as ConnectionResult.Verified).credential as Credential.Session
+        assertEquals(FakeConnectionClient.FAKE_ACCESS_TOKEN, session.accessToken)
+        assertEquals(FakeConnectionClient.FAKE_REFRESH_TOKEN, session.refreshToken)
+        assertTrue(session.accessTokenExpiresAtEpochMillis > System.currentTimeMillis())
+    }
+
+    @Test
+    fun `an api key verifies the same way and is its own credential`() = runTest {
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl = "https://x", key = "kp_sk_abcdef"))
 
-        assertTrue(result is ConnectionResult.Verified)
+        assertEquals(Credential.ApiKey("kp_sk_abcdef"), (result as ConnectionResult.Verified).credential)
     }
 
     @Test
-    fun `a light-mode request verifies with no tenant at all`() = runTest {
+    fun `a light-mode request verifies with no tenant and no credential at all`() = runTest {
         val result = client.connect(ConnectionRequest.LightMode(baseUrl = "https://x"))
 
-        assertEquals(ConnectionResult.Verified(identity = null, tenants = emptyList()), result)
+        assertEquals(
+            ConnectionResult.Verified(identity = null, tenants = emptyList(), credential = Credential.None),
+            result,
+        )
     }
 
     @Test

@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -44,7 +45,8 @@ class SettingsViewModelTest {
     private fun viewModel(
         client: ConnectionClient = FakeConnectionClient(),
         store: ConnectionStore = FakeConnectionStore(),
-    ) = SettingsViewModel(client, store)
+        credentials: CredentialStore = InMemoryCredentialStore(),
+    ) = SettingsViewModel(client, store, credentials)
 
     @Test
     fun `starts connected when a connection is already persisted`() = runTest(dispatcher) {
@@ -320,10 +322,140 @@ class SettingsViewModelTest {
         assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
     }
 
+    // --- the secret half (R17, R19, R25) ---
+
+    @Test
+    fun `a verified qr connection stores its session next to the connection`() = runTest(dispatcher) {
+        val credentials = InMemoryCredentialStore()
+        val viewModel = viewModel(credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        val session = credentials.stored as Credential.Session
+        assertEquals(FakeConnectionClient.FAKE_ACCESS_TOKEN, session.accessToken)
+        assertEquals(FakeConnectionClient.FAKE_REFRESH_TOKEN, session.refreshToken)
+    }
+
+    @Test
+    fun `an api key is stored whole while the connection keeps only its mask`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
+        val credentials = InMemoryCredentialStore()
+        val viewModel = viewModel(store = store, credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.API_KEY)
+        viewModel.submit(ConnectionRequest.ApiKey(baseUrl = "https://plants.example.org", key = "kp_sk_abcdef"))
+        advanceUntilIdle()
+
+        assertEquals(Credential.ApiKey("kp_sk_abcdef"), credentials.stored)
+        assertEquals("…cdef", (store.saved as Connection.ApiKey).keyHint)
+    }
+
+    @Test
+    fun `light mode stores no credential at all`() = runTest(dispatcher) {
+        val credentials = InMemoryCredentialStore(initial = Credential.ApiKey("kp_sk_previous"))
+        val viewModel = viewModel(credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.LIGHT_MODE)
+        viewModel.submit(ConnectionRequest.LightMode(baseUrl = "https://light.example.org"))
+        advanceUntilIdle()
+
+        assertEquals(Credential.None, credentials.stored)
+    }
+
+    @Test
+    fun `the tenant choice carries the credential without exposing it`() = runTest(dispatcher) {
+        val tenants = listOf(Tenant("balcony"), Tenant("greenhouse"))
+        val credentials = InMemoryCredentialStore()
+        val viewModel = viewModel(client = StubConnectionClient(verified(tenants)), credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        // Nothing is stored yet, and the observable state holds no secret (R19).
+        assertEquals(Credential.None, credentials.stored)
+        assertFalse(viewModel.state.value.toString().contains(SESSION.refreshToken))
+
+        viewModel.selectTenant(tenants[1])
+        advanceUntilIdle()
+
+        assertEquals(SESSION, credentials.stored)
+    }
+
+    @Test
+    fun `abandoning the tenant choice drops the credential it was holding`() = runTest(dispatcher) {
+        val tenants = listOf(Tenant("balcony"), Tenant("greenhouse"))
+        val credentials = InMemoryCredentialStore()
+        val viewModel = viewModel(client = StubConnectionClient(verified(tenants)), credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+        viewModel.cancel()
+        viewModel.selectTenant(tenants[1])
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+        assertEquals(Credential.None, credentials.stored)
+    }
+
+    @Test
+    fun `a failed verification stores no credential`() = runTest(dispatcher) {
+        val credentials = InMemoryCredentialStore()
+        val viewModel = viewModel(credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(failQr)
+        advanceUntilIdle()
+
+        assertEquals(Credential.None, credentials.stored)
+    }
+
+    @Test
+    fun `a credential that cannot be stored leaves no half connection behind`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
+        val credentials = InMemoryCredentialStore().apply { failOnSave = true }
+        val viewModel = viewModel(store = store, credentials = credentials)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value is ConnectionState.Failed)
+        assertNull(store.saved)
+        assertEquals(Credential.None, credentials.stored)
+        assertTrue(credentials.cleared)
+    }
+
+    @Test
+    fun `disconnect removes the credential as well as the connection`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(initial = connection)
+        val credentials = InMemoryCredentialStore(initial = SESSION)
+        val viewModel = viewModel(store = store, credentials = credentials)
+
+        viewModel.disconnect()
+        advanceUntilIdle()
+
+        assertTrue(credentials.cleared)
+        assertEquals(Credential.None, credentials.stored)
+        assertTrue(store.cleared)
+    }
+
     private fun verified(tenants: List<Tenant>) = ConnectionResult.Verified(
         identity = FakeConnectionClient.FAKE_IDENTITY,
         tenants = tenants,
+        credential = SESSION,
     )
+
+    private companion object {
+        val SESSION = Credential.Session(
+            accessToken = "access-token",
+            refreshToken = "refresh-token",
+            accessTokenExpiresAtEpochMillis = 1_700_000_000_000L,
+        )
+    }
 }
 
 private class FakeConnectionStore(initial: Connection? = null) : ConnectionStore {

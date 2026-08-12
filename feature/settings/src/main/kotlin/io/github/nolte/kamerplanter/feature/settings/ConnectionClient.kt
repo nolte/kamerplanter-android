@@ -56,15 +56,18 @@ sealed interface ConnectionResult {
      * credential-bearing method. The list is empty on the light-mode path, which has no
      * accounts to scope.
      *
-     * The credential itself — the session's access and refresh tokens, or the API key —
-     * is deliberately absent: it must be stored encrypted under an Android Keystore-backed
-     * key (R17), which is its own step of [issue #8](https://github.com/nolte/kamerplanter-android/issues/8),
-     * and it has no business travelling through the UI state.
+     * [credential] is the secret the instance handed back — the redeemed session on the QR
+     * path, the key itself on the API-key path, and [Credential.None] on the light-mode path,
+     * which has no secret to hold. It travels here because verification is where it comes
+     * into existence, and it goes straight into [CredentialStore], which encrypts it under an
+     * Android Keystore-backed key (R17). It never reaches [ConnectionState]: a secret has no
+     * business in observable UI state (R19).
      */
     data class Verified(
         /** The signed-in identity where the instance reports one, for display only (R26). */
         val identity: String?,
         val tenants: List<Tenant>,
+        val credential: Credential,
     ) : ConnectionResult
 
     /** [reason] is a diagnostic string, not a user-facing message. */

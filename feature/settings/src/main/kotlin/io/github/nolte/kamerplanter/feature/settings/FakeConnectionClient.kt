@@ -21,21 +21,37 @@ class FakeConnectionClient @Inject constructor() : ConnectionClient {
     override suspend fun connect(request: ConnectionRequest): ConnectionResult {
         delay(FAKE_LATENCY_MS)
         return when (request) {
-            is ConnectionRequest.QrPairing -> verify(request.code)
-            is ConnectionRequest.ApiKey -> verify(request.key)
-            // A light-mode instance has no accounts, so there is nothing to prove and
-            // nothing to scope (R10).
-            is ConnectionRequest.LightMode -> ConnectionResult.Verified(identity = null, tenants = emptyList())
+            // A redeemed pairing code answers with a session, as the real endpoint does (R8).
+            is ConnectionRequest.QrPairing -> verify(request.code, fakeSession())
+            // An accepted key *is* the credential; the backend hands nothing else back (R9).
+            is ConnectionRequest.ApiKey -> verify(request.key, Credential.ApiKey(request.key))
+            // A light-mode instance has no accounts, so there is nothing to prove, nothing to
+            // scope, and nothing to store (R10).
+            is ConnectionRequest.LightMode -> ConnectionResult.Verified(
+                identity = null,
+                tenants = emptyList(),
+                credential = Credential.None,
+            )
         }
     }
 
     // The reason never echoes the secret it rejected (R19).
-    private fun verify(secret: String): ConnectionResult =
+    private fun verify(secret: String, credential: Credential): ConnectionResult =
         if (secret.equals(FAIL_CODE, ignoreCase = true)) {
             ConnectionResult.Failure("backend rejected the credential")
         } else {
-            ConnectionResult.Verified(identity = FAKE_IDENTITY, tenants = listOf(FAKE_TENANT))
+            ConnectionResult.Verified(
+                identity = FAKE_IDENTITY,
+                tenants = listOf(FAKE_TENANT),
+                credential = credential,
+            )
         }
+
+    private fun fakeSession() = Credential.Session(
+        accessToken = FAKE_ACCESS_TOKEN,
+        refreshToken = FAKE_REFRESH_TOKEN,
+        accessTokenExpiresAtEpochMillis = System.currentTimeMillis() + FAKE_ACCESS_TOKEN_LIFETIME_MS,
+    )
 
     companion object {
         /** A scanned code or typed key of this value demonstrates the failure path. */
@@ -47,6 +63,13 @@ class FakeConnectionClient @Inject constructor() : ConnectionClient {
         /** The single tenant the canned instance offers, adopted without asking (R15). */
         val FAKE_TENANT = Tenant(slug = "demo", displayName = "Demo garden")
 
+        /** Canned tokens — obviously fake, so a real one can never be confused with them. */
+        const val FAKE_ACCESS_TOKEN = "fake-access-token"
+        const val FAKE_REFRESH_TOKEN = "fake-refresh-token"
+
         private const val FAKE_LATENCY_MS = 1_200L
+
+        /** The real access token lives 15 minutes (R8); the fake one pretends to as well. */
+        private const val FAKE_ACCESS_TOKEN_LIFETIME_MS = 15L * 60L * 1_000L
     }
 }
