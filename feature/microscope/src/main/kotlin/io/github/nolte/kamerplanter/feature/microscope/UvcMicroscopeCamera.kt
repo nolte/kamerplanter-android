@@ -24,6 +24,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -93,8 +94,19 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     // @Volatile: written on the main thread (surface listener) but read on the camera
     // thread in applyPreviewTransform() from openStream's success path.
+    /**
+     * Weak on purpose. This class is a singleton, so holding the view strongly would pin
+     * the Activity that created it; dropping the reference when the surface goes away
+     * would be worse still, because the platform destroys the surface of a *living* view
+     * whenever the window stops — and the `AndroidView` factory never runs again, so the
+     * reference could never be restored and the preview would stay dead after the first
+     * time the app is backgrounded.
+     */
     @Volatile
-    private var previewView: TextureView? = null
+    private var previewViewRef: WeakReference<TextureView>? = null
+
+    private val previewView: TextureView?
+        get() = previewViewRef?.get()
 
     private val frameCallback = IFrameCallback { buffer ->
         val waiting = pendingFrame.get() ?: return@IFrameCallback
@@ -123,9 +135,8 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     applyPreviewTransform()
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                    // The view is going away, so release the reference that would
-                    // otherwise pin its Activity in this singleton.
-                    previewView = null
+                    // The view itself survives this — the window merely stopped — so the
+                    // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native
                     // preview thread may still be writing into it. closeStream releases
                     // it once the engine has actually let go.
@@ -135,7 +146,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
             }
-            previewView = this
+            previewViewRef = WeakReference(this)
         }
 
     override fun start() {
@@ -240,6 +251,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
     private fun closeStream(release: SurfaceTexture? = null) {
         generation.incrementAndGet()
         val open = session.getAndSet(null)
+        // Leave Streaming behind: otherwise the capture and zoom controls stay on screen
+        // over a stream that is gone, and pressing capture only yields "not streaming".
+        mutableState.compareAndSet(
+            MicroscopeState.Streaming,
+            MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED),
+        )
         // Wake a capture suspended in awaitFrame() so it fails fast instead of hanging the
         // full CAPTURE_TIMEOUT_MS: the frame it is waiting for will never arrive now. The
         // atomic getAndSet makes this exclusive with the frame callback's own resume.

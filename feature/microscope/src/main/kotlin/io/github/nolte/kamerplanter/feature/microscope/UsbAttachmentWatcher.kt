@@ -19,8 +19,6 @@ import androidx.core.content.ContextCompat
  *
  * [onReady] fires with a device the app is permitted to open, on the main thread.
  */
-private const val TAG = "MicroscopeCamera"
-
 internal class UsbAttachmentWatcher(
     private val context: Context,
     private val isStreaming: () -> Boolean,
@@ -142,3 +140,5 @@ private fun usbDeviceFrom(intent: Intent): UsbDevice? =
     } else {
         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
+
+private const val TAG = "MicroscopeCamera"

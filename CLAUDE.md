@@ -15,8 +15,8 @@ proposing stack changes.
 - Multi-module: `app/` (entry point, navigation, Hilt aggregation), `core/network/`
   (kamerplanter API; the OpenAPI-generated client lands here), `feature/microscope/`
   (UVC capture).
-- **UVC isolation rule (ADR 0001):** the UVC engine (AndroidUSBCamera/AUSBC, catalog key
-  `ausbc`) may only be referenced inside `feature/microscope/`, always behind the
+- **UVC isolation rule (ADR 0001):** the UVC engine (libuvc, catalog key
+  `libuvc`) may only be referenced inside `feature/microscope/`, always behind the
   app-owned `MicroscopeCamera` interface. Never let it leak into other modules.
 - Dependency versions live in `gradle/libs.versions.toml` (version catalog); Renovate
   keeps them current.
