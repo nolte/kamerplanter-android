@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * [MicroscopeCamera] driven directly against `libuvc` — the platform [UsbManager] finds
@@ -89,6 +90,10 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     @Volatile
     private var zoomFactor = MIN_ZOOM
+
+    // @Volatile: written on the main thread (surface listener) but read on the camera
+    // thread in applyPreviewTransform() from openStream's success path.
+    @Volatile
     private var previewView: TextureView? = null
 
     private val frameCallback = IFrameCallback { buffer ->
@@ -235,6 +240,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
     private fun closeStream(release: SurfaceTexture? = null) {
         generation.incrementAndGet()
         val open = session.getAndSet(null)
+        // Wake a capture suspended in awaitFrame() so it fails fast instead of hanging the
+        // full CAPTURE_TIMEOUT_MS: the frame it is waiting for will never arrive now. The
+        // atomic getAndSet makes this exclusive with the frame callback's own resume.
+        pendingFrame.getAndSet(null)?.resumeWithException(
+            IllegalStateException("microscope stream closed"),
+        )
         if (open == null && release == null) {
             return
         }
@@ -261,10 +272,6 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     private companion object {
         const val TAG = "MicroscopeCamera"
-
-        /** 1080p is the reference device's sweet spot — 4K streams at ~4.7 fps (issue #1). */
-        const val PREVIEW_WIDTH = 1920
-        const val PREVIEW_HEIGHT = 1080
 
         const val CAPTURE_TIMEOUT_MS = 5_000L
         const val JPEG_QUALITY = 90

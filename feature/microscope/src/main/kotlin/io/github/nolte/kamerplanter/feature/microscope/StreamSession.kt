@@ -29,10 +29,20 @@ internal class StreamSession private constructor(
     val modes: List<Size>,
     private val previewMode: Size,
 ) {
+    // @Volatile: retune() mutates these on the camera thread while the native frame
+    // callback reads them on the UVC thread; without it that read can stay stale forever.
+    @Volatile
     var width: Int = previewMode.width
         private set
+
+    @Volatile
     var height: Int = previewMode.height
         private set
+
+    // Set true the moment close() begins so a retune()/restorePreview() racing in from a
+    // capture's finally block becomes a no-op instead of a native call on a dead handle.
+    @Volatile
+    private var closed = false
 
     /**
      * Switches the running stream to [newWidth] x [newHeight] without releasing the
@@ -40,7 +50,7 @@ internal class StreamSession private constructor(
      * back, so the caller carries on at a mode that is actually live.
      */
     fun retune(newWidth: Int, newHeight: Int): Boolean {
-        if (newWidth == width && newHeight == height) {
+        if (closed || (newWidth == width && newHeight == height)) {
             return false
         }
         val previousWidth = width
@@ -65,6 +75,7 @@ internal class StreamSession private constructor(
     fun restorePreview(): Boolean = retune(previewMode.width, previewMode.height)
 
     fun close() {
+        closed = true
         runCatching { camera.stopPreview() }
         runCatching { camera.destroy() }
         // UVCCamera works on a *clone* of the control block, so destroying the camera
