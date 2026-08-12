@@ -75,8 +75,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 // that window would otherwise leave a stream that surfaces after its
                 // device is gone, with no further broadcast able to close it.
                 val open = session.get()
-                val ours = open?.deviceName?.equals(lost.deviceName)
-                    ?: (openingDevice.get() == lost.deviceName)
+                val ours = if (open != null) {
+                    open.deviceName == lost.deviceName
+                } else {
+                    openingDevice.get() == lost.deviceName
+                }
                 if (ours) {
                     closeStream()
                 }
@@ -251,12 +254,19 @@ internal class UvcMicroscopeCamera @Inject constructor(
         openingDevice.set(device.deviceName)
         val opening = generation.incrementAndGet()
         cameraExecutor.execute {
-            // Released on every exit, and only if still ours: a name left behind after
-            // an abandoned open names a device nothing is opening for any more, and the
-            // detach path would act on it.
-            val name = device.deviceName
+            // Released on every exit, but only by the open that still owns the slot. The
+            // device name cannot tell two opens of the same device apart, so an overtaken
+            // one would hand back a *newer* open's reservation — and a detach arriving in
+            // that gap would find nothing to close and leave the orphan this guards
+            // against. The generation can tell them apart, and it cannot move while the
+            // lock is held.
+            fun releaseSlot() = synchronized(sessionLock) {
+                if (opening == generation.get()) {
+                    openingDevice.set(null)
+                }
+            }
             if (session.get() != null || opening != generation.get()) {
-                openingDevice.compareAndSet(name, null)
+                releaseSlot()
                 return@execute
             }
             runCatching {
@@ -277,7 +287,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                         }
                     }
                 }
-                openingDevice.compareAndSet(name, null)
+                releaseSlot()
                 if (published) {
                     Log.i(TAG, "stream opened at ${it.width}x${it.height} on ${it.deviceName}")
                     applyPreviewTransform()
@@ -287,7 +297,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     it.close()
                 }
             }.onFailure {
-                openingDevice.compareAndSet(name, null)
+                releaseSlot()
                 Log.w(TAG, "opening the microscope stream failed", it)
                 // Same generation check as the success path, and under the same lock: a
                 // teardown landing between the check and the write would still put an

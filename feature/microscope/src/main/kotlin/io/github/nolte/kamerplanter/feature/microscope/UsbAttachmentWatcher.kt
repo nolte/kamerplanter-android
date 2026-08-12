@@ -109,12 +109,22 @@ internal class UsbAttachmentWatcher(
         val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
         Log.i(TAG, "USB permission answer for ${device.deviceName}: granted=$granted")
         pendingRequest = null
+        // An answer outlives its device easily — the dialog stays up while the cable is
+        // pulled, and the broadcast arrives afterwards. Acting on it would claim a device
+        // that is gone and put a failure over the message that already told the truth.
+        if (!usbManager.deviceList.containsKey(device.deviceName)) {
+            Log.i(TAG, "ignoring an answer for a device that is no longer attached")
+            return
+        }
         if (granted) {
             // Re-stated: a claim for another device may have moved this on while the
             // dialog was open, and it is this device the camera is about to be handed.
             claimed = device.deviceName
             onReady(device)
-        } else {
+        } else if (device.deviceName == claimed && !isStreaming()) {
+            // A refusal speaks only for the device still being waited on, and never over
+            // a stream: answering an old dialog would otherwise replace a live preview
+            // with a permission notice that nothing comes back to clear.
             onState(MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED))
         }
     }
