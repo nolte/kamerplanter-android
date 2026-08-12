@@ -32,6 +32,13 @@ internal class UsbAttachmentWatcher(
     /** The device a dialog is already open for, so it is not asked for twice. */
     private var pendingRequest: String? = null
 
+    /**
+     * The device this watcher last went after — streaming, opening, or still waiting for
+     * its permission dialog. A detach is only this screen's business when it takes *this*
+     * device; anything else on the bus comes and goes without a say in what is displayed.
+     */
+    private var claimed: String? = null
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val device = usbDeviceFrom(intent) ?: return
@@ -70,6 +77,7 @@ internal class UsbAttachmentWatcher(
 
     fun stop() {
         pendingRequest = null
+        claimed = null
         if (registered) {
             runCatching { context.unregisterReceiver(receiver) }
             registered = false
@@ -78,6 +86,7 @@ internal class UsbAttachmentWatcher(
 
     /** Opens straight away when already permitted, otherwise asks and waits for the answer. */
     fun claim(device: UsbDevice) {
+        claimed = device.deviceName
         if (usbManager.hasPermission(device)) {
             pendingRequest = null
             onReady(device)
@@ -116,17 +125,24 @@ internal class UsbAttachmentWatcher(
 
     private fun lose(device: UsbDevice) {
         onLost(device)
-        // Decided by whether a stream survived, not by whether some device is left on the
-        // bus. Both readings of "is anything still attached" are wrong here: reporting a
-        // device still present leaves the screen waiting for a stream nothing will open,
-        // and claiming that survivor is worse — this app calls any UVC device the
-        // microscope, so it would put an unrelated camera behind the shutter, and on a
-        // detach of some *other* device it would throw a permission dialog over a preview
-        // that is still healthy. A re-attach is the way back, and it broadcasts.
-        if (!isStreaming()) {
-            Log.i(TAG, "${device.deviceName} is gone; remaining: ${describeDevices()}")
-            onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
+        // Decided by ownership, because neither of the obvious readings holds up. "Some
+        // device is still on the bus" left the screen waiting for a stream nothing would
+        // open, and claiming that survivor is worse still — this app calls any UVC device
+        // the microscope, so it would put an unrelated camera behind the shutter. "No
+        // stream is running" then overwrote states that belonged to a device still
+        // attached, taking their Retry with them. Only the loss of the device this
+        // watcher went after says anything about what the screen should show; a re-attach
+        // brings its own way back, and it broadcasts.
+        if (device.deviceName != claimed) {
+            return
         }
+        Log.i(TAG, "${device.deviceName} is gone; remaining: ${describeDevices()}")
+        claimed = null
+        // Cleared with it: a dialog for a device that left is not being answered any
+        // more, and a bus number gets reused — the guard would then swallow the request
+        // that is supposed to bring the device back.
+        pendingRequest = null
+        onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
     }
 
     /**

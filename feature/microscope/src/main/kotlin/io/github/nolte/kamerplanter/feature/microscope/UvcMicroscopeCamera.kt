@@ -66,7 +66,16 @@ internal class UvcMicroscopeCamera @Inject constructor(
             context = context,
             isStreaming = { session.get() != null },
             onReady = ::openStream,
-            onLost = { if (session.get()?.deviceName == it.deviceName) closeStream() },
+            onLost = { lost ->
+                // An open still queued on the camera thread belongs to this device too:
+                // session stays null until it publishes, so going by that alone would let
+                // the stream surface after its device is gone, with no further detach
+                // broadcast coming to close it.
+                val name = lost.deviceName
+                if (session.get()?.deviceName == name || openingDevice.get() == name) {
+                    closeStream()
+                }
+            },
             onState = { mutableState.value = it },
         )
     }
@@ -81,6 +90,9 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     /** Makes publishing a session and tearing one down mutually exclusive. */
     private val sessionLock = Any()
+
+    /** The device an open is queued or running for; see [loseDevice]. */
+    private val openingDevice = AtomicReference<String?>(null)
 
     /**
      * Invalidates an open that is already queued on the camera thread. Without it, a
@@ -231,6 +243,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     private fun openStream(device: UsbDevice) {
         val surface = previewView?.surfaceTexture ?: return
+        openingDevice.set(device.deviceName)
         val opening = generation.incrementAndGet()
         cameraExecutor.execute {
             if (session.get() != null || opening != generation.get()) {
@@ -289,6 +302,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
         }
         val open = synchronized(sessionLock) {
             generation.incrementAndGet()
+            openingDevice.set(null)
             // Leave Streaming behind: otherwise the capture and zoom controls stay on
             // screen over a stream that is gone, and capture only yields "not streaming".
             // Error goes with it — it belongs to the session being torn down, and nothing
