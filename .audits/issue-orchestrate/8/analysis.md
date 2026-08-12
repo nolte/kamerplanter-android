@@ -226,4 +226,6 @@ left silently unplanned.
 
 | WP | Specialist | Result | Recorded at |
 |---|---|---|---|
-| — | — | not yet dispatched | — |
+| WP-19 | no matching specialised agent — generalist remediation | **done** — upstream issue [nolte/kamerplanter#1134](https://github.com/nolte/kamerplanter/issues/1134) opened, asking for opt-in body transport of the refresh token on `POST /api/v1/auth/login` | 2026-08-12 |
+| WP-20 | no matching specialised agent — generalist remediation | **done** — follow-up issue [#13](https://github.com/nolte/kamerplanter-android/issues/13) opened for the `/connect` deep-link contract | 2026-08-12 |
+| WP-4 | no matching specialised agent — generalist remediation | dispatched, in flight | 2026-08-12 |
