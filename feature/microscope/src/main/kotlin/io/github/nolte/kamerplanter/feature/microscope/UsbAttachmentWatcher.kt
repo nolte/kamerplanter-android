@@ -116,16 +116,16 @@ internal class UsbAttachmentWatcher(
 
     private fun lose(device: UsbDevice) {
         onLost(device)
-        // A hub can hold a second camera. Claiming it here is recovery, not theft — the
-        // stream that guarded against stealing has just died with its device — and it is
-        // the only way out: no surface event and no attach broadcast is coming, so
-        // without this the screen would wait for a stream nothing would ever open.
-        val remaining = currentDevice()
-        if (remaining == null) {
+        // Decided by whether a stream survived, not by whether some device is left on the
+        // bus. Both readings of "is anything still attached" are wrong here: reporting a
+        // device still present leaves the screen waiting for a stream nothing will open,
+        // and claiming that survivor is worse — this app calls any UVC device the
+        // microscope, so it would put an unrelated camera behind the shutter, and on a
+        // detach of some *other* device it would throw a permission dialog over a preview
+        // that is still healthy. A re-attach is the way back, and it broadcasts.
+        if (!isStreaming()) {
+            Log.i(TAG, "${device.deviceName} is gone; remaining: ${describeDevices()}")
             onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
-        } else {
-            Log.i(TAG, "${device.deviceName} is gone; falling back to ${remaining.deviceName}")
-            claim(remaining)
         }
     }
 
