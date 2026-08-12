@@ -110,6 +110,9 @@ internal class UsbAttachmentWatcher(
         Log.i(TAG, "USB permission answer for ${device.deviceName}: granted=$granted")
         pendingRequest = null
         if (granted) {
+            // Re-stated: a claim for another device may have moved this on while the
+            // dialog was open, and it is this device the camera is about to be handed.
+            claimed = device.deviceName
             onReady(device)
         } else {
             onState(MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED))
@@ -142,7 +145,13 @@ internal class UsbAttachmentWatcher(
         // more, and a bus number gets reused — the guard would then swallow the request
         // that is supposed to bring the device back.
         pendingRequest = null
-        onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
+        // Nothing is said over a stream that is still running. The claimed device and the
+        // streaming one can be different: a permission answer arriving late opens the
+        // device it belongs to, while a newer claim has already moved this field on. What
+        // is on screen belongs to the stream, not to the field.
+        if (!isStreaming()) {
+            onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
+        }
     }
 
     /**

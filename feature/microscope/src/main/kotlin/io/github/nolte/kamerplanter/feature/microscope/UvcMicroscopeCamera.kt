@@ -67,12 +67,17 @@ internal class UvcMicroscopeCamera @Inject constructor(
             isStreaming = { session.get() != null },
             onReady = ::openStream,
             onLost = { lost ->
-                // An open still queued on the camera thread belongs to this device too:
-                // session stays null until it publishes, so going by that alone would let
-                // the stream surface after its device is gone, with no further detach
-                // broadcast coming to close it.
-                val name = lost.deviceName
-                if (session.get()?.deviceName == name || openingDevice.get() == name) {
+                // A published session decides on its own: closeStream tears down whatever
+                // is live regardless of device, so trusting a queued open's name while a
+                // stream exists would let one device's detach kill another's stream.
+                // Only with nothing published does the queued name matter — and it must,
+                // because session stays null until publication, and a detach falling in
+                // that window would otherwise leave a stream that surfaces after its
+                // device is gone, with no further broadcast able to close it.
+                val open = session.get()
+                val ours = open?.deviceName?.equals(lost.deviceName)
+                    ?: (openingDevice.get() == lost.deviceName)
+                if (ours) {
                     closeStream()
                 }
             },
@@ -91,7 +96,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
     /** Makes publishing a session and tearing one down mutually exclusive. */
     private val sessionLock = Any()
 
-    /** The device an open is queued or running for; see [loseDevice]. */
+    /** The device an open is queued or running for; read by the `onLost` callback. */
     private val openingDevice = AtomicReference<String?>(null)
 
     /**
@@ -246,7 +251,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
         openingDevice.set(device.deviceName)
         val opening = generation.incrementAndGet()
         cameraExecutor.execute {
+            // Released on every exit, and only if still ours: a name left behind after
+            // an abandoned open names a device nothing is opening for any more, and the
+            // detach path would act on it.
+            val name = device.deviceName
             if (session.get() != null || opening != generation.get()) {
+                openingDevice.compareAndSet(name, null)
                 return@execute
             }
             runCatching {
@@ -267,6 +277,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                         }
                     }
                 }
+                openingDevice.compareAndSet(name, null)
                 if (published) {
                     Log.i(TAG, "stream opened at ${it.width}x${it.height} on ${it.deviceName}")
                     applyPreviewTransform()
@@ -276,6 +287,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     it.close()
                 }
             }.onFailure {
+                openingDevice.compareAndSet(name, null)
                 Log.w(TAG, "opening the microscope stream failed", it)
                 // Same generation check as the success path, and under the same lock: a
                 // teardown landing between the check and the write would still put an
