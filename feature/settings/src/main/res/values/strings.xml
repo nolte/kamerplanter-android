@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_pairing_title">Connect to kamerplanter</string>
+    <string name="settings_not_paired">This app is not yet paired with a kamerplanter backend. Scan the pairing QR code shown by your server to connect.</string>
+    <string name="settings_pair_button">Scan pairing QR code</string>
+    <string name="settings_scanning_hint">Point the camera at the kamerplanter pairing QR code</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_verifying">Pairing…</string>
+    <string name="settings_paired_title">Paired</string>
+    <string name="settings_paired_base_url">Server: %1$s</string>
+    <string name="settings_paired_code">Pairing code: %1$s</string>
+    <string name="settings_unpair">Unpair</string>
+    <string name="settings_failed">Pairing failed. Please try scanning the QR code again.</string>
+    <string name="settings_retry">Try again</string>
+    <string name="settings_camera_permission">Camera access is required to scan the pairing QR code.</string>
+    <string name="settings_grant_permission">Grant camera access</string>
+</resources>
