@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
@@ -18,6 +19,8 @@ import androidx.core.content.ContextCompat
  *
  * [onReady] fires with a device the app is permitted to open, on the main thread.
  */
+private const val TAG = "MicroscopeCamera"
+
 internal class UsbAttachmentWatcher(
     private val context: Context,
     private val isStreaming: () -> Boolean,
@@ -27,6 +30,9 @@ internal class UsbAttachmentWatcher(
 ) {
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private var registered = false
+
+    /** The device a dialog is already open for, so it is not asked for twice. */
+    private var pendingRequest: String? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -47,6 +53,7 @@ internal class UsbAttachmentWatcher(
     fun currentDevice(): UsbDevice? = usbManager.firstVideoDevice()
 
     fun start() {
+        Log.i(TAG, "watching; attached video devices: ${describeDevices()}")
         if (!registered) {
             val filter = IntentFilter(usbPermissionAction(context)).apply {
                 addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -64,6 +71,7 @@ internal class UsbAttachmentWatcher(
     }
 
     fun stop() {
+        pendingRequest = null
         if (registered) {
             runCatching { context.unregisterReceiver(receiver) }
             registered = false
@@ -73,20 +81,40 @@ internal class UsbAttachmentWatcher(
     /** Opens straight away when already permitted, otherwise asks and waits for the answer. */
     fun claim(device: UsbDevice) {
         if (usbManager.hasPermission(device)) {
+            pendingRequest = null
             onReady(device)
-        } else {
-            onState(MicroscopeState.AwaitingPermission)
-            usbManager.requestPermission(device, usbPermissionIntent(context))
+            return
         }
+        // start() and the arriving preview surface both land here for the same device;
+        // asking twice stacks a second system dialog behind the first.
+        if (pendingRequest == device.deviceName) {
+            return
+        }
+        // Android answers a request for a device it has already refused without showing
+        // the dialog again, until the device is re-attached.
+        Log.i(TAG, "requesting USB permission for ${device.deviceName}")
+        pendingRequest = device.deviceName
+        onState(MicroscopeState.AwaitingPermission)
+        usbManager.requestPermission(device, usbPermissionIntent(context))
     }
 
     private fun resolvePermission(device: UsbDevice, intent: Intent) {
-        if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+        Log.i(TAG, "USB permission answer for ${device.deviceName}: granted=$granted")
+        pendingRequest = null
+        if (granted) {
             onReady(device)
         } else {
             onState(MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED))
         }
     }
+
+    /** Every attached device with its interface classes — the input to [isVideoDevice]. */
+    private fun describeDevices(): String =
+        usbManager.deviceList.values.joinToString(prefix = "[", postfix = "]") { device ->
+            val classes = (0 until device.interfaceCount).map { device.getInterface(it).interfaceClass }
+            "${device.deviceName} ${device.vendorId}:${device.productId} classes=$classes"
+        }
 
     private fun lose(device: UsbDevice) {
         onLost(device)

@@ -1,6 +1,10 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,23 +21,33 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Live preview + single-frame capture for the USB microscope (issue #1). No runtime
- * permission is involved: USB host access is granted per device by the system dialog
- * that [MicroscopeCamera] triggers, not by an Android permission this screen owns.
+ * Live preview + single-frame capture for the USB microscope (issue #1).
+ *
+ * The CAMERA permission is a platform gate, not a library one: AOSP refuses to show the
+ * USB permission dialog for a video-class device unless the requesting app holds it, and
+ * denies the request outright instead. So this screen asks for CAMERA first and only then
+ * lets the camera look for the device.
  */
 @Composable
 fun MicroscopeScreen(
@@ -41,9 +55,27 @@ fun MicroscopeScreen(
     viewModel: MicroscopeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    DisposableEffect(Unit) {
-        viewModel.start()
-        onDispose { viewModel.stop() }
+    val context = LocalContext.current
+    var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
+    // Re-read on resume: granting from system Settings does not restart the process, so a
+    // value sampled once would keep showing the rationale afterwards.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        hasCameraPermission = context.hasCameraPermission()
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> hasCameraPermission = granted }
+
+    LaunchedEffect(hasCameraPermission) {
+        if (!hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+    if (hasCameraPermission) {
+        DisposableEffect(Unit) {
+            viewModel.start()
+            onDispose { viewModel.stop() }
+        }
     }
 
     Scaffold(
@@ -59,16 +91,31 @@ fun MicroscopeScreen(
             }
         },
     ) { innerPadding ->
-        MicroscopeContent(
-            uiState = uiState,
-            onRetry = viewModel::retry,
-            createPreviewView = viewModel::createPreviewView,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-        )
+        if (hasCameraPermission) {
+            MicroscopeContent(
+                uiState = uiState,
+                onRetry = viewModel::retry,
+                createPreviewView = viewModel::createPreviewView,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            )
+        } else {
+            ActionableMessage(
+                text = stringResource(R.string.microscope_camera_permission),
+                actionLabel = stringResource(R.string.microscope_grant_permission),
+                onAction = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            )
+        }
     }
 }
+
+private fun android.content.Context.hasCameraPermission(): Boolean =
+    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+        PackageManager.PERMISSION_GRANTED
 
 @Composable
 private fun MicroscopeContent(
@@ -81,10 +128,19 @@ private fun MicroscopeContent(
     Box(modifier = modifier) {
         AndroidView(factory = createPreviewView, modifier = Modifier.fillMaxSize())
         when {
-            // An engine error used to be a dead end: nothing left the state and the
-            // controls stay hidden, so replugging was the only way out.
+            // Both of these used to be dead ends: nothing leaves the state on its own
+            // and the controls gate on Streaming, so unplugging was the only way out.
+            // A denied USB grant is the likelier of the two — the system dialog is
+            // dismissed by a screen that locks, and the answer comes back as a refusal.
             camera is MicroscopeState.Error -> ActionableMessage(
                 text = stringResource(R.string.microscope_error, camera.message),
+                actionLabel = stringResource(R.string.microscope_retry),
+                onAction = onRetry,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            camera is MicroscopeState.Unavailable &&
+                camera.reason == UnavailableReason.PERMISSION_DENIED -> ActionableMessage(
+                text = stringResource(R.string.microscope_usb_permission_denied),
                 actionLabel = stringResource(R.string.microscope_retry),
                 onAction = onRetry,
                 modifier = Modifier.align(Alignment.Center),
