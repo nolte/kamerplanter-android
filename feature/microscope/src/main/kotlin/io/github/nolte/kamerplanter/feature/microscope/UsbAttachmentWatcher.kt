@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 
 /**
  * Watches for the UVC device and carries the USB permission, using nothing but the
@@ -19,6 +20,7 @@ import android.os.Build
  */
 internal class UsbAttachmentWatcher(
     private val context: Context,
+    private val isStreaming: () -> Boolean,
     private val onReady: (UsbDevice) -> Unit,
     private val onLost: (UsbDevice) -> Unit,
     private val onState: (MicroscopeState) -> Unit,
@@ -30,7 +32,11 @@ internal class UsbAttachmentWatcher(
         override fun onReceive(context: Context, intent: Intent) {
             val device = usbDeviceFrom(intent) ?: return
             when (intent.action) {
-                UsbManager.ACTION_USB_DEVICE_ATTACHED -> if (device.isVideoDevice()) claim(device)
+                // A hub can attach a second camera while the microscope streams. Claiming
+                // it would drop a healthy stream into "waiting for permission" and hide
+                // the controls, with no way back.
+                UsbManager.ACTION_USB_DEVICE_ATTACHED ->
+                    if (device.isVideoDevice() && !isStreaming()) claim(device)
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> if (device.isVideoDevice()) lose(device)
                 else -> resolvePermission(device, intent)
             }
@@ -89,13 +95,15 @@ internal class UsbAttachmentWatcher(
         }
     }
 
+    /**
+     * AndroidX rather than a hand-rolled API check: below API 33 the platform has no
+     * not-exported flag, and AndroidX closes that window by registering under a
+     * signature-level permission instead. A foreign app forging the permission-granted
+     * broadcast achieves nothing either way — libuvc re-checks the real grant before it
+     * opens anything — but the receiver has no business being reachable at all.
+     */
     private fun registerNotExported(receiver: BroadcastReceiver, filter: IntentFilter) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, filter)
-        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 }
 

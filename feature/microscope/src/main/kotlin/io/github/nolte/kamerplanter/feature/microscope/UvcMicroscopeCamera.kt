@@ -25,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -61,6 +62,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
     private val watcher by lazy {
         UsbAttachmentWatcher(
             context = context,
+            isStreaming = { session.get() != null },
             onReady = ::openStream,
             onLost = { if (session.get()?.deviceName == it.deviceName) closeStream() },
             onState = { mutableState.value = it },
@@ -74,6 +76,14 @@ internal class UvcMicroscopeCamera @Inject constructor(
     private val cameraDispatcher = cameraExecutor.asCoroutineDispatcher()
 
     private val session = AtomicReference<StreamSession?>(null)
+
+    /**
+     * Invalidates an open that is already queued on the camera thread. Without it, a
+     * close arriving between `execute {}` and the session being published sees nothing
+     * to close, and the stream that opens afterwards is orphaned — still holding the
+     * device and still rendering into a surface the platform has taken back.
+     */
+    private val generation = AtomicInteger(0)
     private val captureLock = Mutex()
     private val pendingFrame = AtomicReference<CancellableContinuation<Nv21Frame>?>(null)
 
@@ -108,8 +118,14 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     applyPreviewTransform()
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                    closeStream()
-                    return true
+                    // The view is going away, so release the reference that would
+                    // otherwise pin its Activity in this singleton.
+                    previewView = null
+                    // false: the platform must not reclaim the surface while the native
+                    // preview thread may still be writing into it. closeStream releases
+                    // it once the engine has actually let go.
+                    closeStream(release = surface)
+                    return false
                 }
 
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
@@ -128,8 +144,10 @@ internal class UvcMicroscopeCamera @Inject constructor(
     override fun stop() {
         closeStream()
         watcher.stop()
-        // The view belongs to the screen that is going away; this class is a singleton.
-        previewView = null
+        // The preview view is deliberately kept: it is released when its surface is
+        // destroyed, which is when the screen is really gone. Dropping it here would
+        // leave retry() — stop() plus start() — with no surface to open onto, and no
+        // second onSurfaceTextureAvailable is coming for a view that still exists.
         mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
     }
 
@@ -172,7 +190,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
             )
         } finally {
             if (retuned) {
-                open.retune(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+                open.restorePreview()
             }
         }
     }
@@ -184,8 +202,9 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     private fun openStream(device: UsbDevice) {
         val surface = previewView?.surfaceTexture ?: return
+        val opening = generation.incrementAndGet()
         cameraExecutor.execute {
-            if (session.get() != null) {
+            if (session.get() != null || opening != generation.get()) {
                 return@execute
             }
             runCatching {
@@ -195,10 +214,16 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     }
                 }
             }.onSuccess {
-                Log.i(TAG, "stream opened at ${it.width}x${it.height} on ${it.deviceName}")
-                session.set(it)
-                mutableState.value = MicroscopeState.Streaming
-                applyPreviewTransform()
+                if (opening == generation.get()) {
+                    Log.i(TAG, "stream opened at ${it.width}x${it.height} on ${it.deviceName}")
+                    session.set(it)
+                    mutableState.value = MicroscopeState.Streaming
+                    applyPreviewTransform()
+                } else {
+                    // A close overtook this open; nothing else would ever release it.
+                    Log.i(TAG, "discarding a stream that was superseded while opening")
+                    it.close()
+                }
             }.onFailure {
                 Log.w(TAG, "opening the microscope stream failed", it)
                 mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
@@ -206,9 +231,17 @@ internal class UvcMicroscopeCamera @Inject constructor(
         }
     }
 
-    private fun closeStream() {
-        val open = session.getAndSet(null) ?: return
-        cameraExecutor.execute { runCatching { open.close() } }
+    /** Closes the live stream, and releases [release] afterwards when one is given. */
+    private fun closeStream(release: SurfaceTexture? = null) {
+        generation.incrementAndGet()
+        val open = session.getAndSet(null)
+        if (open == null && release == null) {
+            return
+        }
+        cameraExecutor.execute {
+            runCatching { open?.close() }
+            runCatching { release?.release() }
+        }
     }
 
     private suspend fun awaitFrame(): Nv21Frame = suspendCancellableCoroutine { continuation ->

@@ -33,6 +33,7 @@ dependencies {
     // rule for the UVC dependency"). The rest of the app talks to MicroscopeCamera.
     implementation(libs.libuvc)
 
+    implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)

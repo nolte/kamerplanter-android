@@ -8,8 +8,15 @@ import com.serenegiant.usb.Size
 import com.serenegiant.usb.USBMonitor
 import com.serenegiant.usb.UVCCamera
 
+/** What a restart has to hand the engine again after `stopPreview` releases it. */
+private class StreamBinding(
+    val surface: SurfaceTexture,
+    val frames: IFrameCallback,
+    val frameFormat: Int,
+)
+
 /**
- * One open UVC stream: the device, the engine holding it, and the mode it currently runs.
+ * One open UVC stream: the device, the engine holding it, and the mode it runs right now.
  *
  * Every method must be called on the single camera thread — the engine's calls are
  * synchronized natively and block.
@@ -17,52 +24,70 @@ import com.serenegiant.usb.UVCCamera
 internal class StreamSession private constructor(
     val deviceName: String,
     private val camera: UVCCamera,
-    private val surface: SurfaceTexture,
-    private val frames: IFrameCallback,
+    private val controlBlock: USBMonitor.UsbControlBlock,
+    private val binding: StreamBinding,
     val modes: List<Size>,
-    private val frameFormat: Int,
+    private val previewMode: Size,
 ) {
-    var width: Int = 0
+    var width: Int = previewMode.width
         private set
-    var height: Int = 0
+    var height: Int = previewMode.height
         private set
 
     /**
      * Switches the running stream to [newWidth] x [newHeight] without releasing the
-     * device, and reports whether the switch took. Returns false unchanged, so a caller
-     * can carry on at the mode that is actually live.
+     * device, and reports whether the switch took. On failure it puts the previous mode
+     * back, so the caller carries on at a mode that is actually live.
      */
     fun retune(newWidth: Int, newHeight: Int): Boolean {
         if (newWidth == width && newHeight == height) {
             return false
         }
+        val previousWidth = width
+        val previousHeight = height
         return runCatching {
-            camera.stopPreview()
-            camera.setPreviewSize(newWidth, newHeight, MIN_FPS, MAX_FPS, frameFormat, UVCCamera.DEFAULT_BANDWIDTH)
-            // stopPreview() releases the native preview window, so the surface and the
-            // frame callback have to be handed over again — without this, startPreview()
-            // logs "window does not exist" and the stream silently never resumes.
-            camera.setFrameCallback(frames, UVCCamera.PIXEL_FORMAT_YUV420SP)
-            camera.setPreviewTexture(surface)
-            camera.startPreview()
+            restart(newWidth, newHeight)
             width = newWidth
             height = newHeight
             true
         }.getOrElse {
-            Log.w(TAG, "cannot retune to ${newWidth}x$newHeight; staying at ${width}x$height", it)
-            runCatching {
-                camera.setPreviewSize(width, height, MIN_FPS, MAX_FPS, frameFormat, UVCCamera.DEFAULT_BANDWIDTH)
-                camera.setFrameCallback(frames, UVCCamera.PIXEL_FORMAT_YUV420SP)
-                camera.setPreviewTexture(surface)
-                camera.startPreview()
-            }
+            Log.w(TAG, "cannot retune to ${newWidth}x$newHeight; back to ${previousWidth}x$previousHeight", it)
+            runCatching { restart(previousWidth, previousHeight) }
             false
         }
     }
 
+    /**
+     * Returns to the mode the preview negotiated when it opened — not necessarily 1080p.
+     * Restoring a hard-coded size would strand a device that cannot do it at whatever
+     * resolution the still used, leaving the preview at a few frames per second.
+     */
+    fun restorePreview(): Boolean = retune(previewMode.width, previewMode.height)
+
     fun close() {
         runCatching { camera.stopPreview() }
-        camera.destroy()
+        runCatching { camera.destroy() }
+        // UVCCamera works on a *clone* of the control block, so destroying the camera
+        // leaves the original — and the UsbDeviceConnection it opened — behind.
+        runCatching { controlBlock.close() }
+    }
+
+    private fun restart(modeWidth: Int, modeHeight: Int) {
+        camera.stopPreview()
+        camera.setPreviewSize(
+            modeWidth,
+            modeHeight,
+            MIN_FPS,
+            MAX_FPS,
+            binding.frameFormat,
+            UVCCamera.DEFAULT_BANDWIDTH,
+        )
+        // stopPreview() releases the native preview window, so the surface and the frame
+        // callback have to be handed over again — without this, startPreview() logs
+        // "window does not exist" and the stream silently never resumes.
+        camera.setFrameCallback(binding.frames, UVCCamera.PIXEL_FORMAT_YUV420SP)
+        camera.setPreviewTexture(binding.surface)
+        camera.startPreview()
     }
 
     companion object {
@@ -79,11 +104,9 @@ internal class StreamSession private constructor(
         private const val PREVIEW_HEIGHT = 1080
 
         /**
-         * Claims the device and starts a preview on [surface].
-         *
-         * MJPEG first because that is what these bodies stream; uncompressed YUYV is the
-         * fallback for the rare device that offers nothing else. Throws when neither
-         * negotiates, which the caller turns into an error state.
+         * Claims the device and starts a preview on [surface]. Throws when the device
+         * cannot be opened or offers no usable mode; the caller turns that into an error
+         * state. Nothing stays open on the way out.
          */
         fun open(
             monitor: USBMonitor,
@@ -94,27 +117,33 @@ internal class StreamSession private constructor(
         ): StreamSession {
             val controlBlock = monitor.openDevice(device)
             val camera = UVCCamera()
-            camera.open(controlBlock)
             return runCatching {
-                val session = camera.startOn(device, surface, frames, onButton)
-                session
+                // Inside the guard: open() clones the control block before it can throw,
+                // so a failure here would otherwise strand a second USB connection.
+                camera.open(controlBlock)
+                camera.startOn(device, controlBlock, surface, frames, onButton)
             }.getOrElse {
-                camera.destroy()
+                runCatching { camera.destroy() }
+                runCatching { controlBlock.close() }
                 throw it
             }
         }
 
         private fun UVCCamera.startOn(
             device: UsbDevice,
+            controlBlock: USBMonitor.UsbControlBlock,
             surface: SurfaceTexture,
             frames: IFrameCallback,
             onButton: (MicroscopeButton, Boolean) -> Unit,
         ): StreamSession {
             val format = negotiate(this)
-            val modes = supportedSizeList.orEmpty()
-            val chosen = modes.bestFitting(PREVIEW_WIDTH, PREVIEW_HEIGHT)
-                ?: error("the device reports no preview modes")
-            setPreviewSize(chosen.width, chosen.height, MIN_FPS, MAX_FPS, format, UVCCamera.DEFAULT_BANDWIDTH)
+            // Ask for this format's own list: the no-argument overload reports whatever
+            // `mCurrentFrameFormat` holds, which the constructor leaves at MJPEG — so a
+            // YUYV-only device would look as though it had no modes at all.
+            val modes = getSupportedSizeList(format).orEmpty()
+            val preview = modes.bestFitting(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+                ?: error("the device reports no preview mode for format $format")
+            setPreviewSize(preview.width, preview.height, MIN_FPS, MAX_FPS, format, UVCCamera.DEFAULT_BANDWIDTH)
             setFrameCallback(frames, UVCCamera.PIXEL_FORMAT_YUV420SP)
             setPreviewTexture(surface)
             // Public on UVCCamera — the wrapper is what hid this behind a private field.
@@ -128,10 +157,14 @@ internal class StreamSession private constructor(
             }
             startPreview()
             updateCameraParams()
-            return StreamSession(device.deviceName, this, surface, frames, modes, format).apply {
-                width = chosen.width
-                height = chosen.height
-            }
+            return StreamSession(
+                deviceName = device.deviceName,
+                camera = this,
+                controlBlock = controlBlock,
+                binding = StreamBinding(surface, frames, format),
+                modes = modes,
+                previewMode = preview,
+            )
         }
 
         /** MJPEG when the device lists any mode for it, otherwise uncompressed. */

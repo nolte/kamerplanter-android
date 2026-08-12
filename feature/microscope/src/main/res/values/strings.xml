@@ -5,8 +5,6 @@
     <string name="microscope_usb_permission_denied">USB permission denied. Reconnect the microscope to try again.</string>
     <string name="microscope_no_usb_host">This device does not support USB host mode (OTG).</string>
     <string name="microscope_error">Microscope error: %1$s</string>
-    <string name="microscope_camera_permission">The camera permission is required to show the microscope stream.</string>
-    <string name="microscope_grant_permission">Grant permission</string>
     <string name="microscope_retry">Try again</string>
     <string name="microscope_capture">Capture photo</string>
     <string name="microscope_zoom_in">+</string>

@@ -1,10 +1,6 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,30 +17,23 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Live preview + single-frame capture for the USB microscope (issue #1). The screen
- * owns the Android CAMERA runtime permission (AUSBC requires it, see the module
- * manifest); the USB-level permission dialog is driven by [MicroscopeCamera] itself.
+ * Live preview + single-frame capture for the USB microscope (issue #1). No runtime
+ * permission is involved: USB host access is granted per device by the system dialog
+ * that [MicroscopeCamera] triggers, not by an Android permission this screen owns.
  */
 @Composable
 fun MicroscopeScreen(
@@ -52,33 +41,9 @@ fun MicroscopeScreen(
     viewModel: MicroscopeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED,
-        )
-    }
-    // Re-read on every resume: granting from system Settings does not restart the
-    // process, so a value sampled once would keep showing the rationale afterwards.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        hasCameraPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasCameraPermission = granted }
-
-    LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-    if (hasCameraPermission) {
-        DisposableEffect(Unit) {
-            viewModel.start()
-            onDispose { viewModel.stop() }
-        }
+    DisposableEffect(Unit) {
+        viewModel.start()
+        onDispose { viewModel.stop() }
     }
 
     Scaffold(
@@ -96,12 +61,8 @@ fun MicroscopeScreen(
     ) { innerPadding ->
         MicroscopeContent(
             uiState = uiState,
-            hasCameraPermission = hasCameraPermission,
-            actions = MicroscopeActions(
-                onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                onRetry = viewModel::retry,
-                createPreviewView = viewModel::createPreviewView,
-            ),
+            onRetry = viewModel::retry,
+            createPreviewView = viewModel::createPreviewView,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
@@ -109,39 +70,23 @@ fun MicroscopeScreen(
     }
 }
 
-/** The screen's callbacks, bundled so [MicroscopeContent] stays within its parameter budget. */
-private class MicroscopeActions(
-    val onRequestPermission: () -> Unit,
-    val onRetry: () -> Unit,
-    val createPreviewView: (android.content.Context) -> android.view.View,
-)
-
 @Composable
 private fun MicroscopeContent(
     uiState: MicroscopeUiState,
-    hasCameraPermission: Boolean,
-    actions: MicroscopeActions,
+    onRetry: () -> Unit,
+    createPreviewView: (android.content.Context) -> android.view.View,
     modifier: Modifier = Modifier,
 ) {
     val camera = uiState.camera
     Box(modifier = modifier) {
-        if (hasCameraPermission) {
-            AndroidView(
-                factory = actions.createPreviewView,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        AndroidView(factory = createPreviewView, modifier = Modifier.fillMaxSize())
         when {
-            !hasCameraPermission -> CameraPermissionRationale(
-                onRequest = actions.onRequestPermission,
-                modifier = Modifier.align(Alignment.Center),
-            )
             // An engine error used to be a dead end: nothing left the state and the
             // controls stay hidden, so replugging was the only way out.
             camera is MicroscopeState.Error -> ActionableMessage(
                 text = stringResource(R.string.microscope_error, camera.message),
                 actionLabel = stringResource(R.string.microscope_retry),
-                onAction = actions.onRetry,
+                onAction = onRetry,
                 modifier = Modifier.align(Alignment.Center),
             )
             camera !is MicroscopeState.Streaming -> StatusMessage(
@@ -197,16 +142,6 @@ private fun CaptureButton(isCapturing: Boolean, onCapture: () -> Unit) {
         }
         Text(text = stringResource(label))
     }
-}
-
-@Composable
-private fun CameraPermissionRationale(onRequest: () -> Unit, modifier: Modifier = Modifier) {
-    ActionableMessage(
-        text = stringResource(R.string.microscope_camera_permission),
-        actionLabel = stringResource(R.string.microscope_grant_permission),
-        onAction = onRequest,
-        modifier = modifier,
-    )
 }
 
 /** A message the user can act on, rather than a dead end they can only read. */
