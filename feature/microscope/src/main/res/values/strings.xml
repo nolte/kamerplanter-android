@@ -2,11 +2,11 @@
 <resources>
     <string name="microscope_no_device">No USB microscope detected. Plug it into the USB-C port (OTG).</string>
     <string name="microscope_awaiting_permission">Waiting for USB permission…</string>
-    <string name="microscope_usb_permission_denied">USB permission denied. Reconnect the microscope to try again.</string>
+    <string name="microscope_usb_permission_denied">USB access was declined — this can also happen when the screen locks while the dialog is open.</string>
+    <string name="microscope_camera_permission">Android requires the camera permission before it will grant access to a USB camera. The microscope cannot be opened without it.</string>
+    <string name="microscope_grant_permission">Grant permission</string>
     <string name="microscope_no_usb_host">This device does not support USB host mode (OTG).</string>
     <string name="microscope_error">Microscope error: %1$s</string>
-    <string name="microscope_camera_permission">The camera permission is required to show the microscope stream.</string>
-    <string name="microscope_grant_permission">Grant permission</string>
     <string name="microscope_retry">Try again</string>
     <string name="microscope_capture">Capture photo</string>
     <string name="microscope_zoom_in">+</string>

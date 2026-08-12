@@ -31,9 +31,9 @@ android {
 dependencies {
     // The UVC engine lives here — and only here (isolation rule: ADR 0001, "Isolation
     // rule for the UVC dependency"). The rest of the app talks to MicroscopeCamera.
-    implementation(libs.ausbc)
-    implementation(libs.ausbc.libuvc)
+    implementation(libs.libuvc)
 
+    implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)

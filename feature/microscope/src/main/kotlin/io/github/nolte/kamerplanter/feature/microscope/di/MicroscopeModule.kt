@@ -4,8 +4,8 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import io.github.nolte.kamerplanter.feature.microscope.AusbcMicroscopeCamera
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
+import io.github.nolte.kamerplanter.feature.microscope.UvcMicroscopeCamera
 import javax.inject.Singleton
 
 @Module
@@ -14,5 +14,5 @@ internal interface MicroscopeModule {
 
     @Binds
     @Singleton
-    fun bindMicroscopeCamera(impl: AusbcMicroscopeCamera): MicroscopeCamera
+    fun bindMicroscopeCamera(impl: UvcMicroscopeCamera): MicroscopeCamera
 }

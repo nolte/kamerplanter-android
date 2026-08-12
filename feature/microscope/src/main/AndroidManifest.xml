@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- AUSBC refuses to open any UVC device without the CAMERA runtime permission
-         when targetSdk >= 28, even though the stream comes over USB host, not the
-         platform camera framework. -->
+    <!-- Required by the platform, not by any library: AOSP's UsbUserPermissionManager
+         refuses to even show the USB permission dialog for a device that exposes a video
+         class interface unless the requesting app holds CAMERA. Without it the request is
+         answered "denied" within milliseconds and the system logs
+         "Camera permission required for USB video class devices". Verified on Android 16. -->
     <uses-permission android:name="android.permission.CAMERA" />
 
 </manifest>
