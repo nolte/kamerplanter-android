@@ -251,8 +251,13 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     private fun openStream(device: UsbDevice) {
         val surface = previewView?.surfaceTexture ?: return
-        openingDevice.set(device.deviceName)
-        val opening = generation.incrementAndGet()
+        // Taken together under the lock the release checks: reserving the slot and moving
+        // the generation are one step, or an open finishing in between could hand back a
+        // reservation that already belongs to this one.
+        val opening = synchronized(sessionLock) {
+            openingDevice.set(device.deviceName)
+            generation.incrementAndGet()
+        }
         cameraExecutor.execute {
             // Released on every exit, but only by the open that still owns the slot. The
             // device name cannot tell two opens of the same device apart, so an overtaken
