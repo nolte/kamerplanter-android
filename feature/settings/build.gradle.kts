@@ -1,3 +1,4 @@
+import com.android.build.api.variant.HasUnitTestBuilder
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -25,6 +26,19 @@ android {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
         }
+    }
+}
+
+// The ConnectionClient binding is the one thing that differs per build variant: the fake
+// lives in src/debug/, the placeholder in src/release/ (R34). AGP builds a unit-test
+// variant only for the debug build type by default, which would leave the release half of
+// that split — the half that must NOT be able to see the fake — compiled but never tested.
+// Turning the release unit-test variant on makes src/test/ compile against both variants,
+// so a reference from a variant-independent test back into src/debug/ fails the gate
+// instead of passing it by accident.
+androidComponents {
+    beforeVariants { variant ->
+        (variant as HasUnitTestBuilder).enableUnitTest = true
     }
 }
 

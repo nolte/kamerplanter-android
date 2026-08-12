@@ -80,9 +80,11 @@ sealed interface ConnectionResult {
  * travels. No networking type crosses this interface, so the generated OpenAPI client
  * stays inside `core/network/` (R4, ADR 0001).
  *
- * The only implementation in this working copy is [FakeConnectionClient]; the real one —
- * `/api/health` probe, pairing redemption, tenant lookup — replaces it through a single
- * Hilt binding, with no change to the state machine or the UI.
+ * The implementation is chosen per build variant, and is the only thing that differs between
+ * them: `src/debug/` binds the backend-free `FakeConnectionClient` so the flow stays
+ * clickable, `src/release/` cannot see that class at all and binds a refusing placeholder
+ * until the real client exists (R34). The real one — `/api/health` probe, pairing redemption,
+ * tenant lookup — replaces the release binding, with no change to the state machine or the UI.
  */
 interface ConnectionClient {
 

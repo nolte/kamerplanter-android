@@ -27,10 +27,10 @@ class SettingsViewModelTest {
     private val request = ConnectionRequest.QrPairing(baseUrl = "https://plants.example.org", code = "ABC123")
     private val connection = Connection.QrPairing(
         baseUrl = "https://plants.example.org",
-        tenantSlug = FakeConnectionClient.FAKE_TENANT.slug,
-        identity = FakeConnectionClient.FAKE_IDENTITY,
+        tenantSlug = CANNED_TENANT.slug,
+        identity = CANNED_IDENTITY,
     )
-    private val failQr = "kamerplanter://pair?url=https%3A%2F%2Fx&code=fail"
+    private val failQr = "kamerplanter://pair?url=https%3A%2F%2Fx&code=$CANNED_FAIL_CODE"
 
     @Before
     fun setUp() {
@@ -43,7 +43,7 @@ class SettingsViewModelTest {
     }
 
     private fun viewModel(
-        client: ConnectionClient = FakeConnectionClient(),
+        client: ConnectionClient = CannedConnectionClient(),
         store: ConnectionStore = FakeConnectionStore(),
         credentials: CredentialStore = InMemoryCredentialStore(),
     ) = SettingsViewModel(client, store, credentials)
@@ -132,7 +132,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `verifying is entered before the backend responds`() = runTest(dispatcher) {
-        val client = GatedConnectionClient(verified(tenants = listOf(FakeConnectionClient.FAKE_TENANT)))
+        val client = GatedConnectionClient(verified(tenants = listOf(CANNED_TENANT)))
         val viewModel = viewModel(client = client)
 
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
@@ -157,7 +157,7 @@ class SettingsViewModelTest {
 
         val expected = Connection.ApiKey(
             baseUrl = "https://plants.example.org",
-            tenantSlug = FakeConnectionClient.FAKE_TENANT.slug,
+            tenantSlug = CANNED_TENANT.slug,
             keyHint = "…cdef",
         )
         assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
@@ -200,7 +200,7 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            ConnectionState.SelectingTenant(request, tenants, FakeConnectionClient.FAKE_IDENTITY),
+            ConnectionState.SelectingTenant(request, tenants, CANNED_IDENTITY),
             viewModel.state.value,
         )
         assertNull(store.saved)
@@ -334,8 +334,8 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         val session = credentials.stored as Credential.Session
-        assertEquals(FakeConnectionClient.FAKE_ACCESS_TOKEN, session.accessToken)
-        assertEquals(FakeConnectionClient.FAKE_REFRESH_TOKEN, session.refreshToken)
+        assertEquals(SESSION.accessToken, session.accessToken)
+        assertEquals(SESSION.refreshToken, session.refreshToken)
     }
 
     @Test
@@ -444,19 +444,27 @@ class SettingsViewModelTest {
     }
 
     private fun verified(tenants: List<Tenant>) = ConnectionResult.Verified(
-        identity = FakeConnectionClient.FAKE_IDENTITY,
+        identity = CANNED_IDENTITY,
         tenants = tenants,
         credential = SESSION,
     )
-
-    private companion object {
-        val SESSION = Credential.Session(
-            accessToken = "access-token",
-            refreshToken = "refresh-token",
-            accessTokenExpiresAtEpochMillis = 1_700_000_000_000L,
-        )
-    }
 }
+
+// --- the canned instance these tests connect to ---
+//
+// Deliberately owned by the test source set rather than reused from the debug variant's
+// `FakeConnectionClient`: that fake exists only in the debug variant (R34), while these
+// tests compile against both variants. Keeping the double here also stops a change to the
+// developer affordance from silently rewriting what the state machine is asserted to do.
+
+private const val CANNED_FAIL_CODE = "fail"
+private const val CANNED_IDENTITY = "demo@kamerplanter.local"
+private val CANNED_TENANT = Tenant(slug = "demo", displayName = "Demo garden")
+private val SESSION = Credential.Session(
+    accessToken = "access-token",
+    refreshToken = "refresh-token",
+    accessTokenExpiresAtEpochMillis = 1_700_000_000_000L,
+)
 
 private class FakeConnectionStore(initial: Connection? = null) : ConnectionStore {
     private val flow = MutableStateFlow(initial)
@@ -478,7 +486,35 @@ private class FakeConnectionStore(initial: Connection? = null) : ConnectionStore
     }
 }
 
-/** A [ConnectionClient] that answers with a canned result, without any delay. */
+/**
+ * A [ConnectionClient] answering from a canned instance: [CANNED_FAIL_CODE] fails, anything
+ * else verifies against the single [CANNED_TENANT], and light mode verifies with neither
+ * tenant nor credential. No delay — the tests drive the scheduler themselves.
+ */
+private class CannedConnectionClient : ConnectionClient {
+    override suspend fun connect(request: ConnectionRequest): ConnectionResult = when (request) {
+        is ConnectionRequest.QrPairing -> verify(request.code, SESSION)
+        is ConnectionRequest.ApiKey -> verify(request.key, Credential.ApiKey(request.key))
+        is ConnectionRequest.LightMode -> ConnectionResult.Verified(
+            identity = null,
+            tenants = emptyList(),
+            credential = Credential.None,
+        )
+    }
+
+    private fun verify(secret: String, credential: Credential): ConnectionResult =
+        if (secret.equals(CANNED_FAIL_CODE, ignoreCase = true)) {
+            ConnectionResult.Failure("canned instance rejected the credential")
+        } else {
+            ConnectionResult.Verified(
+                identity = CANNED_IDENTITY,
+                tenants = listOf(CANNED_TENANT),
+                credential = credential,
+            )
+        }
+}
+
+/** A [ConnectionClient] that answers with a fixed result, without any delay. */
 private class StubConnectionClient(private val result: ConnectionResult) : ConnectionClient {
     override suspend fun connect(request: ConnectionRequest): ConnectionResult = result
 }

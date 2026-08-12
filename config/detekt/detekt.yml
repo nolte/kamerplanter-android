@@ -3,6 +3,18 @@ naming:
   FunctionNaming:
     # Compose UI functions are PascalCase by convention.
     ignoreAnnotated: ['Composable']
+    # detekt's default excludes exempt test sources from this rule so JUnit methods can be
+    # named in backticked prose — but the default list knows only `src/test/`, not the
+    # build-variant test source sets (`src/testDebug/`, `src/testRelease/`), which the root
+    # build script now also feeds to detekt. Same code, same rules; only the paths are new.
+    # Any other rule detekt relaxes for `**/test/**` needs the same two patterns added here
+    # the first time a variant test trips it.
+    excludes: [
+      '**/test/**', '**/testDebug/**', '**/testRelease/**',
+      '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**',
+      '**/androidUnitTest/**', '**/androidInstrumentedTest/**',
+      '**/jsTest/**', '**/iosTest/**',
+    ]
 
 style:
   MagicNumber:

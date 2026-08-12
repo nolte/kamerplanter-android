@@ -8,19 +8,20 @@ import io.github.nolte.kamerplanter.feature.settings.ConnectionClient
 import io.github.nolte.kamerplanter.feature.settings.ConnectionStore
 import io.github.nolte.kamerplanter.feature.settings.CredentialStore
 import io.github.nolte.kamerplanter.feature.settings.DataStoreConnectionStore
-import io.github.nolte.kamerplanter.feature.settings.FakeConnectionClient
 import io.github.nolte.kamerplanter.feature.settings.KeystoreCredentialStore
 import javax.inject.Singleton
 
+/**
+ * The variant-independent half of the settings graph.
+ *
+ * [ConnectionClient] is deliberately **not** bound here: it is the one binding that differs
+ * per build variant (R34), so it lives in `src/debug/` and `src/release/` next to the
+ * implementation each variant is allowed to see —
+ * `di/DebugConnectionClientModule` and `di/ReleaseConnectionClientModule`.
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 internal interface SettingsModule {
-
-    // Swap this single binding for the `core/network/`-backed client to make connecting
-    // real; the fake then stays behind the debug build variant only (R34).
-    @Binds
-    @Singleton
-    fun bindConnectionClient(impl: FakeConnectionClient): ConnectionClient
 
     @Binds
     @Singleton
