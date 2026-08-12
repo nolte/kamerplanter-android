@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Kamerplanter</string>
+    <!-- Brand name; deliberately identical in every locale, so exempt from translation. -->
+    <string name="app_name" translatable="false">Kamerplanter</string>
+    <string name="tab_capture">Capture</string>
+    <string name="tab_plants">Plants</string>
+    <string name="tab_settings">Settings</string>
+    <string name="plants_placeholder">Plants — coming soon.</string>
 </resources>

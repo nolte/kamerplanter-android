@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_pairing_title">Mit kamerplanter verbinden</string>
+    <string name="settings_not_paired">Diese App ist noch nicht mit einem kamerplanter-Backend gekoppelt. Scanne den Kopplungs-QR-Code deines Servers, um sie zu verbinden.</string>
+    <string name="settings_pair_button">Kopplungs-QR-Code scannen</string>
+    <string name="settings_scanning_hint">Richte die Kamera auf den kamerplanter-Kopplungs-QR-Code</string>
+    <string name="settings_cancel">Abbrechen</string>
+    <string name="settings_verifying">Wird gekoppelt…</string>
+    <string name="settings_paired_title">Gekoppelt</string>
+    <string name="settings_paired_base_url">Server: %1$s</string>
+    <string name="settings_paired_code">Kopplungscode: %1$s</string>
+    <string name="settings_unpair">Kopplung aufheben</string>
+    <string name="settings_failed">Kopplung fehlgeschlagen. Bitte scanne den QR-Code erneut.</string>
+    <string name="settings_retry">Erneut versuchen</string>
+    <string name="settings_camera_permission">Für das Scannen des Kopplungs-QR-Codes wird Kamerazugriff benötigt.</string>
+    <string name="settings_grant_permission">Kamerazugriff erlauben</string>
+    <string name="settings_open_app_settings">App-Einstellungen öffnen</string>
+    <string name="settings_camera_unavailable">Die Kamera konnte nicht geöffnet werden. Stelle sicher, dass keine andere App sie verwendet, und versuche es erneut.</string>
+</resources>
