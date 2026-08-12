@@ -145,14 +145,9 @@ private fun MicroscopeContent(
                 onAction = onRetry,
                 modifier = Modifier.align(Alignment.Center),
             )
-            // Reopening normally takes a moment and needs no help, but a surface that
-            // never comes back would otherwise leave the screen waiting for good.
-            camera is MicroscopeState.Connecting -> ActionableMessage(
-                text = stringResource(R.string.microscope_connecting),
-                actionLabel = stringResource(R.string.microscope_retry),
-                onAction = onRetry,
-                modifier = Modifier.align(Alignment.Center),
-            )
+            // Connecting deliberately gets no Retry: the only way back from a lost
+            // surface is onSurfaceTextureAvailable, which fires on its own, and
+            // retry() would just tear down the reopen that is already under way.
             camera !is MicroscopeState.Streaming -> StatusMessage(
                 state = camera,
                 modifier = Modifier.align(Alignment.Center),

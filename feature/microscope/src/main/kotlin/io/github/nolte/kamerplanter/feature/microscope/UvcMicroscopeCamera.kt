@@ -167,7 +167,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
         // The preview view is deliberately kept. It is held weakly, so it cannot pin the
         // Activity, and dropping it here would leave retry() — stop() plus start() —
         // with no surface to open onto.
-        mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
+        //
+        // No state is published here. closeStream already reported what is true, and
+        // overwriting it with "no device attached" put that dead end one Retry press
+        // away: retry() is stop() plus start(), and start() cannot correct the claim
+        // while the surface is still gone.
     }
 
     override suspend fun captureFrame(): Result<CapturedFrame> {
@@ -254,7 +258,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 }
             }.onFailure {
                 Log.w(TAG, "opening the microscope stream failed", it)
-                mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                // Same generation check as the success path. An open that a teardown
+                // already superseded fails by design — its surface was taken away — and
+                // publishing that failure would put an error over a deliberate close.
+                if (opening == generation.get()) {
+                    mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                }
             }
         }
     }
