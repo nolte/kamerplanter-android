@@ -24,6 +24,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -65,7 +66,24 @@ internal class UvcMicroscopeCamera @Inject constructor(
             context = context,
             isStreaming = { session.get() != null },
             onReady = ::openStream,
-            onLost = { if (session.get()?.deviceName == it.deviceName) closeStream() },
+            onLost = { lost ->
+                // A published session decides on its own: closeStream tears down whatever
+                // is live regardless of device, so trusting a queued open's name while a
+                // stream exists would let one device's detach kill another's stream.
+                // Only with nothing published does the queued name matter — and it must,
+                // because session stays null until publication, and a detach falling in
+                // that window would otherwise leave a stream that surfaces after its
+                // device is gone, with no further broadcast able to close it.
+                val open = session.get()
+                val ours = if (open != null) {
+                    open.deviceName == lost.deviceName
+                } else {
+                    openingDevice.get() == lost.deviceName
+                }
+                if (ours) {
+                    closeStream()
+                }
+            },
             onState = { mutableState.value = it },
         )
     }
@@ -77,6 +95,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
     private val cameraDispatcher = cameraExecutor.asCoroutineDispatcher()
 
     private val session = AtomicReference<StreamSession?>(null)
+
+    /** Makes publishing a session and tearing one down mutually exclusive. */
+    private val sessionLock = Any()
+
+    /** The device an open is queued or running for; read by the `onLost` callback. */
+    private val openingDevice = AtomicReference<String?>(null)
 
     /**
      * Invalidates an open that is already queued on the camera thread. Without it, a
@@ -91,10 +115,22 @@ internal class UvcMicroscopeCamera @Inject constructor(
     @Volatile
     private var zoomFactor = MIN_ZOOM
 
-    // @Volatile: written on the main thread (surface listener) but read on the camera
-    // thread in applyPreviewTransform() from openStream's success path.
+    /**
+     * Weak on purpose. This class is a singleton, so holding the view strongly would pin
+     * the Activity that created it; dropping the reference when the surface goes away
+     * would be worse still, because the platform destroys the surface of a *living* view
+     * whenever the window stops — and the `AndroidView` factory never runs again, so the
+     * reference could never be restored and the preview would stay dead after the first
+     * time the app is backgrounded.
+     *
+     * Volatile because it is written on the main thread in createPreviewView and read on
+     * the camera thread from openStream's success path.
+     */
     @Volatile
-    private var previewView: TextureView? = null
+    private var previewViewRef: WeakReference<TextureView>? = null
+
+    private val previewView: TextureView?
+        get() = previewViewRef?.get()
 
     private val frameCallback = IFrameCallback { buffer ->
         val waiting = pendingFrame.get() ?: return@IFrameCallback
@@ -116,16 +152,21 @@ internal class UvcMicroscopeCamera @Inject constructor(
         TextureView(context).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                    watcher.currentDevice()?.let(watcher::claim)
+                    // Logged on both edges, device included: the surface round trip is
+                    // the whole reason this listener exists, and a reopen that finds no
+                    // device is exactly the silent failure worth naming.
+                    val device = watcher.currentDevice()
+                    Log.i(TAG, "preview surface available at ${width}x$height, device=${device?.deviceName}")
+                    device?.let(watcher::claim)
                 }
 
                 override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) =
                     applyPreviewTransform()
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                    // The view is going away, so release the reference that would
-                    // otherwise pin its Activity in this singleton.
-                    previewView = null
+                    Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
+                    // The view itself survives this — the window merely stopped — so the
+                    // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native
                     // preview thread may still be writing into it. closeStream releases
                     // it once the engine has actually let go.
@@ -135,7 +176,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
             }
-            previewView = this
+            previewViewRef = WeakReference(this)
         }
 
     override fun start() {
@@ -149,11 +190,14 @@ internal class UvcMicroscopeCamera @Inject constructor(
     override fun stop() {
         closeStream()
         watcher.stop()
-        // The preview view is deliberately kept: it is released when its surface is
-        // destroyed, which is when the screen is really gone. Dropping it here would
-        // leave retry() — stop() plus start() — with no surface to open onto, and no
-        // second onSurfaceTextureAvailable is coming for a view that still exists.
-        mutableState.value = MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
+        // The preview view is deliberately kept. It is held weakly, so it cannot pin the
+        // Activity, and dropping it here would leave retry() — stop() plus start() —
+        // with no surface to open onto.
+        //
+        // No state is published here. closeStream already reported what is true, and
+        // overwriting it with "no device attached" put that dead end one Retry press
+        // away: retry() is stop() plus start(), and start() cannot correct the claim
+        // while the surface is still gone.
     }
 
     override suspend fun captureFrame(): Result<CapturedFrame> {
@@ -207,9 +251,27 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     private fun openStream(device: UsbDevice) {
         val surface = previewView?.surfaceTexture ?: return
-        val opening = generation.incrementAndGet()
+        // Taken together under the lock the release checks: reserving the slot and moving
+        // the generation are one step, or an open finishing in between could hand back a
+        // reservation that already belongs to this one.
+        val opening = synchronized(sessionLock) {
+            openingDevice.set(device.deviceName)
+            generation.incrementAndGet()
+        }
         cameraExecutor.execute {
+            // Released on every exit, but only by the open that still owns the slot. The
+            // device name cannot tell two opens of the same device apart, so an overtaken
+            // one would hand back a *newer* open's reservation — and a detach arriving in
+            // that gap would find nothing to close and leave the orphan this guards
+            // against. The generation can tell them apart, and it cannot move while the
+            // lock is held.
+            fun releaseSlot() = synchronized(sessionLock) {
+                if (opening == generation.get()) {
+                    openingDevice.set(null)
+                }
+            }
             if (session.get() != null || opening != generation.get()) {
+                releaseSlot()
                 return@execute
             }
             runCatching {
@@ -219,10 +281,20 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     }
                 }
             }.onSuccess {
-                if (opening == generation.get()) {
+                // Under the lock so a teardown cannot land between the generation check
+                // and the publication: that interleaving left a live session behind an
+                // Unavailable state, with nothing able to close it or reopen past it.
+                val published = synchronized(sessionLock) {
+                    (opening == generation.get()).also { current ->
+                        if (current) {
+                            session.set(it)
+                            mutableState.value = MicroscopeState.Streaming
+                        }
+                    }
+                }
+                releaseSlot()
+                if (published) {
                     Log.i(TAG, "stream opened at ${it.width}x${it.height} on ${it.deviceName}")
-                    session.set(it)
-                    mutableState.value = MicroscopeState.Streaming
                     applyPreviewTransform()
                 } else {
                     // A close overtook this open; nothing else would ever release it.
@@ -230,16 +302,45 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     it.close()
                 }
             }.onFailure {
+                releaseSlot()
                 Log.w(TAG, "opening the microscope stream failed", it)
-                mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                // Same generation check as the success path, and under the same lock: a
+                // teardown landing between the check and the write would still put an
+                // error over a deliberate close. An open that a teardown superseded fails
+                // by design — its surface was taken away — so it stays a log line.
+                synchronized(sessionLock) {
+                    if (opening == generation.get()) {
+                        mutableState.value = MicroscopeState.Error(it.message ?: "cannot open the microscope")
+                    }
+                }
             }
         }
     }
 
     /** Closes the live stream, and releases [release] afterwards when one is given. */
     private fun closeStream(release: SurfaceTexture? = null) {
-        generation.incrementAndGet()
-        val open = session.getAndSet(null)
+        // Reports what is actually true: on the backgrounding path the device is still
+        // plugged in, and "no device attached" would put a wrong message on screen that
+        // only unplugging clears — the very shape this class keeps having to remove.
+        val next = if (watcher.currentDevice() == null) {
+            MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED)
+        } else {
+            MicroscopeState.Connecting
+        }
+        val open = synchronized(sessionLock) {
+            generation.incrementAndGet()
+            openingDevice.set(null)
+            // Leave Streaming behind: otherwise the capture and zoom controls stay on
+            // screen over a stream that is gone, and capture only yields "not streaming".
+            // Error goes with it — it belongs to the session being torn down, and nothing
+            // else clears it, so it would greet the next visit to this screen. A pending
+            // permission state is left alone: that one is still being answered.
+            when (mutableState.value) {
+                MicroscopeState.Streaming, is MicroscopeState.Error -> mutableState.value = next
+                else -> Unit
+            }
+            session.getAndSet(null)
+        }
         // Wake a capture suspended in awaitFrame() so it fails fast instead of hanging the
         // full CAPTURE_TIMEOUT_MS: the frame it is waiting for will never arrive now. The
         // atomic getAndSet makes this exclusive with the frame callback's own resume.

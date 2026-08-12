@@ -124,7 +124,7 @@ divergence.
 
 ### Constraints / non-functional
 
-- **R17** — The UVC engine (`ausbc`) SHALL NOT be referenced outside
+- **R17** — The UVC engine (`libuvc`) SHALL NOT be referenced outside
   `:feature:microscope`; `:feature:settings` SHALL NOT depend on it (ADR 0001).
   - _dimension_: `constraints` · _status_: `confirmed` · _source_: CLAUDE.md / ADR 0001
 - **R18** — Kotlin configuration SHALL use AGP 9 built-in Kotlin (never apply

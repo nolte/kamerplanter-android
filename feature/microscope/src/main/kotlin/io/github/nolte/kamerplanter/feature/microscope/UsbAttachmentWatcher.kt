@@ -19,8 +19,6 @@ import androidx.core.content.ContextCompat
  *
  * [onReady] fires with a device the app is permitted to open, on the main thread.
  */
-private const val TAG = "MicroscopeCamera"
-
 internal class UsbAttachmentWatcher(
     private val context: Context,
     private val isStreaming: () -> Boolean,
@@ -33,6 +31,13 @@ internal class UsbAttachmentWatcher(
 
     /** The device a dialog is already open for, so it is not asked for twice. */
     private var pendingRequest: String? = null
+
+    /**
+     * The device this watcher last went after — streaming, opening, or still waiting for
+     * its permission dialog. A detach is only this screen's business when it takes *this*
+     * device; anything else on the bus comes and goes without a say in what is displayed.
+     */
+    private var claimed: String? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -72,6 +77,7 @@ internal class UsbAttachmentWatcher(
 
     fun stop() {
         pendingRequest = null
+        claimed = null
         if (registered) {
             runCatching { context.unregisterReceiver(receiver) }
             registered = false
@@ -80,6 +86,7 @@ internal class UsbAttachmentWatcher(
 
     /** Opens straight away when already permitted, otherwise asks and waits for the answer. */
     fun claim(device: UsbDevice) {
+        claimed = device.deviceName
         if (usbManager.hasPermission(device)) {
             pendingRequest = null
             onReady(device)
@@ -102,9 +109,22 @@ internal class UsbAttachmentWatcher(
         val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
         Log.i(TAG, "USB permission answer for ${device.deviceName}: granted=$granted")
         pendingRequest = null
+        // An answer outlives its device easily — the dialog stays up while the cable is
+        // pulled, and the broadcast arrives afterwards. Acting on it would claim a device
+        // that is gone and put a failure over the message that already told the truth.
+        if (!usbManager.deviceList.containsKey(device.deviceName)) {
+            Log.i(TAG, "ignoring an answer for a device that is no longer attached")
+            return
+        }
         if (granted) {
+            // Re-stated: a claim for another device may have moved this on while the
+            // dialog was open, and it is this device the camera is about to be handed.
+            claimed = device.deviceName
             onReady(device)
-        } else {
+        } else if (device.deviceName == claimed && !isStreaming()) {
+            // A refusal speaks only for the device still being waited on, and never over
+            // a stream: answering an old dialog would otherwise replace a live preview
+            // with a permission notice that nothing comes back to clear.
             onState(MicroscopeState.Unavailable(UnavailableReason.PERMISSION_DENIED))
         }
     }
@@ -118,7 +138,28 @@ internal class UsbAttachmentWatcher(
 
     private fun lose(device: UsbDevice) {
         onLost(device)
-        if (currentDevice() == null) {
+        // Decided by ownership, because neither of the obvious readings holds up. "Some
+        // device is still on the bus" left the screen waiting for a stream nothing would
+        // open, and claiming that survivor is worse still — this app calls any UVC device
+        // the microscope, so it would put an unrelated camera behind the shutter. "No
+        // stream is running" then overwrote states that belonged to a device still
+        // attached, taking their Retry with them. Only the loss of the device this
+        // watcher went after says anything about what the screen should show; a re-attach
+        // brings its own way back, and it broadcasts.
+        if (device.deviceName != claimed) {
+            return
+        }
+        Log.i(TAG, "${device.deviceName} is gone; remaining: ${describeDevices()}")
+        claimed = null
+        // Cleared with it: a dialog for a device that left is not being answered any
+        // more, and a bus number gets reused — the guard would then swallow the request
+        // that is supposed to bring the device back.
+        pendingRequest = null
+        // Nothing is said over a stream that is still running. The claimed device and the
+        // streaming one can be different: a permission answer arriving late opens the
+        // device it belongs to, while a newer claim has already moved this field on. What
+        // is on screen belongs to the stream, not to the field.
+        if (!isStreaming()) {
             onState(MicroscopeState.Unavailable(UnavailableReason.NO_DEVICE_ATTACHED))
         }
     }
@@ -142,3 +183,5 @@ private fun usbDeviceFrom(intent: Intent): UsbDevice? =
     } else {
         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
     }
+
+private const val TAG = "MicroscopeCamera"

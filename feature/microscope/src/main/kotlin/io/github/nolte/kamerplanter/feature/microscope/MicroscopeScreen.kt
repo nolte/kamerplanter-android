@@ -145,6 +145,9 @@ private fun MicroscopeContent(
                 onAction = onRetry,
                 modifier = Modifier.align(Alignment.Center),
             )
+            // Connecting deliberately gets no Retry: the only way back from a lost
+            // surface is onSurfaceTextureAvailable, which fires on its own, and
+            // retry() would just tear down the reopen that is already under way.
             camera !is MicroscopeState.Streaming -> StatusMessage(
                 state = camera,
                 modifier = Modifier.align(Alignment.Center),
@@ -225,6 +228,7 @@ private fun StatusMessage(state: MicroscopeState, modifier: Modifier = Modifier)
             UnavailableReason.PERMISSION_DENIED -> stringResource(R.string.microscope_usb_permission_denied)
         }
         MicroscopeState.AwaitingPermission -> stringResource(R.string.microscope_awaiting_permission)
+        MicroscopeState.Connecting -> stringResource(R.string.microscope_connecting)
         is MicroscopeState.Error -> stringResource(R.string.microscope_error, state.message)
         MicroscopeState.Streaming -> ""
     }

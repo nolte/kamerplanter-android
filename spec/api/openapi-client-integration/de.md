@@ -156,7 +156,7 @@ treibende Anforderung dieser Spec.
       CI verifiziert; ein manipuliertes Schema lässt den Build scheitern. (R-GEN-2, R-GEN-3)
 - [ ] Ein CI-Check scheitert, wenn der eingecheckte generierte Client nicht zum gepinnten
       Schema passt. (R-GEN-7)
-- [ ] `core/network/` exponiert keine UVC/`ausbc`-Symbole, und Feature-Module referenzieren
+- [ ] `core/network/` exponiert keine UVC/`libuvc`-Symbole, und Feature-Module referenzieren
       die API nur über `core/network/`-Interfaces. (R-GEN-5)
 - [ ] Die Deserialisierung eines Response mit zusätzlichen unbekannten Feldern (neuerer
       Server) wirft nicht und liefert die bekannten Felder korrekt. (R-COMPAT-1)
