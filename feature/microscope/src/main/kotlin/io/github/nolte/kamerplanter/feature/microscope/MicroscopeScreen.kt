@@ -145,6 +145,14 @@ private fun MicroscopeContent(
                 onAction = onRetry,
                 modifier = Modifier.align(Alignment.Center),
             )
+            // Reopening normally takes a moment and needs no help, but a surface that
+            // never comes back would otherwise leave the screen waiting for good.
+            camera is MicroscopeState.Connecting -> ActionableMessage(
+                text = stringResource(R.string.microscope_connecting),
+                actionLabel = stringResource(R.string.microscope_retry),
+                onAction = onRetry,
+                modifier = Modifier.align(Alignment.Center),
+            )
             camera !is MicroscopeState.Streaming -> StatusMessage(
                 state = camera,
                 modifier = Modifier.align(Alignment.Center),
@@ -225,6 +233,7 @@ private fun StatusMessage(state: MicroscopeState, modifier: Modifier = Modifier)
             UnavailableReason.PERMISSION_DENIED -> stringResource(R.string.microscope_usb_permission_denied)
         }
         MicroscopeState.AwaitingPermission -> stringResource(R.string.microscope_awaiting_permission)
+        MicroscopeState.Connecting -> stringResource(R.string.microscope_connecting)
         is MicroscopeState.Error -> stringResource(R.string.microscope_error, state.message)
         MicroscopeState.Streaming -> ""
     }

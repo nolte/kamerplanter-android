@@ -142,7 +142,7 @@ spec.
       verifies; a tampered schema fails the build. (R-GEN-2, R-GEN-3)
 - [ ] A CI check fails when the checked-in generated client does not match the pinned
       schema. (R-GEN-7)
-- [ ] `core/network/` exposes no UVC/`ausbc` symbols, and feature modules reference the API
+- [ ] `core/network/` exposes no UVC/`libuvc` symbols, and feature modules reference the API
       only through `core/network/` interfaces. (R-GEN-5)
 - [ ] Deserializing a response with extra unknown fields (newer server) does not throw and
       returns the known fields correctly. (R-COMPAT-1)

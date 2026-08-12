@@ -8,10 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * App-owned seam in front of the UVC engine (ADR 0001, isolation rule).
  *
- * The implementation wraps a libuvc-based library (currently AndroidUSBCamera/AUSBC)
- * and is the only place in the codebase allowed to touch it, so the engine can be
- * swapped without changing callers. Reference device: Generalplus `1b3f:2002`,
- * MJPEG, captured at 1920x1080 (issue #1).
+ * The implementation drives `libuvc` directly and is the only place in the codebase
+ * allowed to touch it, so the engine can be swapped without changing callers. Reference
+ * device: Generalplus `1b3f:2002`, MJPEG, captured at 1920x1080 (issue #1).
  *
  * Lifecycle: [createPreviewView] once per UI composition, [start] when the screen
  * becomes visible, [stop] when it leaves. Everything in between is event-driven
@@ -75,6 +74,13 @@ sealed interface MicroscopeState {
 
     /** Device detected, waiting for the user to grant USB permission. */
     data object AwaitingPermission : MicroscopeState
+
+    /**
+     * A permitted device is attached but no stream is open on it — the state between
+     * closing a stream and opening the next one, which is what a backgrounded screen
+     * passes through. Distinct from [Unavailable] because the device is still there.
+     */
+    data object Connecting : MicroscopeState
 
     /** Stream is open; the live preview is rendering. */
     data object Streaming : MicroscopeState
