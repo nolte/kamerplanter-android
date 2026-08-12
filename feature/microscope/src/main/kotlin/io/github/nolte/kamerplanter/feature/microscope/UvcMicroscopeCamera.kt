@@ -132,6 +132,9 @@ internal class UvcMicroscopeCamera @Inject constructor(
         TextureView(context).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                    // Logged on both edges: the surface round trip is the whole reason
+                    // this listener exists, and it left no trace to check a fix against.
+                    Log.i(TAG, "preview surface available at ${width}x$height")
                     watcher.currentDevice()?.let(watcher::claim)
                 }
 
@@ -139,6 +142,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     applyPreviewTransform()
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                    Log.i(TAG, "preview surface destroyed; closing the stream")
                     // The view itself survives this — the window merely stopped — so the
                     // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native
