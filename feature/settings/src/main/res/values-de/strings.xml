@@ -8,7 +8,6 @@
     <string name="settings_verifying">Wird gekoppelt…</string>
     <string name="settings_paired_title">Gekoppelt</string>
     <string name="settings_paired_base_url">Server: %1$s</string>
-    <string name="settings_paired_code">Kopplungscode: %1$s</string>
     <string name="settings_unpair">Kopplung aufheben</string>
     <string name="settings_failed">Kopplung fehlgeschlagen. Bitte scanne den QR-Code erneut.</string>
     <string name="settings_retry">Erneut versuchen</string>

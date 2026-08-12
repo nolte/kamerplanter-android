@@ -8,25 +8,28 @@ class QrPayloadParserTest {
 
     @Test
     fun `parses a well-formed pairing uri into base url and code`() {
-        val payload = QrPayloadParser.parse(
+        val request = QrPayloadParser.parse(
             "kamerplanter://pair?url=https%3A%2F%2Fplants.example.org&code=ABC123",
         )
 
-        assertEquals(PairingPayload(baseUrl = "https://plants.example.org", code = "ABC123"), payload)
+        assertEquals(
+            ConnectionRequest.QrPairing(baseUrl = "https://plants.example.org", code = "ABC123"),
+            request,
+        )
     }
 
     @Test
     fun `tolerates surrounding whitespace`() {
-        val payload = QrPayloadParser.parse("  kamerplanter://pair?url=https%3A%2F%2Fx&code=c  ")
+        val request = QrPayloadParser.parse("  kamerplanter://pair?url=https%3A%2F%2Fx&code=c  ")
 
-        assertEquals(PairingPayload(baseUrl = "https://x", code = "c"), payload)
+        assertEquals(ConnectionRequest.QrPairing(baseUrl = "https://x", code = "c"), request)
     }
 
     @Test
     fun `preserves a literal plus in the code instead of turning it into a space`() {
-        val payload = QrPayloadParser.parse("kamerplanter://pair?url=https%3A%2F%2Fx&code=ab+cd")
+        val request = QrPayloadParser.parse("kamerplanter://pair?url=https%3A%2F%2Fx&code=ab+cd")
 
-        assertEquals(PairingPayload(baseUrl = "https://x", code = "ab+cd"), payload)
+        assertEquals(ConnectionRequest.QrPairing(baseUrl = "https://x", code = "ab+cd"), request)
     }
 
     @Test

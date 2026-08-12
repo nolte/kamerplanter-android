@@ -8,7 +8,6 @@
     <string name="settings_verifying">Pairing…</string>
     <string name="settings_paired_title">Paired</string>
     <string name="settings_paired_base_url">Server: %1$s</string>
-    <string name="settings_paired_code">Pairing code: %1$s</string>
     <string name="settings_unpair">Unpair</string>
     <string name="settings_failed">Pairing failed. Please try scanning the QR code again.</string>
     <string name="settings_retry">Try again</string>

@@ -23,7 +23,12 @@ class SettingsViewModelTest {
     private val dispatcher = UnconfinedTestDispatcher()
 
     private val validQr = "kamerplanter://pair?url=https%3A%2F%2Fplants.example.org&code=ABC123"
-    private val payload = PairingPayload(baseUrl = "https://plants.example.org", code = "ABC123")
+    private val request = ConnectionRequest.QrPairing(baseUrl = "https://plants.example.org", code = "ABC123")
+    private val connection = Connection.QrPairing(
+        baseUrl = "https://plants.example.org",
+        tenantSlug = FakeConnectionClient.FAKE_TENANT.slug,
+        identity = FakeConnectionClient.FAKE_IDENTITY,
+    )
     private val failQr = "kamerplanter://pair?url=https%3A%2F%2Fx&code=fail"
 
     @Before
@@ -37,56 +42,70 @@ class SettingsViewModelTest {
     }
 
     private fun viewModel(
-        client: PairingClient = FakePairingClient(),
-        store: PairingStore = FakePairingStore(),
+        client: ConnectionClient = FakeConnectionClient(),
+        store: ConnectionStore = FakeConnectionStore(),
     ) = SettingsViewModel(client, store)
 
     @Test
-    fun `starts paired when a pairing is already persisted`() = runTest(dispatcher) {
-        val viewModel = viewModel(store = FakePairingStore(initial = payload))
+    fun `starts connected when a connection is already persisted`() = runTest(dispatcher) {
+        val viewModel = viewModel(store = FakeConnectionStore(initial = connection))
 
-        assertEquals(PairingState.Paired(payload), viewModel.state.value)
+        assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
     }
 
     @Test
-    fun `starts idle when nothing is persisted`() = runTest(dispatcher) {
+    fun `starts disconnected when nothing is persisted`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        assertEquals(PairingState.Idle, viewModel.state.value)
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
     }
 
     @Test
-    fun `startScan moves from idle to scanning`() = runTest(dispatcher) {
+    fun `starting the qr method moves from disconnected to scanning`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(PairingState.Scanning, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
     }
 
     @Test
-    fun `a valid qr pairs and persists the payload`() = runTest(dispatcher) {
-        val store = FakePairingStore()
+    fun `each method has its own collection state`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.API_KEY)
+        assertEquals(ConnectionState.Collecting.ApiKeyEntry, viewModel.state.value)
+
+        viewModel.startConnecting(ConnectionMethod.LIGHT_MODE)
+        assertEquals(ConnectionState.Collecting.LightModeEntry, viewModel.state.value)
+    }
+
+    @Test
+    fun `a valid qr connects and persists the connection`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
         val viewModel = viewModel(store = store)
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(validQr)
         advanceUntilIdle()
 
-        assertEquals(PairingState.Paired(payload), viewModel.state.value)
-        assertEquals(payload, store.saved)
+        assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
+        assertEquals(connection, store.saved)
     }
 
     @Test
     fun `the sentinel fail code ends in failed and persists nothing`() = runTest(dispatcher) {
-        val store = FakePairingStore()
+        val store = FakeConnectionStore()
         val viewModel = viewModel(store = store)
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(failQr)
         advanceUntilIdle()
 
-        assertTrue(viewModel.state.value is PairingState.Failed)
+        assertEquals(
+            ConnectionMethod.QR_PAIRING,
+            (viewModel.state.value as ConnectionState.Failed).method,
+        )
         assertNull(store.saved)
     }
 
@@ -94,10 +113,10 @@ class SettingsViewModelTest {
     fun `an unparseable qr is ignored while scanning`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected("just some scanned text")
 
-        assertEquals(PairingState.Scanning, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
     }
 
     @Test
@@ -106,34 +125,144 @@ class SettingsViewModelTest {
 
         viewModel.onQrDetected(validQr)
 
-        assertEquals(PairingState.Idle, viewModel.state.value)
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
     }
 
     @Test
     fun `verifying is entered before the backend responds`() = runTest(dispatcher) {
-        val client = GatedPairingClient(PairingResult.Success)
+        val client = GatedConnectionClient(verified(tenants = listOf(FakeConnectionClient.FAKE_TENANT)))
         val viewModel = viewModel(client = client)
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(validQr)
 
-        assertEquals(PairingState.Verifying(payload), viewModel.state.value)
+        assertEquals(ConnectionState.Verifying(request), viewModel.state.value)
 
         client.release()
         advanceUntilIdle()
 
-        assertEquals(PairingState.Paired(payload), viewModel.state.value)
+        assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
     }
 
     @Test
-    fun `unpair clears persistence and returns to idle`() = runTest(dispatcher) {
-        val store = FakePairingStore(initial = payload)
+    fun `an api key connects with its scoped tenant and a masked hint`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
         val viewModel = viewModel(store = store)
 
-        viewModel.unpair()
+        viewModel.startConnecting(ConnectionMethod.API_KEY)
+        viewModel.submit(ConnectionRequest.ApiKey(baseUrl = "https://plants.example.org", key = "kp_sk_abcdef"))
         advanceUntilIdle()
 
-        assertEquals(PairingState.Idle, viewModel.state.value)
+        val expected = Connection.ApiKey(
+            baseUrl = "https://plants.example.org",
+            tenantSlug = FakeConnectionClient.FAKE_TENANT.slug,
+            keyHint = "…cdef",
+        )
+        assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
+        assertEquals(expected, store.saved)
+    }
+
+    @Test
+    fun `light mode connects without a tenant`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
+        val viewModel = viewModel(store = store)
+
+        viewModel.startConnecting(ConnectionMethod.LIGHT_MODE)
+        viewModel.submit(ConnectionRequest.LightMode(baseUrl = "https://light.example.org"))
+        advanceUntilIdle()
+
+        val expected = Connection.LightMode(baseUrl = "https://light.example.org")
+        assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
+        assertEquals(expected, store.saved)
+    }
+
+    @Test
+    fun `a submission that does not match the collected method is ignored`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.LIGHT_MODE)
+        viewModel.submit(ConnectionRequest.ApiKey(baseUrl = "https://x", key = "kp_sk_1"))
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Collecting.LightModeEntry, viewModel.state.value)
+    }
+
+    @Test
+    fun `several tenants pause the flow until the user picks one`() = runTest(dispatcher) {
+        val tenants = listOf(Tenant("balcony"), Tenant("greenhouse"))
+        val store = FakeConnectionStore()
+        val viewModel = viewModel(client = StubConnectionClient(verified(tenants)), store = store)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.SelectingTenant(request, tenants, FakeConnectionClient.FAKE_IDENTITY),
+            viewModel.state.value,
+        )
+        assertNull(store.saved)
+
+        viewModel.selectTenant(tenants[1])
+        advanceUntilIdle()
+
+        val expected = connection.copy(tenantSlug = "greenhouse")
+        assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
+        assertEquals(expected, store.saved)
+    }
+
+    @Test
+    fun `a tenant that was never offered is not adopted`() = runTest(dispatcher) {
+        val tenants = listOf(Tenant("balcony"), Tenant("greenhouse"))
+        val viewModel = viewModel(client = StubConnectionClient(verified(tenants)))
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+        viewModel.selectTenant(Tenant("someone-elses-garden"))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value is ConnectionState.SelectingTenant)
+    }
+
+    @Test
+    fun `a credential without a tenant fails instead of connecting`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
+        val viewModel = viewModel(client = StubConnectionClient(verified(tenants = emptyList())), store = store)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value is ConnectionState.Failed)
+        assertNull(store.saved)
+    }
+
+    @Test
+    fun `a failed change leaves the previous connection in place`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(initial = connection)
+        val viewModel = viewModel(store = store)
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(failQr)
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value is ConnectionState.Failed)
+        assertNull(store.saved)
+
+        viewModel.cancel()
+
+        assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
+    }
+
+    @Test
+    fun `disconnect clears persistence and returns to disconnected`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(initial = connection)
+        val viewModel = viewModel(store = store)
+
+        viewModel.disconnect()
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
         assertTrue(store.cleared)
     }
 
@@ -141,21 +270,21 @@ class SettingsViewModelTest {
     fun `a scanner error moves from scanning to camera-unavailable`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onScannerError()
 
-        assertEquals(PairingState.CameraUnavailable, viewModel.state.value)
+        assertEquals(ConnectionState.CameraUnavailable, viewModel.state.value)
     }
 
     @Test
     fun `retry from camera-unavailable reopens the scanner`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onScannerError()
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(PairingState.Scanning, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
     }
 
     @Test
@@ -164,46 +293,51 @@ class SettingsViewModelTest {
 
         viewModel.onScannerError()
 
-        assertEquals(PairingState.Idle, viewModel.state.value)
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
     }
 
     @Test
-    fun `cancel returns from scanning to idle`() = runTest(dispatcher) {
+    fun `cancel returns from scanning to disconnected`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
-        viewModel.cancelScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.cancel()
 
-        assertEquals(PairingState.Idle, viewModel.state.value)
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
     }
 
     @Test
-    fun `retry from failed reopens the scanner`() = runTest(dispatcher) {
+    fun `retry from failed reopens the collection step of the same method`() = runTest(dispatcher) {
         val viewModel = viewModel()
 
-        viewModel.startScan()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(failQr)
         advanceUntilIdle()
-        assertTrue(viewModel.state.value is PairingState.Failed)
+        val failed = viewModel.state.value as ConnectionState.Failed
 
-        viewModel.startScan()
+        viewModel.startConnecting(failed.method)
 
-        assertEquals(PairingState.Scanning, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
     }
+
+    private fun verified(tenants: List<Tenant>) = ConnectionResult.Verified(
+        identity = FakeConnectionClient.FAKE_IDENTITY,
+        tenants = tenants,
+    )
 }
 
-private class FakePairingStore(initial: PairingPayload? = null) : PairingStore {
+private class FakeConnectionStore(initial: Connection? = null) : ConnectionStore {
     private val flow = MutableStateFlow(initial)
-    override val pairing: Flow<PairingPayload?> = flow
+    override val connection: Flow<Connection?> = flow
 
-    var saved: PairingPayload? = null
+    var saved: Connection? = null
         private set
     var cleared: Boolean = false
         private set
 
-    override suspend fun save(payload: PairingPayload) {
-        saved = payload
-        flow.value = payload
+    override suspend fun save(connection: Connection) {
+        saved = connection
+        flow.value = connection
     }
 
     override suspend fun clear() {
@@ -212,11 +346,16 @@ private class FakePairingStore(initial: PairingPayload? = null) : PairingStore {
     }
 }
 
-/** A [PairingClient] whose response is held until [release], so [PairingState.Verifying] is observable. */
-private class GatedPairingClient(private val result: PairingResult) : PairingClient {
+/** A [ConnectionClient] that answers with a canned result, without any delay. */
+private class StubConnectionClient(private val result: ConnectionResult) : ConnectionClient {
+    override suspend fun connect(request: ConnectionRequest): ConnectionResult = result
+}
+
+/** A [ConnectionClient] whose answer is held until [release], so [ConnectionState.Verifying] is observable. */
+private class GatedConnectionClient(private val result: ConnectionResult) : ConnectionClient {
     private val gate = CompletableDeferred<Unit>()
 
-    override suspend fun pair(payload: PairingPayload): PairingResult {
+    override suspend fun connect(request: ConnectionRequest): ConnectionResult {
         gate.await()
         return result
     }

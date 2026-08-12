@@ -183,6 +183,31 @@ carries; none had to be recorded as a routing signal for want of one.
   endpoint, the R8 `device_name`, light-mode tenant semantics, and R24 session-key
   discovery among them. Each is an implementation-time decision, not a blocker.
 
+## Device baseline (Pixel 7a, 2026-08-12, before WP-4 lands)
+
+Captured on the physical Pixel 7a (`lynx`, reachable over WiFi adb at `192.168.178.21:5555`)
+against the installed debug build `versionName 0.1.0` / `versionCode 1`, so that any
+regression WP-4 and later packages introduce is attributable to a known-good starting point.
+
+- **The dummy flow works.** Settings opens in `idle` with the single QR-only affordance
+  ("Kopplungs-QR-Code scannen"); tapping it enters `scanning` with a live camera, the
+  localized prompt and a Cancel affordance; the bottom navigation stays visible throughout.
+  Camera permission was already granted, so the permission branch was not exercised.
+  `Paired` is not reachable without a valid payload and was not attempted.
+- **This is precisely the surface WP-12 must replace.** One button, one method. The method
+  picker, the connection-state display, change and disconnect all still have to be built.
+- **Accessibility finding, relevant to WP-12 and R35.** The whole Compose hierarchy exposes
+  **no `content-desc` and no `resource-id`** — every interactive node dumps as a bare
+  `android.view.View`, and the tabs are identifiable only by their label `TextView`. The
+  connection UI adds a method picker, a masked-secret hint (R19) and a tenant picker, all of
+  which need real semantics. `claude-android-engineering:android-ux-reviewer` should be run
+  against WP-12's output with this explicitly in scope. It also means any UI automation is
+  coordinate-based today, which is brittle.
+- **The device is shared.** A peer Claude session was active on this repository during the
+  run and drove the device concurrently (an unexplained tab switch, then a browser in the
+  foreground). WP-21's end-to-end verification must be coordinated with the operator rather
+  than assumed exclusive.
+
 ## Recorded deviations
 
 - **Per-package dispatch gate waived.** `spec/project/issue-orchestration/` §Specialist
@@ -228,4 +253,4 @@ left silently unplanned.
 |---|---|---|---|
 | WP-19 | no matching specialised agent — generalist remediation | **done** — upstream issue [nolte/kamerplanter#1134](https://github.com/nolte/kamerplanter/issues/1134) opened, asking for opt-in body transport of the refresh token on `POST /api/v1/auth/login` | 2026-08-12 |
 | WP-20 | no matching specialised agent — generalist remediation | **done** — follow-up issue [#13](https://github.com/nolte/kamerplanter-android/issues/13) opened for the `/connect` deep-link contract | 2026-08-12 |
-| WP-4 | no matching specialised agent — generalist remediation | dispatched, in flight | 2026-08-12 |
+| WP-4 | no matching specialised agent — generalist remediation | **done** — `Connection` (3 kinds) + `ConnectionState` replace the pairing model; `Pairing*` renamed to `Connection*` throughout. No refutation. Verified independently by the orchestrator: `./gradlew test` and `./gradlew detekt lint` both green. Two boundary decisions handed forward: the credential type and its store stay with **WP-5** (a declared-but-unbound seam would have pre-empted WP-5's design), and `Failed.reason` stays a diagnostic string so **WP-6** owns the 401/423/429 mapping. `Collecting.ApiKeyEntry`/`LightModeEntry` and `SelectingTenant` render placeholders until WP-7/WP-8/WP-9/WP-12 land. | 2026-08-12 |

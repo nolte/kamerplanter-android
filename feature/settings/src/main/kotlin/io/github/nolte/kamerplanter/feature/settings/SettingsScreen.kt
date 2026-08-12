@@ -33,10 +33,14 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
- * Settings screen whose centrepiece is pairing with the (self-hosted) kamerplanter
- * backend by scanning a QR code. The screen owns the CAMERA runtime permission; the
- * pairing state machine lives in [SettingsViewModel] and the backend is faked behind
- * [PairingClient] until kamerplanter#1118 lands.
+ * Settings screen whose centrepiece is connecting to the (self-hosted) kamerplanter
+ * backend. The screen owns the CAMERA runtime permission; the connection state machine
+ * lives in [SettingsViewModel] and the backend is faked behind [ConnectionClient].
+ *
+ * The surface is still the dummy's QR-only one: the API-key form, the light-mode form and
+ * the tenant picker are states the machine already carries but that
+ * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8) gives their own
+ * steps (R9, R10, R15, R26).
  */
 @Composable
 fun SettingsScreen(
@@ -57,12 +61,12 @@ fun SettingsScreen(
     SettingsContent(
         state = state,
         hasCameraPermission = hasCameraPermission,
-        actions = PairingActions(
-            onPair = viewModel::startScan,
+        actions = ConnectionActions(
+            onConnect = viewModel::startConnecting,
             onQrDetected = viewModel::onQrDetected,
             onScannerError = viewModel::onScannerError,
-            onCancel = viewModel::cancelScan,
-            onUnpair = viewModel::unpair,
+            onCancel = viewModel::cancel,
+            onDisconnect = viewModel::disconnect,
             onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
         ),
         modifier = modifier,
@@ -70,45 +74,57 @@ fun SettingsScreen(
 }
 
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
-internal class PairingActions(
-    val onPair: () -> Unit,
+internal class ConnectionActions(
+    val onConnect: (ConnectionMethod) -> Unit,
     val onQrDetected: (String) -> Unit,
     val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
-    val onUnpair: () -> Unit,
+    val onDisconnect: () -> Unit,
     val onRequestPermission: () -> Unit,
 )
 
 @Composable
 private fun SettingsContent(
-    state: PairingState,
+    state: ConnectionState,
     hasCameraPermission: Boolean,
-    actions: PairingActions,
+    actions: ConnectionActions,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         when (state) {
-            PairingState.Loading -> CenteredProgress()
-            PairingState.Idle -> NotPairedBody(onPair = actions.onPair)
-            PairingState.Scanning -> ScanningBody(
+            ConnectionState.Loading -> CenteredProgress()
+            // Only the QR method has a surface today, so the disconnected body offers it
+            // directly instead of a method chooser.
+            ConnectionState.Disconnected,
+            ConnectionState.Collecting.ApiKeyEntry,
+            ConnectionState.Collecting.LightModeEntry,
+            -> NotConnectedBody(onConnect = { actions.onConnect(ConnectionMethod.QR_PAIRING) })
+            ConnectionState.Collecting.ScanningQr -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
                 onQrDetected = actions.onQrDetected,
                 onScannerError = actions.onScannerError,
                 onCancel = actions.onCancel,
                 onRequestPermission = actions.onRequestPermission,
             )
-            PairingState.CameraUnavailable -> CameraUnavailableBody(onRetry = actions.onPair)
-            is PairingState.Verifying -> CenteredProgress(
-                label = stringResource(R.string.settings_verifying),
+            ConnectionState.CameraUnavailable -> CameraUnavailableBody(
+                onRetry = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
             )
-            is PairingState.Paired -> PairedBody(payload = state.payload, onUnpair = actions.onUnpair)
-            is PairingState.Failed -> FailedBody(onRetry = actions.onPair)
+            // The tenant picker is unreachable while the faked instance resolves exactly
+            // one tenant, so verification and selection share the spinner for now (R15).
+            is ConnectionState.Verifying,
+            is ConnectionState.SelectingTenant,
+            -> CenteredProgress(label = stringResource(R.string.settings_verifying))
+            is ConnectionState.Connected -> ConnectedBody(
+                connection = state.connection,
+                onDisconnect = actions.onDisconnect,
+            )
+            is ConnectionState.Failed -> FailedBody(onRetry = { actions.onConnect(state.method) })
         }
     }
 }
 
 @Composable
-private fun NotPairedBody(onPair: () -> Unit) {
+private fun NotConnectedBody(onConnect: () -> Unit) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_pairing_title),
@@ -119,7 +135,7 @@ private fun NotPairedBody(onPair: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
-        Button(onClick = onPair, modifier = Modifier.padding(top = 24.dp)) {
+        Button(onClick = onConnect, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_pair_button))
         }
     }
@@ -168,19 +184,21 @@ private fun ScanningBody(
     }
 }
 
+// The pairing code the dummy used to print here is gone on purpose: no stored secret is
+// ever rendered in clear text (R19). Method, tenant and identity join the base URL when
+// the connection surface gets its own step of issue #8 (R26).
 @Composable
-private fun PairedBody(payload: PairingPayload, onUnpair: () -> Unit) {
+private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_paired_title),
             style = MaterialTheme.typography.headlineSmall,
         )
         Text(
-            text = stringResource(R.string.settings_paired_base_url, payload.baseUrl),
+            text = stringResource(R.string.settings_paired_base_url, connection.baseUrl),
             modifier = Modifier.padding(top = 12.dp),
         )
-        Text(text = stringResource(R.string.settings_paired_code, payload.code))
-        OutlinedButton(onClick = onUnpair, modifier = Modifier.padding(top = 24.dp)) {
+        OutlinedButton(onClick = onDisconnect, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_unpair))
         }
     }
