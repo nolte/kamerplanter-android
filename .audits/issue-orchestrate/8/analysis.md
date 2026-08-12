@@ -194,8 +194,33 @@ carries; none had to be recorded as a routing signal for want of one.
 
 ## Route decision
 
-**Status: pending operator confirmation.** See the accompanying report; the decision and
-its rationale are written back into this section before any dispatch.
+**Decided 2026-08-12: implement directly as a single PR strand on
+`feat/backend-connection`.** The operator confirmed this gate after reviewing the
+decomposition, and confirmed publishing backend release `v0.2.0` upstream as the run's
+first step so WP-1 clears.
+
+**This is a recorded deviation from the boundedness rule.**
+`spec/project/issue-orchestration/` §Routing defines *bounded* as one goal outcome, one PR
+strand, and no new or retargeted roadmap item. This issue spans two outcomes — the API
+client infrastructure and the connection capability — and would therefore normally route
+to `feature-decompose` or `roadmap-plan`.
+
+It does not, because **the formal pipeline does not exist in this repository**: `project/`
+holds only `requirements/`, with no `mission.md`, `goals.md`, `roadmap.md`, `features/` or
+`sprints/`. `mission-define` refuses to run without `goals.md` and an audience artefact, so
+routing would first require a full planning bootstrap (`audience-identify` → goals →
+`mission-define` → `roadmap-init` → `roadmap-plan`) before a single line of #8 could be
+written. The operator weighed that against a single strand and chose the strand.
+
+Splitting the issue was considered and rejected on evidence: nearly every package depends
+on WP-1 rather than on the client-generation strand specifically — verification (WP-9), QR
+redemption (WP-6), the refresh cycle (WP-10), light-mode detection (WP-8) and TLS
+diagnostics (WP-13) all make HTTP calls, and hand-written calls were explicitly ruled out.
+A split would relocate the wait, not remove it. Six of 21 packages (WP-4, WP-5, WP-14,
+WP-18, WP-19, WP-20) are startable before WP-1 clears.
+
+The two routes are **not** mixed: the entire issue is implemented directly, and nothing is
+left silently unplanned.
 
 ## Dispatch log
 
