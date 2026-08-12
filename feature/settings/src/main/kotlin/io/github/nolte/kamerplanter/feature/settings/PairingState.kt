@@ -12,6 +12,9 @@ sealed interface PairingState {
     /** Camera is live; waiting for a valid pairing QR. */
     data object Scanning : PairingState
 
+    /** The device camera could not be bound (in use, hardware error, no back camera). */
+    data object CameraUnavailable : PairingState
+
     /** A payload was decoded; the (fake) backend call is in flight. */
     data class Verifying(val payload: PairingPayload) : PairingState
 

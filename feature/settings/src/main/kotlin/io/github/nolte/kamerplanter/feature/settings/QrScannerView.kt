@@ -35,15 +35,21 @@ import java.util.concurrent.Executors
 @Composable
 internal fun QrScannerView(
     onQrDetected: (String) -> Unit,
+    onError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
-    // Keep the latest callback without rebinding the camera on every recomposition.
+    // Keep the latest callbacks without rebinding the camera on every recomposition.
     val currentOnQrDetected by rememberUpdatedState(onQrDetected)
+    val currentOnError by rememberUpdatedState(onError)
 
     DisposableEffect(lifecycleOwner) {
+        // Both the provider listener and onDispose run on the main thread, so this plain
+        // flag is enough to skip a bind whose composable was already torn down (teardown
+        // race): the executor/scanner would be dead by the time a late callback fires.
+        var disposed = false
         val analysisExecutor = Executors.newSingleThreadExecutor()
         val scanner = BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder()
@@ -53,34 +59,43 @@ internal fun QrScannerView(
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener(
             {
-                val provider = providerFuture.get()
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also {
-                        it.setAnalyzer(
-                            analysisExecutor,
-                            QrCodeAnalyzer(scanner) { raw -> currentOnQrDetected(raw) },
-                        )
+                if (!disposed) {
+                    val provider = providerFuture.get()
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
                     }
-                provider.unbindAll()
-                runCatching {
-                    provider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        analysis,
-                    )
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also {
+                            it.setAnalyzer(
+                                analysisExecutor,
+                                QrCodeAnalyzer(scanner) { raw -> currentOnQrDetected(raw) },
+                            )
+                        }
+                    provider.unbindAll()
+                    // Surface a bind failure (camera in use, hardware error, no back camera)
+                    // instead of leaving a permanently black preview with no recovery.
+                    runCatching {
+                        provider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            analysis,
+                        )
+                    }.onFailure { currentOnError() }
                 }
             },
             ContextCompat.getMainExecutor(context),
         )
 
         onDispose {
-            runCatching { providerFuture.get().unbindAll() }
+            disposed = true
+            // Never block the main thread waiting on the provider: only unbind if it has
+            // already resolved; an unresolved future means nothing was bound yet.
+            if (providerFuture.isDone) {
+                runCatching { providerFuture.get().unbindAll() }
+            }
             analysisExecutor.shutdown()
             scanner.close()
         }

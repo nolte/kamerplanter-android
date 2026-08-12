@@ -138,6 +138,36 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `a scanner error moves from scanning to camera-unavailable`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startScan()
+        viewModel.onScannerError()
+
+        assertEquals(PairingState.CameraUnavailable, viewModel.state.value)
+    }
+
+    @Test
+    fun `retry from camera-unavailable reopens the scanner`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startScan()
+        viewModel.onScannerError()
+        viewModel.startScan()
+
+        assertEquals(PairingState.Scanning, viewModel.state.value)
+    }
+
+    @Test
+    fun `a scanner error is ignored when not scanning`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.onScannerError()
+
+        assertEquals(PairingState.Idle, viewModel.state.value)
+    }
+
+    @Test
     fun `cancel returns from scanning to idle`() = runTest(dispatcher) {
         val viewModel = viewModel()
 

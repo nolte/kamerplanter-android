@@ -47,14 +47,23 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Opens the scanner from [PairingState.Idle] or a prior [PairingState.Failed]. */
+    /** Opens the scanner from [PairingState.Idle], a prior [PairingState.Failed], or a
+     *  [PairingState.CameraUnavailable] retry. */
     fun startScan() {
         _state.update { current ->
             when (current) {
-                PairingState.Idle, is PairingState.Failed -> PairingState.Scanning
+                PairingState.Idle,
+                PairingState.CameraUnavailable,
+                is PairingState.Failed,
+                -> PairingState.Scanning
                 else -> current
             }
         }
+    }
+
+    /** The device camera could not be bound; leave scanning for a recoverable error state. */
+    fun onScannerError() {
+        _state.update { if (it is PairingState.Scanning) PairingState.CameraUnavailable else it }
     }
 
     /**

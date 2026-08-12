@@ -55,6 +55,11 @@ object QrPayloadParser {
         }.toMap()
     }
 
+    // Protect a literal '+' before decoding: URLDecoder treats '+' as a space (form-encoding),
+    // which would silently corrupt a base64-ish pairing code or a URL that contains one.
+    // A real space is transmitted as %20 and still decodes correctly.
     private fun decode(value: String): String =
-        runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }.getOrDefault(value)
+        runCatching {
+            URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8.name())
+        }.getOrDefault(value)
 }

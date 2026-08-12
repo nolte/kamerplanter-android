@@ -1,8 +1,6 @@
 package io.github.nolte.kamerplanter.feature.settings
 
 import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +14,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,7 +27,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -62,6 +60,7 @@ fun SettingsScreen(
         actions = PairingActions(
             onPair = viewModel::startScan,
             onQrDetected = viewModel::onQrDetected,
+            onScannerError = viewModel::onScannerError,
             onCancel = viewModel::cancelScan,
             onUnpair = viewModel::unpair,
             onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
@@ -74,6 +73,7 @@ fun SettingsScreen(
 internal class PairingActions(
     val onPair: () -> Unit,
     val onQrDetected: (String) -> Unit,
+    val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
     val onUnpair: () -> Unit,
     val onRequestPermission: () -> Unit,
@@ -93,9 +93,11 @@ private fun SettingsContent(
             PairingState.Scanning -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
                 onQrDetected = actions.onQrDetected,
+                onScannerError = actions.onScannerError,
                 onCancel = actions.onCancel,
                 onRequestPermission = actions.onRequestPermission,
             )
+            PairingState.CameraUnavailable -> CameraUnavailableBody(onRetry = actions.onPair)
             is PairingState.Verifying -> CenteredProgress(
                 label = stringResource(R.string.settings_verifying),
             )
@@ -127,16 +129,25 @@ private fun NotPairedBody(onPair: () -> Unit) {
 private fun ScanningBody(
     hasCameraPermission: Boolean,
     onQrDetected: (String) -> Unit,
+    onScannerError: () -> Unit,
     onCancel: () -> Unit,
     onRequestPermission: () -> Unit,
 ) {
+    val context = LocalContext.current
     if (!hasCameraPermission) {
         LaunchedEffect(Unit) { onRequestPermission() }
-        CameraPermissionRationale(onRequest = onRequestPermission)
+        CameraPermissionBody(
+            onRequest = onRequestPermission,
+            onOpenSettings = { context.openAppSettings() },
+        )
         return
     }
     Box(modifier = Modifier.fillMaxSize()) {
-        QrScannerView(onQrDetected = onQrDetected, modifier = Modifier.fillMaxSize())
+        QrScannerView(
+            onQrDetected = onQrDetected,
+            onError = onScannerError,
+            modifier = Modifier.fillMaxSize(),
+        )
         Text(
             text = stringResource(R.string.settings_scanning_hint),
             color = MaterialTheme.colorScheme.onPrimary,
@@ -190,7 +201,21 @@ private fun FailedBody(onRetry: () -> Unit) {
 }
 
 @Composable
-private fun CameraPermissionRationale(onRequest: () -> Unit) {
+private fun CameraUnavailableBody(onRetry: () -> Unit) {
+    CenteredColumn {
+        Text(
+            text = stringResource(R.string.settings_camera_unavailable),
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+        )
+        Button(onClick = onRetry, modifier = Modifier.padding(top = 24.dp)) {
+            Text(text = stringResource(R.string.settings_retry))
+        }
+    }
+}
+
+@Composable
+private fun CameraPermissionBody(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_camera_permission),
@@ -198,6 +223,10 @@ private fun CameraPermissionRationale(onRequest: () -> Unit) {
         )
         Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
             Text(text = stringResource(R.string.settings_grant_permission))
+        }
+        // Fallback route for a permanent denial, where re-requesting shows no dialog.
+        TextButton(onClick = onOpenSettings, modifier = Modifier.padding(top = 8.dp)) {
+            Text(text = stringResource(R.string.settings_open_app_settings))
         }
     }
 }
@@ -212,7 +241,7 @@ private fun CenteredProgress(label: String? = null) {
     }
 }
 
-/** A vertically-centred, horizontally-centred column with the screen's standard padding. */
+/** A vertically- and horizontally-centred column with the screen's standard padding. */
 @Composable
 private fun CenteredColumn(content: @Composable () -> Unit) {
     Column(
@@ -225,7 +254,3 @@ private fun CenteredColumn(content: @Composable () -> Unit) {
         content()
     }
 }
-
-private fun Context.hasCameraPermission(): Boolean =
-    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-        PackageManager.PERMISSION_GRANTED

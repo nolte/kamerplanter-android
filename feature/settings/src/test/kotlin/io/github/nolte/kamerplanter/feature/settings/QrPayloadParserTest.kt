@@ -23,6 +23,13 @@ class QrPayloadParserTest {
     }
 
     @Test
+    fun `preserves a literal plus in the code instead of turning it into a space`() {
+        val payload = QrPayloadParser.parse("kamerplanter://pair?url=https%3A%2F%2Fx&code=ab+cd")
+
+        assertEquals(PairingPayload(baseUrl = "https://x", code = "ab+cd"), payload)
+    }
+
+    @Test
     fun `rejects a foreign scheme`() {
         assertNull(QrPayloadParser.parse("https://pair?url=https%3A%2F%2Fx&code=c"))
     }

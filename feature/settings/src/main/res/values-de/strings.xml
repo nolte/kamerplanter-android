@@ -14,4 +14,6 @@
     <string name="settings_retry">Erneut versuchen</string>
     <string name="settings_camera_permission">Für das Scannen des Kopplungs-QR-Codes wird Kamerazugriff benötigt.</string>
     <string name="settings_grant_permission">Kamerazugriff erlauben</string>
+    <string name="settings_open_app_settings">App-Einstellungen öffnen</string>
+    <string name="settings_camera_unavailable">Die Kamera konnte nicht geöffnet werden. Stelle sicher, dass keine andere App sie verwendet, und versuche es erneut.</string>
 </resources>
