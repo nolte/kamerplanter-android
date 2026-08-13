@@ -10,7 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The implementation drives `libuvc` directly and is the only place in the codebase
  * allowed to touch it, so the engine can be swapped without changing callers. Reference
- * device: Generalplus `1b3f:2002`, MJPEG, captured at 1920x1080 (issue #1).
+ * device: Generalplus `1b3f:2002`, MJPEG (issue #1).
+ *
+ * Preview and capture do **not** share a resolution. The preview runs in whichever mode the
+ * stream negotiated — 1080p on the reference device, since 4K delivers only ~4.7 fps there —
+ * while [captureFrame] retunes to the sensor's largest offered mode for the shutter moment.
+ * A pest photograph is worth that latency; a live preview is not.
  *
  * Lifecycle: [createPreviewView] once per UI composition, [start] when the screen
  * becomes visible, [stop] when it leaves. Everything in between is event-driven
@@ -39,7 +44,15 @@ interface MicroscopeCamera {
     /** Stops the stream and USB monitoring. */
     fun stop()
 
-    /** Grabs a single frame from the running stream as a JPEG. */
+    /**
+     * Grabs a single frame as a JPEG **at the sensor's largest offered mode**, then puts the
+     * negotiated preview mode back.
+     *
+     * The capture is therefore higher-resolution than what the preview shows, and takes
+     * noticeably longer than one frame interval: the stream is retuned, one frame is awaited,
+     * and the preview is restored. Any zoom set through [zoomBy] is applied to the captured
+     * region as well, so the result matches what the user framed.
+     */
     suspend fun captureFrame(): Result<CapturedFrame>
 
     /**
