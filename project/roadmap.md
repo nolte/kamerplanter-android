@@ -11,9 +11,11 @@ lifetime, even after an item is deleted or cancelled.
 The queue is deliberately flat: reading order alone expresses priority, so there is no
 phase grouping that could drift out of step with it.
 
-Every item carries `mvp: false` while `project/mission.md` does not exist, per the roadmap
-spec's uniform-stance rule. Once the mission is authored, `roadmap-plan` sets the flags;
-R-1 and R-2 are the current candidates.
+`project/mission.md` names the MVP as **R-1 plus R-2**, and those two carry `mvp: true`.
+Every other item carries `mvp: false` deliberately, not by default — they are the work that
+follows the MVP rather than the work that constitutes it. The flags are set only by
+`roadmap-plan`; note that `true → false` is forbidden once an item has entered
+`status: active`, so a flag on an active item is a one-way decision.
 
 <!--
 Recorded operator override, 2026-08-13, per spec/project/requirements-elicitation/
@@ -33,8 +35,8 @@ id: R-1
 title: Connect the app to a self-hosted kamerplanter instance
 detail: fine
 outcomes: [O-1, O-5]
-target_sprint: null
-mvp: false
+target_sprint: 1
+mvp: true
 status: active
 ```
 
@@ -63,10 +65,10 @@ is why it sits at the top of the queue.
 ```yaml
 id: R-2
 title: Identify a pest from a microscope or phone photo
-detail: coarse
+detail: fine
 outcomes: [O-2]
 target_sprint: null
-mvp: false
+mvp: true
 status: proposed
 ```
 
@@ -74,7 +76,14 @@ The user picks an image source — the phone camera for a damage pattern, the US
 for the animal itself — and their instance returns its identification, rendered with marked
 regions, confidence and the beneficial-insect warning. This closes the open upload half of
 issue #1, whose own body defers to "the existing upload / identification flow" that this
-item is.
+item is. Recognition never happens on the device; the app captures, uploads and renders,
+and the instance decides.
+
+- [ ] Capture a pest image from phone camera or microscope
+- [ ] Receive an identification for a captured image
+- [ ] Read what the instance found
+- [ ] Act on a finding and revisit past detections
+- [ ] Offer pest detection only where the instance supports it
 
 ### R-3 — Ship builds that run without system warnings
 
