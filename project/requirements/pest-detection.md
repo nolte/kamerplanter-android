@@ -236,7 +236,8 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   still capture to move; and the `non_functional` and `constraints` cells are re-evidenced
   against the implementation instead of the interface. One question turn of the interview
   was spent on a choice the code had already made. The stale KDoc that caused it is a
-  separate defect, outside this feature's scope.
+  separate defect, tracked as
+  [#15](https://github.com/nolte/kamerplanter-android/issues/15).
 - **Whether the sensor's largest mode is fast enough in practice is still untested.** The
   reference device manages roughly 4.7 fps at 4K, and no one has measured how that feels at
   the shutter moment or whether the detail actually changes a detection outcome. This is now
