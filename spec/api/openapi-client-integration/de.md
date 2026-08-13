@@ -18,13 +18,17 @@ Das Backend legt die konkrete Schnittstelle fest, gegen die diese Spec integrier
 - **Pfad-basierte Major-Versionierung:** Routen liegen unter `/api/v1/…`; das
   OpenAPI-Dokument wird unter `/api/v1/openapi.json` ausgeliefert.
 - **Zwei unabhängige Versions-Achsen:** die URL-Major (`/api/vN`) ist *nicht* die
-  Backend-Anwendungsversion. Die Anwendungsversion ist ein SemVer-String
-  (`settings.app_version`, ausgewiesen als OpenAPI `info.version`). Zum Zeitpunkt dieser
-  Spec trägt das Backend-Release den Tag `v0.1.0`, während die on-the-wire-`info.version` /
-  `/api/health.version` der reine SemVer `0.1.0` ist; der API-Pfad ist bereits `/api/v1`
-  — die beiden Achsen dürfen nie vermischt werden.
+  Backend-Anwendungsversion. Die Anwendungsversion ist ein SemVer-String aus
+  `settings.app_version`, ausgewiesen sowohl als OpenAPI `info.version` als auch als
+  `/api/health.version` — beide laufen also gleich, weil sie dieselbe Einstellung lesen.
+  Der **Release-Tag läuft mit keiner von beiden gleich**: das veröffentlichte
+  `v0.1.0`-Release-Asset weist `info.version` `1.0.0` aus. Tag, Anwendungsversion und
+  API-Pfad sind drei getrennte Strings, und insbesondere der Tag darf nie als
+  Anwendungsversion gelesen werden.
 - **Health-Endpoint:** `GET /api/health` (Root-Ebene, dokumentiert „for M2M consumers")
-  liefert `{ "status": "healthy", "version": <app_version> }`.
+  liefert `{ "status": "healthy", "version": <app_version>, "mode": <Deployment-Modus> }`.
+  `mode` unterscheidet eine vollständige Instanz von einer `light`-Instanz, die keine
+  Konten kennt und die `/api/v1/auth/…`-Routen mit `404` beantwortet.
 - **Multi-Tenancy:** tenant-scoped Routen haben die Form `/api/v1/t/{tenant_slug}/…`.
 - **Schema-Verteilung:** das Backend veröffentlicht `openapi.json` als **GitHub-Release-
   Asset** getaggter Releases (z. B. Release `v0.1.0`), und GitHub weist dessen `sha256`
@@ -99,8 +103,10 @@ treibende Anforderung dieser Spec.
   ableiten.
 - **R-VER-2 — MUSS [MUST]** in client-eigener Konfiguration die geordnete Menge der vom
   Client unterstützten API-Majors und eine minimal unterstützte Backend-Anwendungsversion
-  (`MIN_SUPPORTED`) deklarieren. Die anfängliche `MIN_SUPPORTED`-Untergrenze ist `0.1.0`
-  (SemVer, passend zur aktuellen `v0.1.0`-Release-Linie des Backends) und wandert mit dem
+  (`MIN_SUPPORTED`) deklarieren. `MIN_SUPPORTED` ist eine Untergrenze für die
+  **Anwendungsversion** (`info.version` / `/api/health.version`), nie für den Release-Tag —
+  beide laufen auseinander, eine aus dem Tag abgelesene Untergrenze würde also gegen die
+  falsche Zahl prüfen. Die anfängliche Untergrenze ist `0.1.0` (SemVer) und wandert mit dem
   Backend mit.
 
 ### Abwärtskompatibilität (Tolerant Reader)
@@ -191,7 +197,14 @@ treibende Anforderung dieser Spec.
   [nolte/kamerplanter#1124](https://github.com/nolte/kamerplanter/issues/1124).
 - **Provenance-Kodierung:** wie werden Release-Tag + `sha256` technisch gepinnt — eine
   Provenance-Geschwisterdatei, ein Header-Kommentar oder eine Gradle-Property, die der
-  Verify-Task konsumiert?
+  Verify-Task konsumiert? Zu beachten: der Tag allein identifiziert die Anwendungsversion
+  nicht (Tag `v0.1.0` liefert `info.version` `1.0.0`), eine Provenance, die nur den Tag
+  festhält, lässt die Versions-Achse also unprotokolliert.
+- **Sollte die `MIN_SUPPORTED`-Untergrenze neu angesetzt werden?** Die Untergrenze ist
+  `0.1.0`, während das aktuelle Release bereits `1.0.0` meldet — das Gate ist derzeit also
+  um eine volle Major zu großzügig. Ob sie angehoben wird, ist eine
+  Kompatibilitäts-Policy-Entscheidung und keine Faktenkorrektur und bleibt hier bewusst
+  offen.
 - **Reicht `/api/health` für das Gate?** Es liefert `status` + App-`version`, aber nicht
   die Menge der API-Majors; die Aushandlung stützt sich derzeit auf Probing. Zu
   entscheiden, ob die Health-Payload erweitert werden soll (koppelt an

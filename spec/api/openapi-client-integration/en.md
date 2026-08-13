@@ -18,12 +18,17 @@ The backend establishes the concrete surface this spec integrates against:
 - **Path-based major versioning:** routes live under `/api/v1/…`; the OpenAPI document
   is served at `/api/v1/openapi.json`.
 - **Two independent version axes:** the URL major (`/api/vN`) is *not* the backend
-  application version. The application version is a SemVer string (`settings.app_version`,
-  surfaced as OpenAPI `info.version`). At the time of writing the backend release tag is
-  `v0.1.0`, while the on-the-wire `info.version` / `/api/health.version` is the bare SemVer
-  `0.1.0`; the API path is already `/api/v1` — the two axes must never be conflated.
+  application version. The application version is a SemVer string sourced from
+  `settings.app_version`, surfaced both as OpenAPI `info.version` and as
+  `/api/health.version` — those two therefore track each other, because they read the same
+  setting. The **release tag does not track either of them**: the published `v0.1.0`
+  release asset reports `info.version` `1.0.0`. Tag, application version and API path are
+  three separate strings, and the tag in particular must never be read as the application
+  version.
 - **Health endpoint:** `GET /api/health` (root-level, documented "for M2M consumers")
-  returns `{ "status": "healthy", "version": <app_version> }`.
+  returns `{ "status": "healthy", "version": <app_version>, "mode": <deployment mode> }`.
+  `mode` discriminates a full instance from a `light` one, which has no accounts and
+  answers the `/api/v1/auth/…` routes with `404`.
 - **Multi-tenancy:** tenant-scoped routes take the form `/api/v1/t/{tenant_slug}/…`.
 - **Schema distribution:** the backend publishes `openapi.json` as a **GitHub release
   asset** on tagged releases (e.g. release `v0.1.0`), and GitHub records its `sha256`.
@@ -91,8 +96,10 @@ spec.
   axes; the client MUST NOT derive one from the other.
 - **R-VER-2 — MUST** declare, in client-owned configuration, the ordered set of API majors
   the client supports and a minimum supported backend application version
-  (`MIN_SUPPORTED`). The initial `MIN_SUPPORTED` floor is `0.1.0` (SemVer, matching the
-  backend's current `v0.1.0` release line) and tracks forward with the backend.
+  (`MIN_SUPPORTED`). `MIN_SUPPORTED` is a floor on the **application version**
+  (`info.version` / `/api/health.version`), never on the release tag — the two diverge, so
+  reading a floor off the tag would gate against the wrong number. The initial floor is
+  `0.1.0` (SemVer) and tracks forward with the backend.
 
 ### Backward compatibility (tolerant reader)
 - **R-COMPAT-1 — MUST** deserialize JSON with unknown fields ignored
@@ -173,6 +180,13 @@ spec.
   Tracked as [nolte/kamerplanter#1124](https://github.com/nolte/kamerplanter/issues/1124).
 - **Provenance encoding:** how is the release tag + `sha256` pinned technically — a sibling
   provenance file, a header comment, or a Gradle property consumed by the verify task?
+  Note that the tag alone does not identify the application version (tag `v0.1.0` ships
+  `info.version` `1.0.0`), so provenance that records only the tag leaves the version axis
+  unrecorded.
+- **Should the `MIN_SUPPORTED` floor be re-based?** The floor is `0.1.0` while the current
+  release already reports `1.0.0`, so the gate is presently permissive by a full major.
+  Deciding whether to raise it is a compatibility-policy call, not a factual correction, and
+  is deliberately left open here.
 - **Is `/api/health` sufficient for the gate?** It returns `status` + app `version` but not
   the set of API majors; negotiation currently relies on probing. Decide whether the health
   payload should be extended (couples to
