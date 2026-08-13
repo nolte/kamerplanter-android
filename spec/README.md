@@ -5,4 +5,4 @@ configured language (`en` canonical, `de` translation — see `.spec-config.yml`
 
 | Topic | Slug | Title (en) | Title (de) | Status | Scope | Last updated |
 | --- | --- | --- | --- | --- | --- | --- |
-| api | [openapi-client-integration](api/openapi-client-integration/en.md) | OpenAPI-Based Backend API Integration | OpenAPI-basierte Anbindung an die Backend-API | draft | local | unversioned |
+| api | [openapi-client-integration](api/openapi-client-integration/en.md) | OpenAPI-Based Backend API Integration | OpenAPI-basierte Anbindung an die Backend-API | draft | local | 2026-08-13 |
