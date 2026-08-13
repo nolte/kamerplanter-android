@@ -1,0 +1,111 @@
+---
+id: F-10
+title: Keep working against instances the app only partly supports
+status: draft
+roadmap_item: R-1
+sprint: null
+created: 2026-08-13
+ended: null
+verifies_sprint_value: null
+consistency_check:
+  - performed_at: 2026-08-13
+    agent_version: feature-consistency-reviewer@104487c
+    findings:
+      - kind: overlap
+        target: F-10 acceptance-1/2 ↔ F-4 acceptance-3
+        resolution: proceed
+      - kind: drift
+        target: F-10 vs. spec/api/openapi-client-integration R-HEALTH-2, R-HEALTH-4
+        resolution: proceed
+      - kind: drift
+        target: F-10 vs. spec/api/openapi-client-integration R-NEG-1, R-NEG-3
+        resolution: proceed
+      - kind: prior-art
+        target: connection worktree — no health probe or version negotiation exists
+        resolution: revisit-after feat/backend-connection merges to develop
+---
+
+## Description
+
+Self-hosted instances drift. Someone runs a server six months behind the app, or the app
+speaks an API major the instance has not reached. Neither should turn into a blank screen or
+a crash, and — this is the part the first draft of this feature got wrong — neither should
+turn into a refusal to connect.
+
+The app tells the user plainly what it found and keeps working with what the instance can
+actually do, switching off precisely the parts that need what is missing. There is one case
+where refusal is the right answer rather than the lazy one: a certificate that does not
+validate. An instance the app cannot verify is an instance it will not talk to, and the
+message says so in terms of the certificate rather than blaming the app.
+
+## Acceptance criteria
+
+- [ ] **acceptance-1** An instance running a backend version below what the app needs produces a visible, localized warning and the app continues in a reduced mode rather than failing.
+- [ ] **acceptance-2** The app uses the highest API major both it and the instance support, and refuses only when there is no major in common.
+- [ ] **acceptance-3** An instance whose TLS certificate does not validate is not connected to, and the message points at the certificate rather than at the app.
+
+## Test hooks
+
+- **acceptance-1** — unit test over the `MIN_SUPPORTED` comparison using SemVer precedence with optional-`v` normalization, plus the reduced-mode transition — pending
+- **acceptance-2** — unit test over major negotiation and the downward probe, including the no-common-major refusal — pending
+- **acceptance-3** — instrumented test against an instance with a self-signed certificate; there is deliberately no bypass to disable — pending
+- **R5's two-axis rule** — no separate criterion; acceptance-1 and acceptance-2 are the two axes, kept apart on purpose so neither can be read as implying the other — pending
+
+## Consistency notes
+
+**This feature was reframed after the review, and the reframing is the important part.** As
+drafted it was called "explain unusable instance" and its criteria described refusing an
+instance whose version the app does not support. The reviewer found that this contradicts
+two **MUST**s in `spec/api/openapi-client-integration/`: R-HEALTH-2 requires that when
+`version < MIN_SUPPORTED` the app "show a visible, localized warning and continue in a
+reduced mode … rather than hard-failing", and R-HEALTH-4 requires disabling precisely the
+affected features rather than blocking globally. R-NEG-1 and R-NEG-3 add that the client
+must negotiate the highest common major and probe downward before giving up.
+
+The sharper point: **the refusal framing was not traceable to the requirement artefact
+either.** R5 says only that the app "SHALL surface a clear localized diagnostic naming the
+incompatibility and SHALL NOT crash". Nothing in R5 says refuse. The refusal was an
+invention of the decomposition, and it survived my own drafting because it sounded decisive.
+The spec wins, the artefact agrees, and the feature now describes degradation rather than
+rejection. Only acceptance-3 keeps a refusal, because an unverifiable certificate is a
+genuinely different case from an old server.
+
+**Overlap with F-4 acceptance-3, resolution `proceed`.** F-4 — `gate-detection-availability`,
+from roadmap item R-2 — asserts that on an instance too old to carry the detection endpoints,
+the capture entry point is not offered "rather than failing on a missing route". That
+criterion presupposes the app is *connected* to the old instance and degrades feature by
+feature. The original F-10 refused the connection outright, which would have made F-4
+acceptance-3 permanently unreachable: one could never arrive at a state of being connected to
+an instance whose detection routes 404. Two different version comparisons were being
+conflated — *below the app's minimum supported backend version*, which is this feature's
+subject, and *supports the connection but not some later feature*, which is F-4's. Stated
+directionally, mirroring F-4's own note: **F-10 gates the connection, F-4 gates a feature
+within a connection**, and F-10 must not refuse instances F-4 exists to handle. The
+reframing above resolves the contradiction rather than papering over it, but the boundary is
+recorded here because it is easy to re-break. Merging the two was considered and rejected —
+they sit in different roadmap items under different authorities.
+
+**Per the feature spec, F-4 needs a re-run** now that an overlapping feature has been added
+elsewhere in `project/features/`; an appended `findings` block belongs on it once this
+feature lands.
+
+**Nothing here is implemented.** There is no `/api/health` probe anywhere in the tree, no
+version comparison and no major negotiation.
+
+## Risks
+
+- acceptance-1 rests directly on an unresolved risk in the requirement artefact: the
+  published release asset reports `info.version` `1.0.0` while the tag reads `v0.1.0`, so
+  what `MIN_SUPPORTED` should be compared against is settled in the spec but untested against
+  a running instance.
+- "Reduced mode" is asserted here but its concrete shape — which features switch off, and how
+  the user learns which — is defined only by R-HEALTH-4's `SHOULD`. This feature can pass
+  while leaving the experience vague.
+- Blocked until backend release `v0.2.0` is published upstream.
+
+## References
+
+- `project/requirements/backend-connection.md` — R5, R33
+- `spec/api/openapi-client-integration/en.md` — R-HEALTH-2, R-HEALTH-4, R-NEG-1, R-NEG-3
+- `project/features/gate-detection-availability.md` — the feature this one must not make unreachable
+- [#8](https://github.com/nolte/kamerplanter-android/issues/8) — the originating issue
