@@ -252,12 +252,20 @@ requires `0x4000` (16 KB). The APK's own zip alignment is fine (`zipalign -c -P 
 — the mismatch is inside the shared objects, which need
 `-Wl,-z,max-page-size=16384` at build time.
 
-This belongs to [#1](https://github.com/nolte/kamerplanter-android/issues/1) (the UVC
-microscope engine owns those libraries), not to #8, and it is currently tracked nowhere. It
-is not cosmetic: `targetSdk` is 37, Play requires 16 KB alignment for apps at recent target
-levels, and the user already sees the warning dialog today. **This artifact is run-scoped
-and gets removed before the merge, so this finding needs a durable home** — an issue or a
-comment on #1 — or it will be lost with the file.
+**Tracked durably as [#14](https://github.com/nolte/kamerplanter-android/issues/14)**, so it
+survives this run-scoped artifact's removal. Further investigation while writing that issue
+narrowed it considerably:
+
+- The four misaligned `arm64-v8a` libraries are exactly the UVC stack (`libuvc`,
+  `libUVCCamera`, `libusb100`, `libjpeg-turbo1500`); every AndroidX / CameraX / ML Kit
+  library in the APK is already `0x4000`.
+- The APK's own zip alignment passes `zipalign -c -P 16`, so packaging is not at fault.
+- 32-bit ABIs show the same `0x1000` but are irrelevant — 16 KB pages apply to 64-bit only.
+- **A dependency bump cannot fix it:** the libraries are prebuilt, arriving via the catalog
+  entry `com.github.jiangdongguo.AndroidUSBCamera:libuvc:3.2.7`, and JitPack's build API
+  reports `3.2.7` as the newest successful release of 178 versions — the pinned version is
+  already the latest. The realistic paths are an upstream request, a fork, or building
+  `libuvc` + `libusb` ourselves with NDK r27+ and `-Wl,-z,max-page-size=16384`.
 
 ## Recorded deviations
 
