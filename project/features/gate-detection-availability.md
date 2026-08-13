@@ -120,8 +120,9 @@ within a connection.** Resolution `proceed`; nothing about this feature changed.
 - The consent path is only reachable when a self-hoster has enabled the cloud adapter, which
   is off by default — so it is the least-exercised path in the feature and the most
   consequential when wrong.
-- Nothing here is implementable until R-1 delivers the generated client, which is itself
-  blocked until backend release `v0.2.0` is published upstream.
+- Nothing here is implementable until R-1 delivers the generated client. The upstream half of
+  that dependency cleared on 2026-08-13, when release `v0.2.0` was published with its
+  `openapi.json` asset; generating the client from it is R-1's own work.
 
 ## References
 

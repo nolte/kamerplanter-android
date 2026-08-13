@@ -114,7 +114,8 @@ marked resolved in the artefact; nothing is outstanding here.
   assumed green without evidence. The Keystore path has never run on the Pixel 7a.
 - acceptance-3 and acceptance-5 both need HTTP calls that do not exist yet; nothing in
   `core/network/` makes a request today.
-- Blocked until backend release `v0.2.0` is published upstream.
+- Was blocked on backend release `v0.2.0`; it was published on 2026-08-13 with its
+  `openapi.json` asset, so the remaining dependency is R-1 generating the client from it.
 
 ## References
 

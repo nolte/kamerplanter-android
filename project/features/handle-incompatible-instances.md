@@ -96,23 +96,27 @@ reframing above resolves the contradiction rather than papering over it, but the
 recorded here because it is easy to re-break. Merging the two was considered and rejected —
 they sit in different roadmap items under different authorities.
 
-**Per the feature spec, F-4 needs a re-run** now that an overlapping feature has been added
-elsewhere in `project/features/`; an appended `findings` block belongs on it once this
-feature lands.
+**F-4's re-run has happened.** The feature spec called for one once an overlapping feature
+was added elsewhere in `project/features/`; `gate-detection-availability.md` now carries the
+appended `findings` block from that re-run, recording the F-4 acceptance-3 ↔ F-10
+acceptance-1/2 overlap with resolution `proceed`. Nothing is outstanding.
 
 **Nothing here is implemented.** There is no `/api/health` probe anywhere in the tree, no
 version comparison and no major negotiation.
 
 ## Risks
 
-- acceptance-1 rests directly on an unresolved risk in the requirement artefact: the
-  published release asset reports `info.version` `1.0.0` while the tag reads `v0.1.0`, so
-  what `MIN_SUPPORTED` should be compared against is settled in the spec but untested against
-  a running instance.
+- acceptance-1 rests directly on an unresolved risk in the requirement artefact: the published
+  release asset reports `info.version` `1.0.0` regardless of the release tag. This was first
+  seen against tag `v0.1.0` and **still holds for `v0.2.0`**, whose asset again carries
+  `info.version: 1.0.0` — so the divergence is systematic rather than a one-off slip in a
+  single release. What `MIN_SUPPORTED` is compared against is settled in the spec but remains
+  untested against a running instance.
 - "Reduced mode" is asserted here but its concrete shape — which features switch off, and how
   the user learns which — is defined only by R-HEALTH-4's `SHOULD`. This feature can pass
   while leaving the experience vague.
-- Blocked until backend release `v0.2.0` is published upstream.
+- Was blocked on backend release `v0.2.0`; it was published on 2026-08-13 with its
+  `openapi.json` asset, so the remaining dependency is R-1 generating the client from it.
 
 ## References
 

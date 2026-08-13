@@ -8,7 +8,7 @@ created: 2026-08-13
 ended: null
 verifies_sprint_value: acceptance-1
 consistency_check:
-  - performed_at: 2026-08-12
+  - performed_at: 2026-08-13
     agent_version: feature-consistency-reviewer@4805a16
     findings:
       - kind: overlap
@@ -115,13 +115,12 @@ same planning layer that carries this file: `requirements-elicit` has run for R-
 `U_gate 0.85`, so `roadmap-plan` promoted it to `detail: fine` with `mvp: true` and
 `target_sprint: 2`, and `project/mission.md` now exists.
 
-**Why `verifies_sprint_value` is set while `sprint` is null.** This feature carries
-`verifies_sprint_value: acceptance-1` even though it belongs to no sprint yet. That is
-deliberate, not a dangling field: `project/mission.md` names `F-2:acceptance-1` as its
-`verifies_via`, which makes this the **mission-verifying feature** for the whole MVP. The
-mission spec requires exactly one such feature across the MVP scope, and the criterion has to
-be nameable before the sprint that ships it is planned. When sprint 2 picks F-2 up, the field
-is already the one the sprint's value contract points at.
+**Why `verifies_sprint_value` names acceptance-1.** `project/mission.md` names
+`F-2:acceptance-1` as its `verifies_via`, which makes this the **mission-verifying feature**
+for the whole MVP; the mission spec requires exactly one such feature across the MVP scope.
+The field was set while this feature was still unscheduled, so that the criterion was
+nameable before sprint 2 existed — now that sprint 2 carries F-2, it is also the criterion
+that sprint's value contract points at.
 
 ## Risks
 
@@ -132,8 +131,9 @@ is already the one the sprint's value contract points at.
   feature consumes.
 - `acceptance-5` covers `415` but nothing covers `413`; whether the instance distinguishes
   them was not verified.
-- Nothing here is implementable until R-1 delivers the generated client, which is itself
-  blocked until backend release `v0.2.0` is published upstream.
+- Nothing here is implementable until R-1 delivers the generated client. The upstream half of
+  that dependency cleared on 2026-08-13, when release `v0.2.0` was published with its
+  `openapi.json` asset; generating the client from it is R-1's own work.
 
 ## References
 

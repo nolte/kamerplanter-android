@@ -23,9 +23,10 @@ Closing this sprint closes the MVP. `project/mission.md` binds its own completio
 this sprint's value is verified — the two are deliberately the same event.
 
 **Dependencies, stated rather than discovered.** Every criterion here needs the generated API
-client that sprint 1 delivers, so this sprint cannot start before sprint 1 closes. Sprint 1
-in turn waits on backend release `v0.2.0` being published in `nolte/kamerplanter`. Nothing in
-this sprint has been implemented; unlike sprint 1, it carries no regression contracts at all.
+client that sprint 1 delivers, so this sprint cannot start before sprint 1 closes. Sprint 1's
+own upstream dependency has cleared — backend release `v0.2.0` was published on 2026-08-13 —
+so the only thing between this sprint and its start is sprint 1's execution. Nothing in this
+sprint has been implemented; unlike sprint 1, it carries no regression contracts at all.
 
 ## Features
 

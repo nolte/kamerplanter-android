@@ -8,7 +8,7 @@ created: 2026-08-13
 ended: null
 verifies_sprint_value: null
 consistency_check:
-  - performed_at: 2026-08-12
+  - performed_at: 2026-08-13
     agent_version: feature-consistency-reviewer@4805a16
     findings:
       - kind: prior-art
@@ -130,8 +130,9 @@ authorities.
   avoids a conflict the requirement artefact records explicitly.
 - acceptance-5 rests on requirement R28, which is `assumed` rather than confirmed by
   teach-back.
-- Nothing in this feature is implementable until R-1 delivers the generated API client, and
-  R-1 is itself blocked until backend release `v0.2.0` is published upstream.
+- Nothing in this feature is implementable until R-1 delivers the generated API client. R-1's
+  own upstream precondition cleared on 2026-08-13, when release `v0.2.0` was published with
+  its `openapi.json` asset; generating the client from it is R-1's work.
 
 ## References
 

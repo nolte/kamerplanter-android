@@ -82,8 +82,9 @@ not-connected body, which offers only the QR button. The form does not exist.
 
 ## Risks
 
-- The whole path depends on the generated API client, which does not exist and is itself
-  blocked until backend release `v0.2.0` is published upstream.
+- The whole path depends on the generated API client, which does not exist yet. Its upstream
+  precondition cleared on 2026-08-13, when release `v0.2.0` was published with its
+  `openapi.json` asset; generating the client from it is R-1's own work.
 - acceptance-3's "does not echo the key back" is a security-relevant negative that is easy
   to violate accidentally through a generic error message that interpolates the input.
 

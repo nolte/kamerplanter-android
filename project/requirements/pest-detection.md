@@ -29,11 +29,12 @@ https://github.com/nolte/kamerplanter-android/issues/1.
   - The plant **detail** screen (R-5); this feature needs only an entry point from the
     plant list and a standalone entry.
   - Choosing or configuring the detection adapter — server-side admin work.
-  - Requesting an upstream image-provenance field (see R-14).
+  - Requesting an upstream image-provenance field (see R14).
 
 **Dependency, deliberately elicited ahead of implementability:** this feature consumes the
-connection and the generated API client from R-1, which is itself blocked until backend
-release `v0.2.0` is published upstream. The requirements are captured now because the
+connection and the generated API client from R-1. Backend release `v0.2.0` — the schema
+source R-1 generates from — was published on 2026-08-13, so what remains is R-1's own
+generation work rather than an upstream wait. The requirements are captured now because the
 project mission points at this feature via `verifies_via`, and because decomposing against
 unelicited requirements is forbidden.
 
@@ -255,5 +256,6 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 - **R11 touches a module R-1 is actively changing.** Moving CameraX out of
   `:feature:settings` while the connection work is in flight on `feat/backend-connection`
   risks a conflict; sequencing this after R-1 lands would avoid it.
-- **The whole feature is blocked** until backend release `v0.2.0` is published upstream and
-  R-1 delivers the generated client. Nothing here is implementable before then.
+- **The whole feature waits on R-1's generated client.** The upstream half of that dependency
+  cleared on 2026-08-13, when backend release `v0.2.0` was published with its `openapi.json`
+  asset; nothing here is implementable until R-1 generates the client from it.

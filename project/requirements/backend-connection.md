@@ -89,7 +89,9 @@ Self-consistency (`k ≥ 2`) was decisive twice, and both times pushed a dimensi
 
 - **R1** — The project SHALL generate the `core/network/` API client from a vendored
   `openapi.json` sourced from the **tagged backend release `v0.2.0`**, which is published
-  upstream before generation runs.
+  upstream before generation runs. That release was published on 2026-08-13; its
+  `openapi.json` asset carries `sha256:7ed50815716b101f5424a45c48c6261cc6b0e57b925d2d0f491bbd578f134726`
+  and does contain the `/api/v1/auth/device-pairing` paths this requirement set depends on.
   - _dimension_: `constraints` · _status_: `confirmed` · _source_: Q2 = "Upstream v0.2.0 veröffentlichen, dann daraus generieren"; teach-back
 - **R2** — The vendored schema SHALL record its provenance (backend release tag) and its
   `sha256`, and CI SHALL fail the build when the document does not match the recorded
@@ -286,15 +288,20 @@ Self-consistency (`k ≥ 2`) was decisive twice, and both times pushed a dimensi
 
 ## Surviving assumptions / open risks
 
-- **Backend release `v0.2.0` is not published yet** (draft, no assets as of
-  2026-08-12). R1/R2 cannot be satisfied until it is. This is a hard, external
-  precondition for the client-generation half of the work — resolvable by an action
-  (publish the draft upstream), not by another question. **Risk: schedule-blocking.**
+- **~~Backend release `v0.2.0` is not published yet~~ Resolved 2026-08-13.** The entry
+  recorded a hard, external precondition for the client-generation half of the work: as of
+  2026-08-12 the release was a draft with no assets, so R1/R2 could not be satisfied. It was
+  published on 2026-08-13 with an `openapi.json` asset
+  (`sha256:7ed50815716b101f5424a45c48c6261cc6b0e57b925d2d0f491bbd578f134726`) that carries the
+  `/api/v1/auth/device-pairing` and `/api/v1/auth/device-pairing/redeem` paths whose absence
+  from `v0.1.0` forced the pin decision in the first place. No longer schedule-blocking.
 - **`spec/api/openapi-client-integration` carries a factual drift.** It states the
   on-the-wire `info.version` is the bare SemVer `0.1.0`; the published v0.1.0 asset
-  actually reports `1.0.0`. Verified directly against the release asset. The spec needs
-  correcting before R5's two-axis handling is implemented against it. `assumed`: that the
-  spec is wrong rather than the asset.
+  actually reports `1.0.0`. Verified directly against the release asset — and the `v0.2.0`
+  asset reports `1.0.0` as well, so `info.version` does not track the release tag at all and
+  the divergence is systematic rather than a slip in one release. The spec needs correcting
+  before R5's two-axis handling is implemented against it. `assumed`: that the spec is wrong
+  rather than the asset.
 - **~~The encryption mechanism for R17 is an open implementation choice.~~ Resolved
   2026-08-13.** The constraint this entry recorded still holds: `spec/android/security/`
   requires Keystore-backed AES-256-GCM and rules out **Jetpack Security /

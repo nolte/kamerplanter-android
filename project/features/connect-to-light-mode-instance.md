@@ -81,8 +81,8 @@ exist anywhere — `core/network/` has no HTTP call at all — and `SettingsScre
   it does, R32's path handling and this feature's shape both need revisiting.
 - acceptance-2 is the least observable criterion in R-1 and the most consequential when
   wrong.
-- Blocked until backend release `v0.2.0` is published upstream, like every other
-  network-bearing criterion.
+- Was blocked on backend release `v0.2.0`, like every other network-bearing criterion; it was
+  published on 2026-08-13, so the remaining dependency is R-1 generating the client from it.
 
 ## References
 

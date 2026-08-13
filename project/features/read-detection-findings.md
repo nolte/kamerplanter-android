@@ -97,8 +97,9 @@ reaches the opposite conclusion knows the question was asked rather than missed.
 - acceptance-5 rests on requirement R29, which is `assumed` rather than confirmed.
 - The beneficial-vs-inspection decision above is a judgement, not a derivation; if it proves
   wrong in use, acceptance-3 and F-3's acceptance-2 are the two criteria to revisit together.
-- Nothing here is implementable until R-1 delivers the generated client, which is itself
-  blocked until backend release `v0.2.0` is published upstream.
+- Nothing here is implementable until R-1 delivers the generated client. The upstream half of
+  that dependency cleared on 2026-08-13, when release `v0.2.0` was published with its
+  `openapi.json` asset; generating the client from it is R-1's own work.
 
 ## References
 

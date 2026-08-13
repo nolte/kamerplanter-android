@@ -111,6 +111,7 @@ exist and the connected view renders only the base URL.
 
 ## References
 
-- `project/requirements/backend-connection.md` — R19, R26–R28 (R29 declared, criterion-free)
+- `project/requirements/backend-connection.md` — R6 (acceptance-1 covers the one piece of its
+  user-visible surface, the method chooser), R19, R26–R28 (R29 declared, criterion-free)
 - `project/goals.md` — O-1
 - [#8](https://github.com/nolte/kamerplanter-android/issues/8) — the originating issue

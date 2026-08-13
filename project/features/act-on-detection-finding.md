@@ -8,7 +8,7 @@ created: 2026-08-13
 ended: null
 verifies_sprint_value: null
 consistency_check:
-  - performed_at: 2026-08-12
+  - performed_at: 2026-08-13
     agent_version: feature-consistency-reviewer@4805a16
     findings:
       - kind: drift
@@ -96,8 +96,10 @@ bounded context's rule that detection never triggers one. Recorded so a future r
 reaches the opposite conclusion can see the question was asked and answered rather than
 missed.
 
-**Carried forward.** R-2 remains `mvp: false` with no `project/mission.md`, which blocks
-`ready → in_progress` but not `draft → ready`.
+**Carried forward, now resolved.** The earlier pass recorded R-2 as `mvp: false` with no
+`project/mission.md`, which blocked `ready → in_progress` but not `draft → ready`. R-2 now
+carries `mvp: true` with `detail: fine` and `target_sprint: 2`, sprint 2 is planned, and the
+mission file exists.
 
 ## Risks
 
@@ -106,8 +108,9 @@ missed.
   here should follow the pointer rather than assume it was forgotten.
 - The beneficial-vs-inspection decision is a judgement rather than a derivation; if it proves
   wrong in use, acceptance-2 and F-5's acceptance-3 are the pair to revisit together.
-- Nothing here is implementable until R-1 delivers the generated client, which is itself
-  blocked until backend release `v0.2.0` is published upstream.
+- Nothing here is implementable until R-1 delivers the generated client. The upstream half of
+  that dependency cleared on 2026-08-13, when release `v0.2.0` was published with its
+  `openapi.json` asset; generating the client from it is R-1's own work.
 
 ## References
 

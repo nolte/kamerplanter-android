@@ -133,8 +133,10 @@ actually depends on them.
 - The generated API client — the largest and most blocking item in R-1 — has no feature of
   its own by design, so its verification rides on acceptance-1. acceptance-1 is the criterion that cannot
   pass without it.
-- Nothing in this feature is implementable until backend release `v0.2.0` is published
-  upstream; the currently published `v0.1.0` asset carries no device-pairing paths.
+- The upstream blocker has cleared: release `v0.2.0` was published on 2026-08-13, and its
+  `openapi.json` asset carries the device-pairing paths (`/api/v1/auth/device-pairing` and
+  `/api/v1/auth/device-pairing/redeem`) that `v0.1.0` lacked. What remains is generating the
+  client from it, which acceptance-1 depends on.
 - acceptance-2 depends on a parser rewrite that also changes the payload format from the
   dummy's custom-scheme URI to the versioned JSON object.
 

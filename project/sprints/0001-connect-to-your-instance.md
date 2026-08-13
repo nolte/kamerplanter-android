@@ -23,11 +23,13 @@ still works instead of a dead end.
 Two things about this sprint's starting position are worth stating rather than discovering
 later.
 
-**It is externally blocked on the day it is planned.** Every criterion that needs an HTTP
-request waits on backend release `v0.2.0` being published in `nolte/kamerplanter`; the
-currently published `v0.1.0` asset carries no device-pairing paths, so the client cannot even
-be generated. A `planned` sprint is a queue item rather than a commitment, which is why this
-is recorded here and not treated as a reason to delay planning.
+**Its external blocker cleared the day after it was planned.** Every criterion that needs an
+HTTP request waited on backend release `v0.2.0` being published in `nolte/kamerplanter`,
+because the `v0.1.0` asset carried no device-pairing paths and the client could not even be
+generated. `v0.2.0` was published on 2026-08-13 with an `openapi.json` asset that carries
+`/api/v1/auth/device-pairing` and `/api/v1/auth/device-pairing/redeem`, so the schema this
+sprint generates from now exists. Generating and pinning it is the sprint's own first task,
+not a wait on someone else.
 
 **Four of its criteria are regression contracts.** Work on `feat/backend-connection` has
 shipped behaviour that four criteria now guard rather than demand: verification-before-persist
