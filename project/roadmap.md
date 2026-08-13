@@ -35,7 +35,7 @@ detail: fine
 outcomes: [O-1, O-5]
 target_sprint: null
 mvp: false
-status: proposed
+status: active
 ```
 
 A plant owner reaches their own instance in whichever way fits the moment — scanning the
