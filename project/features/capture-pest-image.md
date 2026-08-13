@@ -1,9 +1,9 @@
 ---
 id: F-1
 title: Capture a pest image from phone camera or microscope
-status: draft
+status: ready
 roadmap_item: R-2
-sprint: null
+sprint: 2
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null
@@ -67,8 +67,14 @@ detail without leaving the user staring at a frozen screen.
 - **acceptance-3** — unit test that both sources yield the same in-memory image type; manual capture on the Pixel 7a — pending
 - **acceptance-4** — manual on the Pixel 7a, comparing captured dimensions against the preview's; `UvcMicroscopeCamera.grabStill()` already implements this, so the hook is a regression check rather than new verification — pending
 - **acceptance-5** — unit test driving `MicroscopeState.Unavailable(NO_DEVICE_ATTACHED)` into the detection view model — pending
-- **R11 (shared camera module)** — no acceptance criterion by design; the existing `QrPayloadParserTest` and `SettingsViewModelTest` serve as the regression mechanism proving QR scanning survives the move — pending
-- **R12 (ADR 0001 isolation)** — architecture enforcement, not a criterion: no reference to `libuvc` outside `feature/microscope/` — pending
+
+**Deliberately criterion-free requirements.** R11 (the shared camera module) and R12 (the
+ADR 0001 isolation rule) carry no acceptance criterion and therefore no hook — a hook keyed
+to a requirement rather than an `acceptance-<n>` could never move from `pending` to
+`passing`. Their assurance rides elsewhere: R11's user-visible consequence is acceptance-3,
+and the existing `QrPayloadParserTest` and `SettingsViewModelTest` guard that QR scanning
+survives the move; R12 is architecture enforcement — no reference to `libuvc` outside
+`feature/microscope/` — verified by review rather than by a test.
 
 ## Consistency notes
 

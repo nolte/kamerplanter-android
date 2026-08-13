@@ -3,7 +3,7 @@ number: 0001
 status: planned
 started: null
 ended: null
-value_statement: A plant owner connects the app to their own kamerplanter instance and stays connected across restarts.
+value_statement: A plant owner connects the app to their own kamerplanter instance.
 artifact_ref: null
 last_commit: null
 roadmap_items: [R-1]
@@ -29,12 +29,18 @@ currently published `v0.1.0` asset carries no device-pairing paths, so the clien
 be generated. A `planned` sprint is a queue item rather than a commitment, which is why this
 is recorded here and not treated as a reason to delay planning.
 
-**Seven of its criteria already pass.** Work on `feat/backend-connection` has shipped the
-connection model and state machine, Keystore-backed credential storage, secret masking,
-verification-before-persist, tenant adoption and the debug/release variant split. Those
-criteria are regression contracts, and each says so in its feature's `## Test hooks`. The
-sprint's real work is everything that touches the network, plus the Settings surface — the
-method chooser in particular does not exist at all today.
+**Four of its criteria are regression contracts.** Work on `feat/backend-connection` has
+shipped behaviour that four criteria now guard rather than demand: verification-before-persist
+(F-6 acceptance-3), restore-on-launch (F-8 acceptance-1), credential erasure on disconnect
+(F-8 acceptance-6) and secret masking (F-9 acceptance-3). Each says so in its feature's
+`## Test hooks`. Two further criteria are partly covered: F-6 acceptance-4's tenant-adoption
+rule ships while its picker UI does not, and F-8 acceptance-2's Keystore cipher is committed
+but has never executed — it cannot run under `./gradlew test` and has not been exercised on
+the Pixel 7a, so it is **not** counted as passing. The connection state machine (R6/R29) and
+the debug/release variant split (R34) also ship, but they are criterion-free by design and
+are therefore not criteria at all. Every acceptance box in all six features is still
+unchecked. The sprint's real work is everything that touches the network, plus the Settings
+surface — the method chooser in particular does not exist at all today.
 
 ## Features
 

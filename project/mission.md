@@ -30,9 +30,10 @@ against the kamerplanter instance they run themselves.
   self-hosted instance, including the generated API client) and `R-2` (identify a pest from
   a microscope or phone photo). This letter is the one without an anchor in this file's
   frontmatter: MVP membership lives in the roadmap's `mvp` flags, which `roadmap-plan` owns.
-  Those flags are still `false` on every item, because an `mvp: true` item must also carry
-  `detail: fine` and a non-null `target_sprint`, and no sprint exists yet. That gap is
-  precisely why `mvp_status` is `defining` and not further along.
+  Both carry `mvp: true`; every other item carries `mvp: false`. Each satisfies what an
+  `mvp: true` item owes — `detail: fine` and a non-null `target_sprint` (R-1 to sprint 1,
+  R-2 to sprint 2). `mvp_status` is `defining` rather than `in_progress` because sprint 1 is
+  still `planned`: no feature has entered `in_progress`, so MVP execution has not begun.
 - **Relevant** — `relevant_outcomes` binds O-1, O-2 and O-5, each defined in
   [`goals.md`](goals.md). O-2 is the purpose, O-1 its precondition, and O-5 the benefit
   `R-1` delivers to the self-hoster alongside it.
@@ -58,7 +59,8 @@ API key issued out of band, or nothing at all on a light-mode instance. Where th
 is too old for the app, or where detection is switched off or has no adapter, the app says
 so in plain words instead of failing on a missing route. Their audience artefact records the
 expectation that the app documents its minimum backend version; the MVP meets that by naming
-the version it needs and refusing clearly below it.
+the version it needs and, below it, warning visibly while continuing in a reduced mode —
+disabling the affected features rather than the whole app.
 
 ## Verification
 

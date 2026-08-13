@@ -61,17 +61,31 @@ than failing every request in silence.
 - **acceptance-4** — unit test over the `401` teardown and the refresh-failure path — pending
 - **acceptance-5** — unit test over the session-delete call; R24 forbids `/auth/logout`, which rejects native clients with `403` — pending
 - **acceptance-6** — **regression check.** `SettingsViewModelTest` asserts `disconnect removes the credential as well as the connection`, erasing the secret before the connection record — pending
-- **R22 (refresh-token rotation)** — no criterion by design; rotation is not user-visible, but its hook belongs with acceptance-3, since a stale token after rotation breaks the next renewal — pending
-- **R34 (debug-variant fake client)** — no criterion by design; already shipped and guarded by `ReleaseConnectionClientTest`, which asserts the fake is absent from the release classpath — pending
+
+**Deliberately criterion-free requirements.** R22 (refresh-token rotation) and R34 (the
+debug-variant fake client) carry no acceptance criterion and therefore no hook — a hook keyed
+to a requirement rather than an `acceptance-<n>` could never move from `pending` to
+`passing`. Rotation is not user-visible, but acceptance-3 fails without it: a stale token
+after rotation breaks the *next* renewal. R34 already ships and is guarded by
+`ReleaseConnectionClientTest`, which asserts the fake is absent from the release classpath.
+
+Two further requirements of this artefact — R36 (unit tests over the state machine, the
+parser and the storage seam) and R37 (`task lint` / `task test` green plus the Pixel 7a
+run) — are project-wide quality gates rather than behaviour of any one feature. They are
+recorded here because sprint 1 is where they first bind: R36's three subjects all live in
+this sprint, and R37's device run is pinned to F-6 acceptance-1.
 
 ## Consistency notes
 
-**Three criteria record shipped behaviour.** The reviewer verified against
-`feat/backend-connection` that persistence and restore-on-launch (acceptance-1), the
-Keystore-backed AES-256-GCM cipher (acceptance-2) and complete credential erasure on
-disconnect (acceptance-6) are committed and unit-tested. Their hooks are marked as
-regression checks so nobody budgets for work that is done. acceptance-2's hook additionally
-records that it cannot be a unit test at all.
+**Two criteria record shipped, tested behaviour — and a third only half of that.** The
+reviewer verified against `feat/backend-connection` that persistence and restore-on-launch
+(acceptance-1) and complete credential erasure on disconnect (acceptance-6) are committed
+**and** unit-tested; their hooks are marked as regression checks so nobody budgets for work
+that is done. acceptance-2 is deliberately not in that group: the Keystore-backed AES-256-GCM
+cipher is committed, but no test anywhere executes it — `KeystoreSecretCipher` cannot run
+under `./gradlew test`, and `CredentialStoreContractTest` exercises an in-memory fake of the
+seam rather than the encryption. Counting it as done would book the sprint's only security
+criterion against evidence that does not exist; it stays open until it runs on the Pixel 7a.
 
 **acceptance-5 was added because R24 was claimed but uncovered.** The draft's disconnect
 criterion covered local erasure only. R24 requires ending the session on the instance via
@@ -88,11 +102,11 @@ or erase correctly while burying the action three screens deep; each criterion c
 failure the other misses. They stay in the features that own their surfaces: Settings owns
 the affordance, this feature owns what persistence does about it.
 
-**A stale entry in the requirement artefact.** The reviewer noted that
-`backend-connection.md`'s surviving-risk entry for R17 still says the concrete encryption
-mechanism "stays with the implementing specialist" — but `KeystoreSecretCipher` has since
-made that choice, with no new catalog dependency. The artefact needs a second, smaller
-correction; it is not this feature's to make.
+**A stale entry in the requirement artefact, since corrected.** The reviewer noted that
+`backend-connection.md`'s surviving-risk entry for R17 still said the concrete encryption
+mechanism "stays with the implementing specialist" — but `KeystoreSecretCipher` had since
+made that choice, with no new catalog dependency. That entry has been struck through and
+marked resolved in the artefact; nothing is outstanding here.
 
 ## Risks
 

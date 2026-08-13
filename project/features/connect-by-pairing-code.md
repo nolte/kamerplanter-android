@@ -48,7 +48,7 @@ session belongs to — silently when there is only one, by asking when there are
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** Scanning the pairing QR code shown in the instance's web UI connects the app to that instance, and the connection is still there after an app restart.
+- [ ] **acceptance-1** Scanning the pairing QR code shown in the instance's web UI connects the app to that instance.
 - [ ] **acceptance-2** A payload that is recognisably a kamerplanter pairing code but carries a version the app does not know is refused with a message; a foreign QR code is ignored so scanning simply continues.
 - [ ] **acceptance-3** Nothing is stored until the instance has confirmed the credential, and a failed attempt leaves an existing connection untouched.
 - [ ] **acceptance-4** After a successful pairing the app adopts the only tenant automatically, and asks which one when there are several.
@@ -57,14 +57,13 @@ session belongs to — silently when there is only one, by asking when there are
 
 ## Test hooks
 
-- **acceptance-1** — end-to-end on the Pixel 7a against a real instance, then force-stop and relaunch; this is the sprint's value-verifying criterion — pending
+- **acceptance-1** — end-to-end on the Pixel 7a against a real instance; this is the sprint's value-verifying criterion, and it cannot pass without the vendored schema, the generated client, the `/api/health` probe, the redemption call and tenant resolution all existing (requirements R1–R4) — pending
 - **acceptance-2** — unit test over the parser's three-way outcome (foreign / unknown version / valid) — pending
 - **acceptance-3** — **regression check, not new verification.** `SettingsViewModelTest` already asserts `a failed change leaves the previous connection in place` and `a failed verification stores no credential` on `feat/backend-connection` — pending
 - **acceptance-4** — **half regression, half new.** The adoption rule ships and is tested (`SettingsViewModel.kt:173-187`); the tenant-picker UI does not exist — `SelectingTenant` currently renders the same spinner as `Verifying` — pending
 - **acceptance-5** — unit test over the `401` mapping plus the return-to-scanner transition — pending
 - **acceptance-6** — unit test over the `423` and `429` mappings — pending
-- **R1–R4 (schema pinning and client generation)** — no criterion by design, but this is where the hook lives: acceptance-1 cannot pass without the vendored `openapi.json` and the generated client, so the generation task's reproducibility check and the CI `sha256` verification are pinned here — pending
-- **R44 (existing camera edge cases)** — no criterion by design; covered by the existing `QrPayloadParserTest` and the scanner's permission handling — pending
+- **acceptance-2** — additionally guards R44: the existing `QrPayloadParserTest` and the scanner's permission handling must keep behaving, since the foreign-QR branch of this criterion *is* R44's requirement — pending
 
 ## Consistency notes
 
@@ -106,10 +105,33 @@ R13 exactly as acceptance-3 does. It was dropped; acceptance-3 owns R13 and stat
 completely. Note the reviewer's observation that R13's authenticated-call half does not apply
 to light mode at all, so the removed criterion was not even accurate for the path it claimed.
 
+**acceptance-1 lost a clause it should never have carried (2026-08-13).** For a short while
+it read "…connects the app to that instance, **and** the connection is still there after an
+app restart", added so that the sprint's value verifier would cover both halves of "connects
+and stays connected". A pre-merge review rejected it on two counts, both correct: the
+criterion carried two independently failable checks, which the feature spec forbids
+("atomic — a single check"), and its restart half was word-for-word F-8 acceptance-1 while
+neither feature's `consistency_check` recorded the overlap. The concrete failure it invited
+was ugly: an implementation that connects but does not survive a restart would *half-pass*
+the one criterion the sprint's value contract points at.
+
+The clause is gone rather than split into a second criterion here, because F-8 already owns
+persistence and a duplicate would recreate the overlap in a new place. Sprint 1's
+`value_statement` was trimmed to match what one atomic criterion can prove; the "stays
+connected" half is delivered by F-8 as a feature of the same sprint, verified by its own
+criteria rather than by the sprint verifier.
+
+**Requirement-pinned test hooks were re-pinned (2026-08-13).** The same review found hook
+entries keyed to requirement IDs (`R1–R4`, `R44`) rather than to an `acceptance-<n>`
+identifier. The feature spec requires every hook to pin to a criterion; entries that do not
+can never move from `pending` to `passing`, which would have blocked
+`in_progress → done` indefinitely. Both were folded into the criteria whose verification
+actually depends on them.
+
 ## Risks
 
 - The generated API client — the largest and most blocking item in R-1 — has no feature of
-  its own by design, so its test hook lives here. acceptance-1 is the criterion that cannot
+  its own by design, so its verification rides on acceptance-1. acceptance-1 is the criterion that cannot
   pass without it.
 - Nothing in this feature is implementable until backend release `v0.2.0` is published
   upstream; the currently published `v0.1.0` asset carries no device-pairing paths.

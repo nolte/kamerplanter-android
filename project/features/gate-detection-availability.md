@@ -1,9 +1,9 @@
 ---
 id: F-4
 title: Offer pest detection only where the instance supports it
-status: draft
+status: ready
 roadmap_item: R-2
-sprint: null
+sprint: 2
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null
@@ -106,7 +106,7 @@ backend version*, which is F-10's subject, and *supports the connection but not 
 feature*, which is this criterion's.
 
 F-10 was reframed rather than this criterion weakened: it now warns and continues in a
-reduced mode, per `R-HEALTH-2` and `R-HEALTH-4` of
+reduced mode, per `R-HEALTH-2` (a **MUST**) and `R-HEALTH-4` (a **SHOULD**) of
 `spec/api/openapi-client-integration/`, keeping refusal only for a certificate that does not
 validate. So acceptance-3 stays reachable and unchanged. The boundary is recorded on both
 sides because it is easy to re-break: **F-10 gates the connection, F-4 gates a feature

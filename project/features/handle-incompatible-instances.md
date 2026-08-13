@@ -49,18 +49,29 @@ message says so in terms of the certificate rather than blaming the app.
 - **acceptance-1** — unit test over the `MIN_SUPPORTED` comparison using SemVer precedence with optional-`v` normalization, plus the reduced-mode transition — pending
 - **acceptance-2** — unit test over major negotiation and the downward probe, including the no-common-major refusal — pending
 - **acceptance-3** — instrumented test against an instance with a self-signed certificate; there is deliberately no bypass to disable — pending
-- **R5's two-axis rule** — no separate criterion; acceptance-1 and acceptance-2 are the two axes, kept apart on purpose so neither can be read as implying the other — pending
+
+**On R5's two-axis rule.** It gets no hook of its own, because acceptance-1 and acceptance-2
+*are* the two axes — kept apart on purpose so neither can be read as implying the other. A
+hook keyed to a requirement rather than an `acceptance-<n>` could never move from `pending`
+to `passing`.
 
 ## Consistency notes
 
 **This feature was reframed after the review, and the reframing is the important part.** As
 drafted it was called "explain unusable instance" and its criteria described refusing an
 instance whose version the app does not support. The reviewer found that this contradicts
-two **MUST**s in `spec/api/openapi-client-integration/`: R-HEALTH-2 requires that when
-`version < MIN_SUPPORTED` the app "show a visible, localized warning and continue in a
-reduced mode … rather than hard-failing", and R-HEALTH-4 requires disabling precisely the
-affected features rather than blocking globally. R-NEG-1 and R-NEG-3 add that the client
-must negotiate the highest common major and probe downward before giving up.
+`spec/api/openapi-client-integration/`. **One MUST and three softer requirements**, stated
+at their real strength rather than levelled up: R-HEALTH-2 is a **MUST** and requires that
+when `version < MIN_SUPPORTED` the app "show a visible, localized warning and continue in a
+reduced mode … rather than hard-failing" — that alone is enough to defeat the refusal
+framing. R-HEALTH-4 (**SHOULD**) adds that the disabling be precise rather than global,
+R-NEG-1 (**MUST**) requires negotiating the highest common major, and R-NEG-3 (**SHOULD**)
+adds the downward probe.
+
+An earlier draft of this note called R-HEALTH-2 and R-HEALTH-4 "two MUSTs", which
+misrepresented R-HEALTH-4 and contradicted this file's own later sentence describing it as a
+`SHOULD`. The conclusion is unaffected — R-HEALTH-2 carries it by itself — but a reviewer
+who checked the citation would have found it wrong.
 
 The sharper point: **the refusal framing was not traceable to the requirement artefact
 either.** R5 says only that the app "SHALL surface a clear localized diagnostic naming the

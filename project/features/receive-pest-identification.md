@@ -1,9 +1,9 @@
 ---
 id: F-2
 title: Receive an identification for a captured image
-status: draft
+status: ready
 roadmap_item: R-2
-sprint: null
+sprint: 2
 created: 2026-08-13
 ended: null
 verifies_sprint_value: acceptance-1
@@ -66,8 +66,13 @@ disclaimer are readable to the person holding the phone.
 - **acceptance-3** — unit test over endpoint selection (`/plants/{key}/detect` vs `/detect`) — pending
 - **acceptance-4** — unit test asserting the `language` form field carries the resolved resource locale (`en` or `de`) on a device set to a third locale — pending
 - **acceptance-5** — unit test over the `415` response mapping — pending
-- **R10 (8 MB / MIME)** — no acceptance criterion by design; the limit is an internal boundary whose observable consequence is acceptance-1 failing if the app neglects to downscale — pending
-- **R25 (EN/DE resources)** — no acceptance criterion; verified by the project's localisation check — pending
+
+**Deliberately criterion-free requirements.** R10 (the 8 MB and MIME limits) and R25 (EN/DE
+resources) carry no acceptance criterion and therefore no hook — a hook keyed to a
+requirement rather than an `acceptance-<n>` could never move from `pending` to `passing`. The
+upload limit is an internal boundary whose observable consequence is acceptance-1 failing if
+the app neglects to downscale; the locale coverage is verified by the project's localisation
+check.
 
 ## Consistency notes
 
@@ -103,12 +108,20 @@ finding must convey; F-2 establishes the happy path and F-5 owns its content and
 exception branches. acceptance-1's display claim is deliberately minimal — "at least one
 finding is listed" — so it cannot be read as absorbing F-5's semantics.
 
-**Carried forward.** R-2 is still `detail: coarse` and `status: proposed` with `mvp: false`,
-and `project/mission.md` does not exist. That blocks `ready → in_progress`, not
-`draft → ready`, so it does not stop this decomposition. The `detail` and `status` fields
-belong to `roadmap-plan` and `roadmap-refine`; the roadmap's own inline rule says an item is
-not promoted to `fine` before `requirements-elicit` has run, which it now has for R-2 at
-`U_gate 0.85`.
+**Carried forward, now resolved.** The earlier passes recorded that R-2 sat at
+`detail: coarse` / `mvp: false` with no `project/mission.md`, which blocked
+`ready → in_progress` but not `draft → ready`. Both conditions have since changed in the
+same planning layer that carries this file: `requirements-elicit` has run for R-2 at
+`U_gate 0.85`, so `roadmap-plan` promoted it to `detail: fine` with `mvp: true` and
+`target_sprint: 2`, and `project/mission.md` now exists.
+
+**Why `verifies_sprint_value` is set while `sprint` is null.** This feature carries
+`verifies_sprint_value: acceptance-1` even though it belongs to no sprint yet. That is
+deliberate, not a dangling field: `project/mission.md` names `F-2:acceptance-1` as its
+`verifies_via`, which makes this the **mission-verifying feature** for the whole MVP. The
+mission spec requires exactly one such feature across the MVP scope, and the criterion has to
+be nameable before the sprint that ships it is planned. When sprint 2 picks F-2 up, the field
+is already the one the sprint's value contract points at.
 
 ## Risks
 

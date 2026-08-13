@@ -1,9 +1,9 @@
 ---
 id: F-5
 title: Read what the instance found
-status: draft
+status: ready
 roadmap_item: R-2
-sprint: null
+sprint: 2
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null

@@ -190,9 +190,14 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   `/plant-instances/{key}/photos`; it SHALL NOT do so automatically, since the detection
   endpoint deliberately persists nothing.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: Q6 = "Ja, als ausdrückliche Aktion nach dem Befund"; teach-back
-- **R24** — The app SHALL show detection history for a plant via
-  `GET /plants/{plant_key}/history`.
-  - _dimension_: `functional` · _status_: `confirmed` · _source_: issue #10 in-scope list; teach-back
+- **R24** — **Moved to roadmap item R-5 on 2026-08-13.** The requirement itself stands: the
+  app SHALL show detection history for a plant via `GET /plants/{plant_key}/history`. What
+  changed is where it is verified. The surface such a history would live on is the plant
+  detail screen, which this artefact's own bounded context excludes — and keeping the
+  criterion inside R-2 created a deadlock, since R-5 cannot go `active` until the MVP is
+  stabilised, which needs R-2 `done`, which needed this criterion met. It travels with the
+  surface instead of waiting for it.
+  - _dimension_: `functional` · _status_: `confirmed` (ownership moved, not withdrawn) · _source_: issue #10 in-scope list; teach-back; relocation recorded during the pre-merge review of PR #16
 
 ### Quality gate
 

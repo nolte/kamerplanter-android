@@ -45,7 +45,12 @@ the key, once accepted, is never shown back to them in full.
 - **acceptance-1** — end-to-end on the Pixel 7a with a key issued by a real instance — pending
 - **acceptance-2** — unit test asserting the tenant is taken from the key's own `tenant_scope` rather than from a `GET /tenants` lookup — pending
 - **acceptance-3** — unit test over the rejection path, asserting the message contains no substring of the supplied key — pending
-- **R30–R32 (credential seam and interceptor)** — no criterion by design; the seam that attaches this key to requests is verified by acceptance-1 working at all — pending
+
+**Deliberately criterion-free requirements.** R30–R32 (the `core/network/` credential seam,
+the request interceptor and tenant-scoped path handling) carry no acceptance criterion and
+therefore no hook — a hook keyed to a requirement rather than an `acceptance-<n>` could never
+move from `pending` to `passing`. The seam that attaches this key to requests is verified by
+acceptance-1 working at all: if it does not attach, nothing connects.
 
 ## Consistency notes
 

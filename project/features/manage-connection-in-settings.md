@@ -56,7 +56,12 @@ one used first — or removed entirely, at any moment.
 - **acceptance-3** — **regression check.** `Connection.kt`'s `maskSecret` and its tests ship, and `SettingsScreen` carries an explicit comment that the dummy's pairing code was removed on purpose — pending
 - **acceptance-4** — Compose UI test plus the existing `SettingsViewModelTest` coverage of atomic replacement — pending
 - **acceptance-5** — Compose UI test over the disconnect affordance — pending
-- **R35 (EN/DE strings)** — no criterion by design; every string added here needs both locales — pending
+
+**Deliberately criterion-free requirement.** R35 (EN/DE string resources) carries no
+acceptance criterion and therefore no hook — a hook keyed to a requirement rather than an
+`acceptance-<n>` could never move from `pending` to `passing`. Every string this feature adds
+needs both locales; that is verified by the project's localisation check rather than by a
+criterion here.
 
 ## Consistency notes
 

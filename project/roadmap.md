@@ -19,13 +19,14 @@ follows the MVP rather than the work that constitutes it. The flags are set only
 
 <!--
 Recorded operator override, 2026-08-13, per spec/project/requirements-elicitation/
-§Consumer contract: only R-1 rests on a confirmed requirement artefact
-(project/requirements/backend-connection.md, U_gate 0.85). R-2 through R-7 are queued
-against their GitHub issues, each of which already carries a verified backend endpoint
-surface, but without an elicited artefact. The override is bounded by a rule rather than
-open-ended: no item is promoted to `detail: fine` before `requirements-elicit` has run for
-it. `fine` means near-term, and near-term means understood — which is why every item below
-R-1 sits at `coarse` or `backlog`.
+§Consumer contract. R-1 and R-2 each rest on a confirmed requirement artefact
+(`project/requirements/backend-connection.md` and `project/requirements/pest-detection.md`,
+both U_gate 0.85), and both are `detail: fine`. R-3 through R-7 are queued against their
+GitHub issues — each of which already carries a verified backend endpoint surface — but
+without an elicited artefact, which is what the override covers. It is bounded by a rule
+rather than open-ended: no item is promoted to `detail: fine` before `requirements-elicit`
+has run for it. `fine` means near-term, and near-term means understood, which is why R-3
+through R-7 sit at `coarse` or `backlog`.
 -->
 
 ### R-1 — Connect the app to a self-hosted kamerplanter instance
@@ -37,7 +38,7 @@ detail: fine
 outcomes: [O-1, O-5]
 target_sprint: 1
 mvp: true
-status: active
+status: proposed
 ```
 
 A plant owner reaches their own instance in whichever way fits the moment — scanning the
@@ -67,7 +68,7 @@ id: R-2
 title: Identify a pest from a microscope or phone photo
 detail: fine
 outcomes: [O-2]
-target_sprint: null
+target_sprint: 2
 mvp: true
 status: proposed
 ```
@@ -129,7 +130,10 @@ status: proposed
 ```
 
 Master data, growth phase, open care actions, photos and recent entries gathered in one
-screen, which is also where a pest check gets bound to that particular plant.
+screen, which is also where a pest check gets bound to that particular plant. This item also
+carries requirement R24 from `project/requirements/pest-detection.md` — the per-plant
+detection history — which moved here on 2026-08-13 because it needs this surface and could
+not be verified from R-2 without deadlocking it.
 
 ### R-6 — Record what you saw, with photographs
 
