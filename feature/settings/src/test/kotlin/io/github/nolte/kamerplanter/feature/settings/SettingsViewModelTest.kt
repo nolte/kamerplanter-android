@@ -50,9 +50,29 @@ class SettingsViewModelTest {
 
     @Test
     fun `starts connected when a connection is already persisted`() = runTest(dispatcher) {
-        val viewModel = viewModel(store = FakeConnectionStore(initial = connection))
+        // Both halves have to be there: a QR-paired connection is only whole with the
+        // session that authenticates it, and startup checks exactly that.
+        val viewModel = viewModel(
+            store = FakeConnectionStore(initial = connection),
+            credentials = InMemoryCredentialStore(initial = SESSION),
+        )
+        advanceUntilIdle()
 
         assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
+    }
+
+    @Test
+    fun `a connection whose credential cannot be read starts disconnected`() = runTest(dispatcher) {
+        // What a cloud-backup restore or a device transfer produces: the connection file
+        // comes back, the Keystore key does not, so every decrypt fails and the store
+        // reports no credential. Showing `Connected` there would offer the user an instance
+        // the app can never authenticate against, with nothing to click that repairs it.
+        val store = FakeConnectionStore(initial = connection)
+        val viewModel = viewModel(store = store, credentials = InMemoryCredentialStore())
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+        assertTrue(store.cleared)
     }
 
     @Test
@@ -138,7 +158,7 @@ class SettingsViewModelTest {
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(validQr)
 
-        assertEquals(ConnectionState.Verifying(request), viewModel.state.value)
+        assertEquals(ConnectionState.Verifying(ConnectionMethod.QR_PAIRING), viewModel.state.value)
 
         client.release()
         advanceUntilIdle()
@@ -200,7 +220,7 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            ConnectionState.SelectingTenant(request, tenants, CANNED_IDENTITY),
+            ConnectionState.SelectingTenant(ConnectionMethod.QR_PAIRING, tenants, CANNED_IDENTITY),
             viewModel.state.value,
         )
         assertNull(store.saved)
@@ -243,7 +263,8 @@ class SettingsViewModelTest {
     @Test
     fun `a failed change leaves the previous connection in place`() = runTest(dispatcher) {
         val store = FakeConnectionStore(initial = connection)
-        val viewModel = viewModel(store = store)
+        val viewModel = viewModel(store = store, credentials = InMemoryCredentialStore(initial = SESSION))
+        advanceUntilIdle()
 
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected(failQr)
@@ -374,9 +395,16 @@ class SettingsViewModelTest {
         viewModel.onQrDetected(validQr)
         advanceUntilIdle()
 
-        // Nothing is stored yet, and the observable state holds no secret (R19).
+        // Nothing is stored yet, and the observable state holds no secret (R19) — neither
+        // rendered nor in a field a collector could read. `SelectingTenant` carries only the
+        // method, the tenants and the identity; masking `toString` alone would not do, since
+        // `state.value` is public and a request field would be readable straight off it.
         assertEquals(Credential.None, credentials.stored)
-        assertFalse(viewModel.state.value.toString().contains(SESSION.refreshToken))
+        val selecting = viewModel.state.value as ConnectionState.SelectingTenant
+        val rendered = selecting.toString()
+        assertFalse(rendered.contains(SESSION.refreshToken))
+        assertFalse(rendered.contains(SESSION.accessToken))
+        assertFalse(rendered.contains(request.code))
 
         viewModel.selectTenant(tenants[1])
         advanceUntilIdle()
@@ -426,7 +454,35 @@ class SettingsViewModelTest {
         assertTrue(viewModel.state.value is ConnectionState.Failed)
         assertNull(store.saved)
         assertEquals(Credential.None, credentials.stored)
-        assertTrue(credentials.cleared)
+        // The write is a single transaction, so a failure wrote nothing and there is nothing
+        // to erase. Erasing anyway is the bug the next test pins down.
+        assertFalse(credentials.cleared)
+    }
+
+    @Test
+    fun `a failed credential write leaves an existing connection intact`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(initial = connection)
+        val credentials = InMemoryCredentialStore(initial = SESSION)
+        val viewModel = viewModel(store = store, credentials = credentials)
+        advanceUntilIdle()
+
+        // The Keystore key goes away between connecting and re-connecting — a lock-screen
+        // change or a restored device invalidates it, and every encrypt from here throws.
+        credentials.failOnSave = true
+        viewModel.startConnecting(ConnectionMethod.API_KEY)
+        viewModel.submit(ConnectionRequest.ApiKey(baseUrl = "https://other.example.org", key = "kp_sk_zzzz"))
+        advanceUntilIdle()
+
+        // R14: a failed change is a no-op. The user still has the connection they arrived
+        // with — losing it here would punish them for a key the system dropped.
+        assertTrue(viewModel.state.value is ConnectionState.Failed)
+        assertFalse(credentials.cleared)
+        assertEquals(SESSION, credentials.stored)
+        assertFalse(store.cleared)
+        assertEquals(connection, store.saved ?: connection)
+
+        viewModel.cancel()
+        assertEquals(ConnectionState.Connected(connection), viewModel.state.value)
     }
 
     @Test

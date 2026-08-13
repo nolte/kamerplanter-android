@@ -22,6 +22,11 @@ package io.github.nolte.kamerplanter.feature.settings
  * [Connected] is also a legal starting point for a new attempt: the user may change the
  * connection from any method to any other at any time, and a failed attempt leaves the
  * previous connection in place (R14, R27).
+ *
+ * One edge the diagram flattens: picking a tenant returns to [Verifying] while both halves
+ * are written. The step is no longer *verifying* anything, but it is the same thing to the
+ * user — work in flight, no input accepted — and giving it its own state would let a second
+ * tap start a second write.
  */
 sealed interface ConnectionState {
 
@@ -55,16 +60,27 @@ sealed interface ConnectionState {
     /** The device camera could not be bound (in use, hardware error, no back camera) (R44). */
     data object CameraUnavailable : ConnectionState
 
-    /** The instance is being probed and the credential proven; nothing is stored yet (R13). */
-    data class Verifying(val request: ConnectionRequest) : ConnectionState
+    /**
+     * The instance is being probed and the credential proven; nothing is stored yet (R13).
+     *
+     * Carries only [method], never the [ConnectionRequest] it was started from: this state is
+     * observed by the UI, and a request holds the plaintext pairing code or `kp_sk_…` key
+     * (R19). Masking `toString` would not be enough — `state.value` is public, so a collector,
+     * a Compose state inspector or a state-dumping crash handler could read the field itself.
+     * The request waits in the ViewModel alongside the credential instead.
+     */
+    data class Verifying(val method: ConnectionMethod) : ConnectionState
 
     /**
      * Verified, but the credential addresses more than one tenant, so the user picks the
-     * one to store (R15). [request] is kept because the connection is only composed once
-     * the tenant is settled.
+     * one to store (R15).
+     *
+     * Like [Verifying], this deliberately carries no [ConnectionRequest] — only what the UI
+     * has to render. The request and the credential are both held privately by
+     * [SettingsViewModel] until the tenant is settled and the connection can be composed.
      */
     data class SelectingTenant(
-        val request: ConnectionRequest,
+        val method: ConnectionMethod,
         val tenants: List<Tenant>,
         val identity: String?,
     ) : ConnectionState

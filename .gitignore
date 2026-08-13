@@ -9,6 +9,11 @@ local.properties
 # In-flight resume state of resumable skills/agents (spec/claude/resumable-work)
 /.resume/
 
+# Working artefacts of orchestration skills (issue-orchestrate, lektorat-apply, …).
+# They record how a change was arrived at, not the change itself — and one has already had
+# to be removed from a PR by hand.
+/.audits/
+
 # Python virtual environment (docs tooling)
 .venv/
 

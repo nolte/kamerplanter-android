@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup and device-transfer policy for API 31+ (`android:dataExtractionRules`). Its API 23–30
+  counterpart is `backup_rules.xml`; both must stay in step, because minSdk is 26 and the
+  platform picks one by version. See that file for why each path is excluded.
+
+  `device-transfer` repeats the exclusions rather than inheriting them: a direct device-to-device
+  transfer is the case where the ciphertext would otherwise arrive on the new phone while the
+  Keystore key stayed behind on the old one — the exact split-brain these rules exist to prevent.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude
+            domain="file"
+            path="datastore/credentials.preferences_pb" />
+        <exclude
+            domain="file"
+            path="datastore/connection.preferences_pb" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude
+            domain="file"
+            path="datastore/credentials.preferences_pb" />
+        <exclude
+            domain="file"
+            path="datastore/connection.preferences_pb" />
+    </device-transfer>
+</data-extraction-rules>
