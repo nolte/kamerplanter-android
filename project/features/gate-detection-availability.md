@@ -17,6 +17,12 @@ consistency_check:
       - kind: prior-art
         target: spec/api/openapi-client-integration/en.md — R-HEALTH-1, R-HEALTH-4, R-COMPAT-3
         resolution: proceed
+  - performed_at: 2026-08-13
+    agent_version: feature-consistency-reviewer@104487c
+    findings:
+      - kind: overlap
+        target: F-4 acceptance-3 ↔ F-10 acceptance-1/2
+        resolution: proceed
 ---
 
 ## Description
@@ -80,6 +86,31 @@ layers on that mechanism rather than replacing it. The reviewer's second point p
 acceptance-3: the whole detection surface arrives with backend release `v0.2.0`, so an older
 instance returns `404` on those routes instead of reporting "unavailable", and `R-COMPAT-3`
 forbids assuming the endpoints exist.
+
+**Re-run, 2026-08-13 (`feature-consistency-reviewer@104487c`) — triggered by a new
+overlapping feature.** The decomposition of roadmap item R-1 added
+[`handle-incompatible-instances`](handle-incompatible-instances.md) (F-10), which the
+feature spec names as a re-run trigger: "a feature with overlapping scope is added …
+elsewhere under `project/features/`". The finding was raised during that run rather than by
+a separate pass dedicated to this file, since F-4 was in that reviewer's scope and it read
+this feature's acceptance-3 directly; recorded here with its true provenance.
+
+The overlap concerns **acceptance-3** — the criterion asserting that on an instance too old
+to carry the detection endpoints, the entry point is not offered rather than failing on a
+missing route. As F-10 was originally drafted, it refused the connection outright to any
+instance running an unsupported version, which would have made acceptance-3 **permanently
+unreachable**: one could never arrive at the state of being connected to an instance whose
+detection routes answer `404`, because the connection would have been refused first. Two
+different version comparisons were being conflated — *below the app's minimum supported
+backend version*, which is F-10's subject, and *supports the connection but not some later
+feature*, which is this criterion's.
+
+F-10 was reframed rather than this criterion weakened: it now warns and continues in a
+reduced mode, per `R-HEALTH-2` and `R-HEALTH-4` of
+`spec/api/openapi-client-integration/`, keeping refusal only for a certificate that does not
+validate. So acceptance-3 stays reachable and unchanged. The boundary is recorded on both
+sides because it is easy to re-break: **F-10 gates the connection, F-4 gates a feature
+within a connection.** Resolution `proceed`; nothing about this feature changed.
 
 ## Risks
 

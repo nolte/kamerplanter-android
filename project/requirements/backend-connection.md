@@ -295,15 +295,17 @@ Self-consistency (`k ≥ 2`) was decisive twice, and both times pushed a dimensi
   actually reports `1.0.0`. Verified directly against the release asset. The spec needs
   correcting before R5's two-axis handling is implemented against it. `assumed`: that the
   spec is wrong rather than the asset.
-- **The encryption mechanism for R17 is an open implementation choice, but one option is
-  already ruled out.** The version catalog carries no crypto dependency today, only
-  `androidx.datastore 1.2.1`. `spec/android/security/` (claude-android-engineering)
-  requires stored secrets to be encrypted with Android Keystore-backed keys using
-  AES-256-GCM, and explicitly states that **Jetpack Security /
-  `EncryptedSharedPreferences` is deprecated as of 2025 with no drop-in successor** —
-  so the mechanism issue #8 §4 proposes by name must not be used. Tink-over-Keystore is
-  that spec's named candidate; the concrete choice stays with the implementing
-  specialist. `assumed`: any Keystore-backed AES-256-GCM mechanism satisfies R17.
+- **~~The encryption mechanism for R17 is an open implementation choice.~~ Resolved
+  2026-08-13.** The constraint this entry recorded still holds: `spec/android/security/`
+  requires Keystore-backed AES-256-GCM and rules out **Jetpack Security /
+  `EncryptedSharedPreferences`, deprecated as of 2025 with no drop-in successor**, so the
+  mechanism issue #8 §4 proposes by name must not be used. What is no longer open is the
+  choice it left to the implementer: `KeystoreSecretCipher` implements `AES/GCM/NoPadding`
+  with a 256-bit key generated in `AndroidKeyStore` under
+  `setRandomizedEncryptionRequired(true)`, and **added nothing to the version catalog** —
+  Keystore and `javax.crypto` are platform API, so the spec's Tink candidate would have
+  bought a dependency and no security. Struck through rather than deleted, because the
+  ruled-out option is the half worth remembering.
 - **The verification call of R13 is not pinned to a specific endpoint.** `GET
   /api/v1/tenants` is the natural candidate since R15 needs it anyway, but this is
   `assumed`, not confirmed — and it does not apply on the light-mode path, where
