@@ -1,9 +1,9 @@
 ---
 id: F-9
 title: See and change your connection in Settings
-status: draft
+status: ready
 roadmap_item: R-1
-sprint: null
+sprint: 1
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null

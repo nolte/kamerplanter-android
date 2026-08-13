@@ -1,9 +1,9 @@
 ---
 id: F-8
 title: Stay connected across restarts and expiring tokens
-status: draft
+status: ready
 roadmap_item: R-1
-sprint: null
+sprint: 1
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null

@@ -1,9 +1,9 @@
 ---
 id: F-10
 title: Keep working against instances the app only partly supports
-status: draft
+status: ready
 roadmap_item: R-1
-sprint: null
+sprint: 1
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null

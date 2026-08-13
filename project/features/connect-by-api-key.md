@@ -1,9 +1,9 @@
 ---
 id: F-7
 title: Connect with an API key
-status: draft
+status: ready
 roadmap_item: R-1
-sprint: null
+sprint: 1
 created: 2026-08-13
 ended: null
 verifies_sprint_value: null
