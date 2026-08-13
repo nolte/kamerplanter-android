@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +59,13 @@ class SettingsViewModel @Inject constructor(
      * tenant the user still has to pick before both halves can be written together, and it is
      * dropped the moment the attempt ends — no [ConnectionState] carries it, because states
      * are observed by the UI (R19).
+     *
+     * `@Volatile` because it is written from ML Kit's analyzer thread ([onQrDetected] →
+     * [verify]) and read from the main thread. The compare-and-set on `_state` orders the
+     * *transitions*, not these fields; without the annotation a write from one thread may
+     * never become visible to the other.
      */
+    @Volatile
     private var pendingCredential: Credential = Credential.None
 
     /**
@@ -66,6 +73,7 @@ class SettingsViewModel @Inject constructor(
      * it carries the plaintext pairing code or API key, so it must not travel in observable
      * state. Needed after tenant selection, when the connection is finally composed.
      */
+    @Volatile
     private var pendingRequest: ConnectionRequest? = null
 
     /** Where the machine rests when no attempt is in flight. */
@@ -74,18 +82,17 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val stored = store.connection.first()
-            val credential = runCatchingCancellable { credentials.load() }.getOrDefault(Credential.None)
-            established = stored?.takeIf { it.isWholeWith(credential) }
-            if (stored != null && established == null) {
-                // The two halves disagree: a connection is stored whose secret cannot be
-                // read back. A restore or a device transfer produces exactly this — the
-                // connection file returns, the Keystore key does not, and every decrypt
-                // fails. Showing `Connected` for an instance the app can never authenticate
-                // against gives the user no way to notice, let alone repair, so the orphaned
-                // half is dropped and they land on `Disconnected` with the three methods.
-                withContext(NonCancellable) { runCatchingCancellable { store.clear() } }
-            }
+            // Both reads are guarded. A DataStore file can be truncated by a power loss
+            // mid-write or come back damaged from a partial restore, and its flow throws
+            // rather than yielding null — unguarded, that crashes the app on every visit to
+            // Settings, with no in-app way out.
+            val storedConnection = runCatchingCancellable { store.connection.first() }
+            val storedCredential = runCatchingCancellable { credentials.load() }
+
+            established = storedConnection.getOrNull()
+                ?.takeIf { storedCredential.getOrNull()?.let(it::isWholeWith) == true }
+            credentials.clearOrphanedSecret(storedConnection.getOrNull(), storedCredential.getOrNull())
+
             _state.update { current ->
                 if (current is ConnectionState.Loading) restingState else current
             }
@@ -166,19 +173,27 @@ class SettingsViewModel @Inject constructor(
      * stored connection — if any — is what the machine returns to, untouched (R14).
      */
     fun cancel() {
-        _state.update { current ->
+        // getAndUpdate, not update-with-side-effects: the lambda re-runs on a lost CAS, so
+        // clearing the pending fields inside it could wipe a request that the winning
+        // transition had just stashed. Whether anything was actually left is decided by the
+        // state we replaced, once, afterwards.
+        val previous = _state.getAndUpdate { current ->
             when (current) {
                 is ConnectionState.Collecting,
                 is ConnectionState.SelectingTenant,
                 is ConnectionState.Failed,
                 ConnectionState.CameraUnavailable,
-                -> {
-                    pendingCredential = Credential.None
-                    pendingRequest = null
-                    restingState
-                }
+                -> restingState
                 else -> current
             }
+        }
+        val left = previous is ConnectionState.Collecting ||
+            previous is ConnectionState.SelectingTenant ||
+            previous is ConnectionState.Failed ||
+            previous == ConnectionState.CameraUnavailable
+        if (left) {
+            pendingCredential = Credential.None
+            pendingRequest = null
         }
     }
 
@@ -288,6 +303,32 @@ class SettingsViewModel @Inject constructor(
             established = null
             _state.value = ConnectionState.Failed(connection.method, STORAGE_FAILURE_REASON)
         }
+    }
+}
+
+/**
+ * Repairs a stored pair whose halves do not belong together — but only in the direction that
+ * is unambiguous.
+ *
+ * A **credential without a connection** is always garbage and always a liability: a
+ * decryptable refresh token or API key that nothing can reach, left behind when a process
+ * died between [SettingsViewModel]'s two writes. Nothing else ever removes it — a user
+ * sitting at `Disconnected` cannot press Disconnect — so it would outlive the app's own
+ * lifecycle. It is erased (R25).
+ *
+ * A **connection without a readable credential** is deliberately *not* erased. It looks
+ * identical whether the Keystore key is permanently gone or a single decrypt failed:
+ * [CredentialStore] reports both as [Credential.None], and so does a read that threw.
+ * Deleting on that evidence would make a transient failure cost the user their pairing.
+ * They land on `Disconnected` and can reconnect — which wipes the record before writing
+ * anyway — while the bytes stay put in case the next read succeeds.
+ */
+private suspend fun CredentialStore.clearOrphanedSecret(
+    connection: Connection?,
+    credential: Credential?,
+) {
+    if (connection == null && credential != null && credential != Credential.None) {
+        withContext(NonCancellable) { runCatchingCancellable { clear() } }
     }
 }
 

@@ -72,7 +72,25 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ConnectionState.Disconnected, viewModel.state.value)
-        assertTrue(store.cleared)
+        // But the record is NOT deleted: "cannot be read" and "is not there" are the same
+        // observation from here, and a transient Keystore failure must not cost the user
+        // their pairing. Reconnecting wipes it before writing anyway.
+        assertFalse(store.cleared)
+    }
+
+    @Test
+    fun `a credential left behind without its connection is erased on startup`() = runTest(dispatcher) {
+        // The mirror case, and the one that is unambiguous: establish() writes the secret
+        // first, so process death between the two writes leaves a decryptable refresh token
+        // with no connection record. Nothing else ever removes it — Disconnect is not
+        // reachable from Disconnected — so startup has to (R25).
+        val credentials = InMemoryCredentialStore(initial = SESSION)
+        val viewModel = viewModel(store = FakeConnectionStore(), credentials = credentials)
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+        assertTrue(credentials.cleared)
+        assertEquals(Credential.None, credentials.stored)
     }
 
     @Test

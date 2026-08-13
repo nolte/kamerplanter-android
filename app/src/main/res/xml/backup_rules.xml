@@ -17,12 +17,15 @@
   Excluding them together also removes the split-brain state a partial restore would create:
   the connection record coming back without its key made the app show a connected instance it
   could never authenticate against.
+
+  The exclusion names the `datastore` **directory**, not the two files. DataStore writes
+  through a scratch file (`…preferences_pb.tmp`) and only deletes it after a successful
+  rename, so a write interrupted by a crash leaves credential ciphertext in a file no
+  filename-based rule would have covered. Excluding the directory also survives the next
+  DataStore someone adds.
 -->
 <full-backup-content>
     <exclude
         domain="file"
-        path="datastore/credentials.preferences_pb" />
-    <exclude
-        domain="file"
-        path="datastore/connection.preferences_pb" />
+        path="datastore" />
 </full-backup-content>

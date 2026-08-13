@@ -109,16 +109,42 @@ private fun SettingsContent(
             ConnectionState.CameraUnavailable -> CameraUnavailableBody(
                 onRetry = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
             )
-            // The tenant picker is unreachable while the faked instance resolves exactly
-            // one tenant, so verification and selection share the spinner for now (R15).
-            is ConnectionState.Verifying,
-            is ConnectionState.SelectingTenant,
-            -> CenteredProgress(label = stringResource(R.string.settings_verifying))
+            is ConnectionState.Verifying -> CenteredProgress(
+                label = stringResource(R.string.settings_verifying),
+            )
+            // The picker itself is still missing (R15), but this is a *resting* state: the
+            // machine waits here until selectTenant() is called, and nothing calls it yet.
+            // Without an escape the user would be stuck on a spinner for good the first time
+            // an instance offers more than one tenant, so it says so and offers a way back.
+            is ConnectionState.SelectingTenant -> PendingTenantChoiceBody(
+                onCancel = actions.onCancel,
+            )
             is ConnectionState.Connected -> ConnectedBody(
                 connection = state.connection,
                 onDisconnect = actions.onDisconnect,
             )
             is ConnectionState.Failed -> FailedBody(onRetry = { actions.onConnect(state.method) })
+        }
+    }
+}
+
+/**
+ * Shown while the machine rests in [ConnectionState.SelectingTenant] — the instance offered
+ * several tenants and the picker that would resolve it does not exist yet (R15).
+ *
+ * It states that plainly rather than spinning: a progress indicator would promise work that
+ * is not happening, and the state does not resolve on its own. Cancelling returns to the
+ * previous connection, or to disconnected, without storing anything.
+ */
+@Composable
+private fun PendingTenantChoiceBody(onCancel: () -> Unit) {
+    CenteredColumn {
+        Text(
+            text = stringResource(R.string.settings_tenant_choice_pending),
+            textAlign = TextAlign.Center,
+        )
+        TextButton(onClick = onCancel, modifier = Modifier.padding(top = 16.dp)) {
+            Text(text = stringResource(R.string.settings_cancel))
         }
     }
 }

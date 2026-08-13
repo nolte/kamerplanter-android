@@ -69,10 +69,29 @@ internal class KeystoreSecretCipher {
             cachedKey ?: loadOrCreateKey().also { cachedKey = it }
         }
 
+    /**
+     * Loads the connection key, replacing it when what sits under the alias cannot be used.
+     *
+     * `getEntry` does not answer `null` for a damaged entry — it throws
+     * `UnrecoverableKeyException` or `KeyStoreException` for a key the system invalidated, an
+     * entry written under another user profile, or a Keymaster that lost it. Letting that
+     * escape would be a dead end rather than an error: every [encrypt] fails, so the state
+     * machine reports a storage failure on every attempt and the user can never connect again
+     * by any credential-bearing method, with nothing in the app that repairs it.
+     *
+     * Dropping the alias and generating a fresh key costs exactly what is already lost —
+     * records written under the old key stopped being decryptable the moment it became
+     * unusable — and turns a permanent lockout into a single reconnect.
+     */
     private fun loadOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-        val existing = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
-        return existing?.secretKey ?: createKey()
+        val existing = runCatching { keyStore.getEntry(KEY_ALIAS, null) }
+            .getOrNull() as? KeyStore.SecretKeyEntry
+        if (existing != null) return existing.secretKey
+        // Delete only when the alias is actually present: a first run has nothing to remove,
+        // and attempting it would turn the normal path into an error.
+        runCatching { if (keyStore.containsAlias(KEY_ALIAS)) keyStore.deleteEntry(KEY_ALIAS) }
+        return createKey()
     }
 
     private fun createKey(): SecretKey {

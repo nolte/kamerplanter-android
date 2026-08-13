@@ -40,6 +40,11 @@ complexity:
   NestedBlockDepth:
     excludes: *testSources
   TooManyFunctions:
+    # A Compose screen is *built* out of many small @Composable functions — that is the
+    # paradigm, not a smell, and splitting a screen across files to satisfy a counter makes
+    # it harder to read. Same exemption the project already grants FunctionNaming and
+    # MagicNumber; plain Kotlin classes and files stay under the default threshold.
+    ignoreAnnotatedFunctions: ['Composable']
     excludes: *testSources
 
 exceptions:
