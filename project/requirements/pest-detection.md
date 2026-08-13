@@ -40,8 +40,8 @@ unelicited requirements is forbidden.
 ## Understanding KPI
 
 - Thresholds: `τ_low = 0.4`, `τ_high = 0.8`, self-consistency `k = 2`, question budget = `6` (spec defaults; unchanged).
-- Question turns spent: 3 decision turns (each a tightly-coupled group) + 1 teach-back = **4 / 6**.
-- `U_gate = min_d c_d` over required dimensions = **0.85**
+- Question turns spent: 3 decision turns (each a tightly-coupled group) + 1 teach-back = **4 / 6**. One of those turns — the capture-resolution question — turned out to be moot; see the correction record.
+- `U_gate = min_d c_d` over required dimensions = **0.85**, unchanged after the 2026-08-13 correction. The two affected cells were re-evidenced rather than merely re-scored: understanding of the capture path is now grounded in the implementation and an adversarial review, which is stronger evidence than the interface KDoc that originally justified them.
 - Termination: `saturation` (`min_d c_d ≥ τ_high`; no remaining question carries positive net EVPI — the residuals below are resolvable by action or by an upstream decision, not by another question to the operator).
 
 ### Gap matrix
@@ -49,8 +49,8 @@ unelicited requirements is forbidden.
 | Dimension | Applicable | `c_d` | Uncertainty source | Evidence event |
 |---|---|---|---|---|
 | `functional` | yes | 0.90 | specification (resolved) | Q1–Q6 across three decision turns; the issue's own verified endpoint table; teach-back confirmed |
-| `non_functional` | yes | 0.85 | specification (resolved) | Q1 (4K capture and its latency cost) + the 8 MB / MIME upload contract; teach-back |
-| `constraints` | yes | 0.90 | interpretation (resolved) | CLAUDE.md + ADR 0001 isolation rule + Q2 (shared camera module); `MicroscopeCamera` read directly |
+| `non_functional` | yes | 0.85 | interpretation (**re-evidenced**) | the 8 MB / MIME upload contract; the capture-resolution question is settled by `UvcMicroscopeCamera.grabStill()` rather than by Q1, which was moot |
+| `constraints` | yes | 0.85 | interpretation (**re-evidenced**) | CLAUDE.md + ADR 0001 + Q2; the original cell cited "`MicroscopeCamera` read directly" and that reading was of the interface's stale KDoc. Re-grounded against the implementation and against `feature/settings/` — see the correction record below |
 | `domain_objects` | yes | 0.90 | specification (resolved) | response shape and bounding-box semantics verified against the backend domain model, not inferred from prose |
 | `actors` | yes | 0.90 | specification (resolved) | bounded context + teach-back; the self-hoster's configuration is what gates availability |
 | `acceptance_criteria` | yes | 0.85 | specification (resolved) | derived from the issue's in-scope list, narrowed by Q1–Q6; teach-back |
@@ -59,12 +59,13 @@ unelicited requirements is forbidden.
 
 Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 
-- **`non_functional` — microscope capture resolution.** Two readings survived the sources:
-  one 1080p frame from the running stream is enough (the stream is already fixed at
-  1920×1080 and `captureFrame()` grabs from it), versus reconfiguring to 4K for the shutter
-  moment. The divergence was irreducible from evidence because no measurement exists of
-  whether 1080p resolves a spider mite well enough for the direct-detection mode. The
-  operator chose 4K, accepting the latency.
+- **`non_functional` — microscope capture resolution. This deliberation was invalid; it is
+  kept as an audit trail rather than deleted.** Two readings were weighed — one 1080p frame
+  from the running stream versus reconfiguring to 4K for the shutter moment — and the
+  operator was asked to choose, picking 4K. The premise was false: the shipped
+  implementation already retunes to the sensor's largest mode and restores the preview, so
+  the question had been answered in code before it was asked. See the correction record
+  below.
 - **`constraints` — where the shared camera capability lives.** Three readings: leave
   CameraX in `:feature:settings` and duplicate, move it to a common module, or give the
   detection feature its own. The operator chose the common module.
@@ -103,21 +104,36 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 - **R7** — The microscope source SHALL be offered only WHILE a UVC device is actually
   attached.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: issue #10 §2; teach-back
-- **R8** — WHEN the user captures from the microscope, the app SHALL reconfigure the stream
-  to 4K for the capture and return it to the 1080p preview afterwards, accepting the
-  latency that the reference device's ~4.7 fps at 4K implies.
-  - _dimension_: `non_functional` · _status_: `confirmed` · _source_: Q1 = "Für die Aufnahme auf 4K umschalten"; teach-back
-- **R9** — The `MicroscopeCamera` seam SHALL be extended to express a capture resolution;
-  it exposes none today, and `captureFrame()` currently grabs from a stream fixed at
-  1920×1080.
-  - _dimension_: `constraints` · _status_: `confirmed` · _source_: `MicroscopeCamera.kt` read directly; teach-back
+- **R8** — WHEN the user captures from the microscope, the capture SHALL be taken at the
+  largest mode the device offers, and the preview SHALL return to its negotiated mode
+  afterwards. **Corrected 2026-08-13: this already holds in the shipped implementation.**
+  `UvcMicroscopeCamera.grabStill()` retunes the running stream to `modes.largest()` and
+  restores the preview in a `finally` block, so the requirement records existing behaviour
+  rather than work to be done. Note that "largest mode" is deliberately not "4K": the
+  implementation avoids a hard-coded resolution so a device with a smaller maximum is not
+  stranded at a few frames per second.
+  - _dimension_: `non_functional` · _status_: `confirmed` (as an observation of shipped code) · _source_: `UvcMicroscopeCamera.kt:229–245`, `StreamSession.kt:52–75`
+- **R9** — **Withdrawn 2026-08-13.** This requirement stated that the `MicroscopeCamera`
+  seam must be extended to express a capture resolution, because "it exposes none today,
+  and `captureFrame()` currently grabs from a stream fixed at 1920×1080". Both halves are
+  false: `grabStill()` already retunes to the sensor's full resolution and restores the
+  preview, and `StreamSession` carries `retune()` / `restorePreview()` for exactly that.
+  The error came from reading the `MicroscopeCamera` *interface* — whose KDoc still says
+  "MJPEG, captured at 1920x1080" — instead of the implementation. The stale KDoc is a
+  separate defect and is not this feature's to fix.
+  - _dimension_: `constraints` · _status_: `withdrawn` · _source_: refuted by `feature-consistency-reviewer` during the R-2 decomposition; verified independently against `UvcMicroscopeCamera.kt`
 - **R10** — The app SHALL ensure every uploaded image stays within the backend's 8 MB
   limit and is `image/jpeg` or `image/png`, re-encoding or downscaling where the captured
   frame would exceed it — which the 4K microscope frame may.
   - _dimension_: `non_functional` · _status_: `confirmed` · _source_: issue #10 upload contract; teach-back
-- **R11** — The shared camera capability (CameraX still capture, plus the existing QR
-  scanning) SHALL move out of `:feature:settings` into a module both consumers share.
-  - _dimension_: `constraints` · _status_: `confirmed` · _source_: Q2 = "In ein gemeinsames Modul ziehen"; teach-back
+- **R11** — The device-camera capability SHALL live in a module that both the QR scanner
+  and this feature's still capture consume, rather than inside `:feature:settings`.
+  **Corrected 2026-08-13:** the original wording said the "CameraX still capture, plus the
+  existing QR scanning" would move. Only the QR scanning exists — `:feature:settings` binds
+  `Preview` and `ImageAnalysis` and carries no `ImageCapture` or `takePicture` anywhere.
+  The still capture is therefore new code written in the shared module, not something
+  relocated.
+  - _dimension_: `constraints` · _status_: `confirmed` · _source_: Q2 = "In ein gemeinsames Modul ziehen"; teach-back; premise corrected against `feature/settings/` directly
 - **R12** — The UVC engine SHALL remain inside `:feature:microscope` and SHALL be consumed
   only through the app-owned `MicroscopeCamera` interface; the detection feature SHALL NOT
   reference `libuvc`.
@@ -208,10 +224,23 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   could plausibly misread the values as pixels. The app must assert the normalization
   itself. **Worth an upstream documentation issue**, though the operator declined to raise
   one for provenance (R14) and this was not separately put to them.
-- **R8's 4K decision rests on no measurement.** Whether 1080p would in fact have sufficed
-  for direct detection was never tested; the operator chose detail over latency on
-  reasoning, not evidence. If 4K capture proves too slow in practice, this is the first
-  requirement to revisit — it is a preference, not a constraint.
+- **Correction record, 2026-08-13 — two requirements rested on a misread of the code.**
+  During the R-2 decomposition, `feature-consistency-reviewer` refuted R9, and the
+  refutation was verified independently against the implementation. The elicitation had
+  read `MicroscopeCamera.kt` — the *interface*, whose KDoc still claims "MJPEG, captured at
+  1920x1080" — and never opened `UvcMicroscopeCamera.kt`, where `grabStill()` retunes to
+  `modes.largest()` and restores the preview. Consequences, all now folded in above: R9 is
+  withdrawn; R8 is restated as an observation of shipped behaviour rather than work to do,
+  and no longer names "4K", which is device-specific where the code deliberately says
+  "largest mode offered"; R11's premise is corrected, since `:feature:settings` carries no
+  still capture to move; and the `non_functional` and `constraints` cells are re-evidenced
+  against the implementation instead of the interface. One question turn of the interview
+  was spent on a choice the code had already made. The stale KDoc that caused it is a
+  separate defect, outside this feature's scope.
+- **Whether the sensor's largest mode is fast enough in practice is still untested.** The
+  reference device manages roughly 4.7 fps at 4K, and no one has measured how that feels at
+  the shutter moment or whether the detail actually changes a detection outcome. This is now
+  an observation about shipped behaviour, not a pending decision.
 - **R28 and R29 are `assumed`**, derived from the response shape and the existing
   microscope states rather than confirmed by teach-back.
 - **The consent surface carries GDPR weight.** R4 puts an Art. 6(1)(a) consent dialogue
