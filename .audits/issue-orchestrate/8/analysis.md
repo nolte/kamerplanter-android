@@ -116,7 +116,7 @@ repository, not work in this tree.
 | WP-3 | Reproducible `openapi-generator` Gradle task (kotlin, `jvm-retrofit2`) emitting into `core/network/` | R3, R4 | `core/network/build.gradle.kts`, `gradle/libs.versions.toml` | **no matching specialised agent — generalist remediation** | WP-2 |
 | WP-4 | Widen the pairing model into a three-kind `Connection` domain model and its state machine | R6, R29 | `feature/settings/…/Pairing*.kt` → `Connection*.kt` | **no matching specialised agent — generalist remediation** | — |
 | WP-5 | Keystore-backed encrypted credential store (AES-256-GCM); non-secret parts stay in DataStore | R17, R18, R19, R25 | `feature/settings/`, `gradle/libs.versions.toml` | **no matching specialised agent — generalist remediation**; governed by `spec/android/security/`; verified by the `security-review` built-in | WP-4 |
-| WP-6 | QR path: parse `{v,url,code}`, refuse unknown `v`, redeem, map `401`/`423`/`429`/expiry | R7, R8, R40–R44 | `feature/settings/QrPayloadParser.kt`, `QrScannerView.kt` | `claude-android-engineering:android-barcode-scanner-scaffold` | WP-3, WP-4 |
+| WP-6 | QR path: parse `{v,url,code}`, refuse unknown `v`, redeem, map `401`/`423`/`429`/expiry | R7, R8, R40–R44 | `feature/settings/QrPayloadParser.kt`, `QrScannerView.kt`, `SettingsViewModel.kt` | `claude-android-engineering:android-barcode-scanner-scaffold` | WP-3, WP-4 |
 | WP-7 | API-key path: base URL + `kp_sk_…` form, adopt its `tenant_scope` | R9 | `feature/settings/` | `claude-android-engineering:android-compose-ui` | WP-4 |
 | WP-8 | Light-mode path: detect `mode` from `/api/health`, credential-free connection, no auth header | R10, R11 | `feature/settings/`, `core/network/` | **no matching specialised agent — generalist remediation** | WP-3, WP-4 |
 | WP-9 | Verify-before-persist plus tenant resolution via `GET /api/v1/tenants` | R13–R16 | `feature/settings/`, `core/network/` | **no matching specialised agent — generalist remediation**; picker UI via `android-compose-ui` | WP-3, WP-4 |
@@ -207,6 +207,57 @@ regression WP-4 and later packages introduce is attributable to a known-good sta
   run and drove the device concurrently (an unexplained tab switch, then a browser in the
   foreground). WP-21's end-to-end verification must be coordinated with the operator rather
   than assumed exclusive.
+
+## Field diagnosis, 2026-08-13 — confirmed on the Pixel 7a
+
+The operator scanned a **real pairing QR from the kamerplanter web UI** with a debug build
+of this branch (`8415139`) and reported that the scanner does not recognise it. Diagnosed
+and confirmed rather than inferred:
+
+- The camera pipeline is fine — logcat shows `Preview` + `ImageAnalysis` attached and a
+  first frame after 80 ms, and there is no crash.
+- ML Kit decodes the code. **`QrPayloadParser` then rejects it**: it accepts only the
+  dummy's invented custom-scheme URI `kamerplanter://pair?url=…&code=…`, while the real
+  payload is the JSON object `{"v":1,"url":…,"code":…}`.
+- `SettingsViewModel.onQrDetected` does `QrPayloadParser.parse(raw) ?: return` — the
+  rejection is silent. No log, no state change, no user-visible feedback.
+
+Two consequences for **WP-6**, beyond what its row already states:
+
+1. This is the confirmed, reproducible symptom the parser rewrite must fix. The real
+   payload's field names (`v` / `url` / `code`) differ from the dummy's, so this is a
+   replacement, not an extension.
+2. **Add user-visible and developer-visible feedback for a rejected payload.** Silently
+   dropping a foreign QR so scanning continues is right (R44), but as implemented it makes
+   "not detected" and "detected, then rejected" indistinguishable for both the user and
+   anyone debugging. A debug log line carrying the raw value, plus a brief on-screen hint
+   when the payload parses as kamerplanter-shaped but carries an unknown `v` (R7), would
+   have answered this question in one scan instead of a code read.
+
+**Sequencing note (an orchestration error worth recording):** the parser half of WP-6 is
+pure Kotlin and needs no generated client, so it was never actually blocked by WP-1 — it
+was placed behind the blocked strand by mistake. The operator chose on 2026-08-13 to leave
+it in WP-6 rather than pull it forward, so the scanner stays unusable for real codes until
+the client lands. Recorded so the choice is visible rather than looking like an oversight.
+
+## Defect found outside this issue's scope — 16 KB page-size mismatch
+
+While reading logcat for the diagnosis above, the device logged
+`AppWarnings: Showing PageSizeMismatchDialog` twice for this package — a system dialog
+shown over the app, which also explains why scripted taps were landing unpredictably.
+
+Verified with `readelf -lW` on the arm64 libraries in the debug APK: `libuvc.so` and
+`libUVCCamera.so` both carry `LOAD` segments aligned to `0x1000` (4 KB). Android 15+
+requires `0x4000` (16 KB). The APK's own zip alignment is fine (`zipalign -c -P 16` passes)
+— the mismatch is inside the shared objects, which need
+`-Wl,-z,max-page-size=16384` at build time.
+
+This belongs to [#1](https://github.com/nolte/kamerplanter-android/issues/1) (the UVC
+microscope engine owns those libraries), not to #8, and it is currently tracked nowhere. It
+is not cosmetic: `targetSdk` is 37, Play requires 16 KB alignment for apps at recent target
+levels, and the user already sees the warning dialog today. **This artifact is run-scoped
+and gets removed before the merge, so this finding needs a durable home** — an issue or a
+comment on #1 — or it will be lost with the file.
 
 ## Recorded deviations
 
