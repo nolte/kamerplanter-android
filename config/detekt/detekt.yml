@@ -1,9 +1,109 @@
 # Project overrides on top of detekt's default config (buildUponDefaultConfig = true).
+
+# The root build script feeds detekt the build-variant source sets as well
+# (`src/{debug,release,testDebug,testRelease}/kotlin`), because the per-variant
+# ConnectionClient binding lives there and would otherwise ship unanalysed.
+#
+# detekt's own default config relaxes a long list of rules for `**/test/**` so JUnit code can
+# be written the way test code is written — backticked prose function names, top-level
+# constants, long fixture methods. That default list predates variant test source sets and
+# knows nothing about `src/testDebug/` or `src/testRelease/`, so every one of those rules
+# would fire on a variant test while staying relaxed for the identical code one directory
+# over. Same code, same rules; only the paths are new.
+#
+# The anchor below is defined once and referenced by every rule that needs it, so the two
+# variant paths cannot drift apart from the rest of the list. `config>excludes` tells
+# detekt's config validator that this top-level key is deliberate and not a misspelled rule.
+config:
+  validation: true
+  excludes: 'test-sources'
+
+test-sources: &testSources
+  - '**/test/**'
+  - '**/testDebug/**'
+  - '**/testRelease/**'
+  - '**/androidTest/**'
+  - '**/commonTest/**'
+  - '**/jvmTest/**'
+  - '**/androidUnitTest/**'
+  - '**/androidInstrumentedTest/**'
+  - '**/jsTest/**'
+  - '**/iosTest/**'
+
+complexity:
+  LargeClass:
+    excludes: *testSources
+  LongMethod:
+    excludes: *testSources
+  LongParameterList:
+    excludes: *testSources
+  NestedBlockDepth:
+    excludes: *testSources
+  TooManyFunctions:
+    # A Compose screen is *built* out of many small @Composable functions — that is the
+    # paradigm, not a smell, and splitting a screen across files to satisfy a counter makes
+    # it harder to read. Same exemption the project already grants FunctionNaming and
+    # MagicNumber; plain Kotlin classes and files stay under the default threshold.
+    ignoreAnnotatedFunctions: ['Composable']
+    excludes: *testSources
+
+exceptions:
+  InstanceOfCheckForException:
+    excludes: *testSources
+  ThrowingExceptionsWithoutMessageOrCause:
+    excludes: *testSources
+  TooGenericExceptionCaught:
+    excludes: *testSources
+
 naming:
+  BooleanPropertyNaming:
+    excludes: *testSources
+  ClassNaming:
+    excludes: *testSources
+  ConstructorParameterNaming:
+    excludes: *testSources
+  FunctionMaxLength:
+    excludes: *testSources
+  FunctionMinLength:
+    excludes: *testSources
   FunctionNaming:
     # Compose UI functions are PascalCase by convention.
     ignoreAnnotated: ['Composable']
+    excludes: *testSources
+  FunctionParameterNaming:
+    excludes: *testSources
+  LambdaParameterNaming:
+    excludes: *testSources
+  MemberNameEqualsClassName:
+    excludes: *testSources
+  NonBooleanPropertyPrefixedWithIs:
+    excludes: *testSources
+  ObjectPropertyNaming:
+    excludes: *testSources
+  TopLevelPropertyNaming:
+    excludes: *testSources
+  VariableMaxLength:
+    excludes: *testSources
+  VariableMinLength:
+    excludes: *testSources
+  VariableNaming:
+    excludes: *testSources
 
 style:
+  ForbiddenComment:
+    excludes: *testSources
   MagicNumber:
     ignoreAnnotated: ['Composable']
+    excludes: *testSources
+  MaxLineLength:
+    excludes: *testSources
+  ReturnCount:
+    # Guard clauses are the point of the state machine's entry checks: "not in this state,
+    # do nothing" reads better as an early return than as nesting. The rule ships this
+    # option precisely so the two can be told apart, so it stays on for real branching.
+    excludeGuardClauses: true
+    excludes: *testSources
+  ThrowsCount:
+    excludes: *testSources
+  UnusedPrivateMember:
+    excludes: *testSources

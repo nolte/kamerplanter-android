@@ -5,7 +5,7 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 /**
- * Parses the (fingierte) kamerplanter pairing QR code into a [PairingPayload].
+ * Parses the (fingierte) kamerplanter pairing QR code into a [ConnectionRequest.QrPairing].
  *
  * The dummy's canonical QR text is a custom-scheme URI:
  *
@@ -15,8 +15,13 @@ import java.nio.charset.StandardCharsets
  *
  * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM.
  * Any input that is not this exact shape — a foreign QR, a bare string, a missing field —
- * yields `null`, which the caller treats as "invalid, keep scanning" (requirement R15).
- * The real wire format is owned by kamerplanter#1118; this parser is intentionally minimal.
+ * yields `null`, which the caller treats as "invalid, keep scanning" (R44).
+ *
+ * The real payload is the versioned JSON object `{"v": 1, "url": …, "code": …}`, whose
+ * unknown versions must be refused rather than interpreted (R7); replacing this parser
+ * with it is a separate step of
+ * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8) and changes nothing
+ * beyond this object.
  */
 object QrPayloadParser {
 
@@ -25,7 +30,7 @@ object QrPayloadParser {
     private const val PARAM_URL = "url"
     private const val PARAM_CODE = "code"
 
-    fun parse(raw: String): PairingPayload? {
+    fun parse(raw: String): ConnectionRequest.QrPairing? {
         val uri = runCatching { URI(raw.trim()) }.getOrNull()
         // For `scheme://pair?...`, the authority carries the "pair" host.
         val host = uri?.host ?: uri?.authority
@@ -38,7 +43,7 @@ object QrPayloadParser {
             HOST.equals(host, ignoreCase = true)
 
         return if (isPairingUri && baseUrl != null && code != null) {
-            PairingPayload(baseUrl = baseUrl, code = code)
+            ConnectionRequest.QrPairing(baseUrl = baseUrl, code = code)
         } else {
             null
         }

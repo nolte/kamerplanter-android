@@ -8,7 +8,6 @@
     <string name="settings_verifying">Pairing…</string>
     <string name="settings_paired_title">Paired</string>
     <string name="settings_paired_base_url">Server: %1$s</string>
-    <string name="settings_paired_code">Pairing code: %1$s</string>
     <string name="settings_unpair">Unpair</string>
     <string name="settings_failed">Pairing failed. Please try scanning the QR code again.</string>
     <string name="settings_retry">Try again</string>
@@ -16,4 +15,5 @@
     <string name="settings_grant_permission">Grant camera access</string>
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_camera_unavailable">The camera could not be opened. Make sure no other app is using it and try again.</string>
+    <string name="settings_tenant_choice_pending">This instance offers several tenants. Choosing between them is not built yet — nothing has been stored.</string>
 </resources>

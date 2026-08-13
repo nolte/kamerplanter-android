@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup policy for API 23–30 (`android:fullBackupContent`). Its API 31+ counterpart is
+  `data_extraction_rules.xml`; both must stay in step, because minSdk is 26 and the platform
+  picks one by version.
+
+  Both halves of a connection are excluded, for two different reasons:
+
+  - `credentials` holds the access, refresh and API-key ciphertext. The AES key that decrypts
+    it lives in the Android Keystore, which is never backed up — so a restored copy is
+    undecryptable by construction. Backing it up would move unusable ciphertext to Google's
+    servers for no benefit at all.
+  - `connection` holds no secret, but it does hold the signed-in identity (an email address)
+    and the base URL of a privately hosted instance. That is personal data plus a piece of
+    the user's network topology, and neither belongs in a cloud backup.
+
+  Excluding them together also removes the split-brain state a partial restore would create:
+  the connection record coming back without its key made the app show a connected instance it
+  could never authenticate against.
+
+  The exclusion names the `datastore` **directory**, not the two files. DataStore writes
+  through a scratch file (`…preferences_pb.tmp`) and only deletes it after a successful
+  rename, so a write interrupted by a crash leaves credential ciphertext in a file no
+  filename-based rule would have covered. Excluding the directory also survives the next
+  DataStore someone adds.
+-->
+<full-backup-content>
+    <exclude
+        domain="file"
+        path="datastore" />
+</full-backup-content>
