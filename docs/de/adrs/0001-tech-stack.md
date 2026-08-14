@@ -69,7 +69,7 @@ pay for that cost.
 | API client | Generated from the FastAPI OpenAPI schema via `openapi-generator` (kotlin, `jvm-retrofit2`) | regeneration wired into Gradle; no hand-maintained DTOs |
 | Images | Coil | |
 | Local storage | Jetpack DataStore (settings, auth token) | Room only if/when offline caching becomes a feature |
-| UVC capture | [`jiangdongguo/AndroidUSBCamera`](https://github.com/jiangdongguo/AndroidUSBCamera) (AUSBC) | fallback candidate: [`shiyinghan/UVCAndroid`](https://github.com/shiyinghan/UVCAndroid); both actively maintained as of 2026-08 |
+| UVC capture | [`nolte/AndroidUSBCamera`](https://github.com/nolte/AndroidUSBCamera) — our fork of [`jiangdongguo/AndroidUSBCamera`](https://github.com/jiangdongguo/AndroidUSBCamera) (AUSBC) | forked for 16 KB page alignment (#14): upstream ships 4 KB-aligned native libraries, its fix has sat unmerged since 2026-03, and its last merge was 2024-09. Fallback candidate: [`shiyinghan/UVCAndroid`](https://github.com/shiyinghan/UVCAndroid) |
 | SDK levels | `minSdk 26`, `compileSdk`/`targetSdk` current (37 at scaffold time) | USB host mode required; graceful message on devices without OTG support |
 | Testing | JUnit, MockK, Turbine, Robolectric; Compose UI tests | UVC hardware path verified manually against reference device `1b3f:2002` (cannot run in CI) |
 | Static analysis | detekt + ktlint, Android Lint | |

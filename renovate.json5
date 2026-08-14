@@ -5,11 +5,20 @@
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
   packageRules: [
     {
-      // AUSBC is published incompletely upstream: the 3.3.x tags never built libuvc,
-      // and the 3.3.x line also renamed the package from com.serenegiant.* to
-      // com.jiangdg.*. A bump is therefore never mechanical — it is a source change plus
-      // a hardware retest. See spec/android/uvc-microscope/ in claude-android-engineering.
-      matchPackageNames: ['com.github.jiangdongguo.AndroidUSBCamera:{/,}**'],
+      // The UVC engine is never bumped mechanically — a bump is a source change plus a
+      // hardware retest on a real microscope. Both coordinates are matched: the upstream
+      // one we came from, and nolte/AndroidUSBCamera, our fork carrying the 16 KB-aligned
+      // native libraries (#14).
+      //
+      // The fork makes this rule more important, not less. It carries upstream's tags, so
+      // JitPack can resolve 3.2.7, 3.3.2 and 3.3.3 from it — and under both Maven and
+      // semver ordering the plain 3.2.7 sorts ABOVE the prerelease 3.2.7-16kb.2 we pin.
+      // Without this guard Renovate would offer a "newer" version that silently reverts
+      // the alignment fix. See spec/android/uvc-microscope/ in claude-android-engineering.
+      matchPackageNames: [
+        'com.github.jiangdongguo.AndroidUSBCamera:{/,}**',
+        'com.github.nolte.AndroidUSBCamera:{/,}**',
+      ],
       enabled: false,
     },
   ],
