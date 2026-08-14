@@ -28,8 +28,11 @@ object NetworkModule {
      * here — and the reason matters, because it is not the obvious one. The models *do*
      * have properties it would normally apply to (18 nullable enum properties defaulting to
      * `null`, e.g. `PlantResponse.cultivationCycleType`). It is inert because every enum
-     * property is `@Contextual`: coercion is keyed off the element descriptor's kind, and a
-     * contextual descriptor is not `ENUM`, so the check is skipped.
+     * property coercion could apply to is `@Contextual`: coercion is keyed off the element
+     * descriptor's kind, and a contextual descriptor is not `ENUM`, so the check is skipped.
+     * (Two nested enums — `PlantPhotoAssessRequest.adapter` and the photo quality
+     * `rating` — are plain `ENUM`, but both are required without a default, so coercion
+     * never reaches them either. Give one a default and that stops being true.)
      *
      * That distinction is load-bearing. Removing `@Contextual` from the enums — the obvious
      * fix for the limitation asserted in `GeneratedClientSerializationTest` — would switch

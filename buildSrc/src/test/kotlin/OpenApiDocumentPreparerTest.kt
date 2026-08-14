@@ -279,6 +279,45 @@ class OpenApiDocumentPreparerTest {
         )
     }
 
+    /**
+     * The twin of the test above, pinning the damage rather than the guard. Without it that
+     * test would pass identically on a fixture with no subtypes at all, so it would not
+     * actually show what the guard is protecting.
+     */
+    @Test
+    fun `subtypes attached only by allOf are unreachable without the guard`() {
+        val result = OpenApiDocumentPreparer.prepare(
+            document(
+                paths = mapOf(
+                    "/p" to mapOf(
+                        "get" to mapOf(
+                            "tags" to listOf("plant-instances"),
+                            "responses" to mapOf(
+                                "200" to mapOf(
+                                    "content" to mapOf(
+                                        "application/json" to mapOf(
+                                            "schema" to
+                                                mapOf("\$ref" to "#/components/schemas/Pet"),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                // Same shape as above minus the discriminator, so the guard stays silent and
+                // the reachability walk speaks for itself.
+                schemas = mapOf(
+                    "Pet" to mapOf("type" to "object"),
+                    "Cat" to mapOf("allOf" to listOf(mapOf("\$ref" to "#/components/schemas/Pet"))),
+                    "Dog" to mapOf("allOf" to listOf(mapOf("\$ref" to "#/components/schemas/Pet"))),
+                ),
+            ),
+        )
+
+        assertEquals(setOf("Pet"), schemas(result).keys)
+    }
+
     @Test
     fun `fails loudly on a ref into a component section it does not walk`() {
         val failure = runCatching {

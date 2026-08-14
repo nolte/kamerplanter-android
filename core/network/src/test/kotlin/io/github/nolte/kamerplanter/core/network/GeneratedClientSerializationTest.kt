@@ -118,8 +118,8 @@ class GeneratedClientSerializationTest {
     /**
      * Documents a real gap in R-COMPAT-1, deliberately asserted rather than fixed.
      *
-     * `coerceInputValues` cannot reach an enum here. The generator annotates every
-     * enum-typed property `@Contextual`, and kotlinx.serialization only coerces an unknown
+     * `coerceInputValues` cannot reach an enum here. The generator annotates the enum-typed
+     * properties `@Contextual`, and kotlinx.serialization only coerces an unknown
      * enum name when the element descriptor's kind is `ENUM` — for a contextual property it
      * is `CONTEXTUAL`, so the check is skipped and the enum's own serializer throws. On a
      * required property there is also nothing to coerce *to*: no null, no declared default.
@@ -150,10 +150,12 @@ class GeneratedClientSerializationTest {
         // subclasses this payload could plausibly start throwing instead — a type-only
         // expectation would stay green while it had stopped pinning enum behaviour at all.
         //
-        // Both halves are needed. The value alone is not enough: a `JsonDecodingException`
-        // appends the offending JSON to its message, so any unrelated failure on this
-        // payload would contain the string too. The phrase alone would not survive a
-        // reworded value.
+        // Both halves are needed, and they fail differently. The value alone is not enough:
+        // a `JsonDecodingException` appends the offending JSON to its message, so any
+        // unrelated failure on this payload would contain the string too. The phrase is the
+        // fragile half — it is kotlinx.serialization's wording, so a library bump that
+        // rephrases it turns this red while nothing about the behaviour changed. Read a
+        // failure here against the library version before reading it as a regression.
         val message = thrown.message.orEmpty()
         assertTrue(
             "expected an unknown-enum-element failure, but was: $message",

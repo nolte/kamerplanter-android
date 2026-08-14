@@ -203,7 +203,10 @@ object OpenApiDocumentPreparer {
                     // v0.2.0 contains no discriminator at all; this guards the next bump.
                     (node["discriminator"] as? Map<*, *>)?.let { discriminator ->
                         val name = discriminator["propertyName"] ?: "<unnamed>"
-                        val union = node["oneOf"] ?: node["anyOf"]
+                        // An empty union names no subtype, so it is no better than none.
+                        val union = listOfNotNull(node["oneOf"], node["anyOf"])
+                            .filterIsInstance<List<*>>()
+                            .firstOrNull { it.isNotEmpty() }
                         if (discriminator.containsKey("mapping")) {
                             unsupported += "discriminator.mapping on $name"
                         } else if (union == null) {
