@@ -31,17 +31,24 @@ import javax.inject.Singleton
 class InstanceApiFactory @Inject constructor(
     private val httpClient: OkHttpClient,
     private val json: Json,
+    private val tokenRefresh: TokenRefreshAuthenticator,
 ) {
 
     /**
      * A Retrofit facade for [baseUrl], authenticated with [credential].
      *
      * [credential] is read per request rather than captured, so a session refreshed mid-flight
-     * takes effect without rebuilding anything.
+     * takes effect without rebuilding anything — which is exactly what the authenticator does
+     * when a call comes back 401.
      */
     fun create(baseUrl: String, credential: () -> Credential = { Credential.None }): Retrofit {
         val client = httpClient.newBuilder()
             .addInterceptor(CredentialInterceptor(credential))
+            // Only sessions expire. An API key does not, and light mode has no credential at
+            // all, so attaching the authenticator to either would turn a legitimate 401 —
+            // a revoked key, a permission the key lacks — into a pointless refresh attempt
+            // that then clears a credential the user never asked to lose (R23).
+            .apply { if (credential() is Credential.Session) authenticator(tokenRefresh) }
             .build()
 
         return Retrofit.Builder()
