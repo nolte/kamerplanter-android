@@ -243,6 +243,62 @@ class SessionRefreshTest {
         }
     }
 
+    /**
+     * The case that made the authenticator's reach matter. A user with a stored session who
+     * types in an API key produces a request signed by the key while the store still holds
+     * the session — so answering that key's 401 from the store would retry with the
+     * session's token, come back 200, and verify a key that is plainly wrong.
+     */
+    @Test
+    fun `a rejected api key is not rescued by a stored session`() = runTest {
+        // The store holds a *valid* session; the request is signed with a bad key.
+        val credentials = credentials(
+            Credential.Session("at-new", "rt-new", FIXED_NOW),
+        )
+        val api = factory(credentials, connections())
+            .create(server.url("/").toString()) { Credential.ApiKey("kp_sk_wrong") }
+
+        val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+        assertEquals("the bad key must not be answered with someone else's token", 401, response.code())
+        assertEquals("no retry may go out", 1, requests.size)
+        assertEquals(0, refreshCalls.get())
+    }
+
+    /**
+     * OkHttp chains priorResponse for every follow-up it makes, redirects included. Testing
+     * for a non-null chain would therefore switch the refresh off behind any proxy that
+     * rewrites a path — or behind FastAPI's own redirect_slashes.
+     */
+    @Test
+    fun `a redirect before the 401 does not disable the refresh`() = runTest {
+        val credentials = credentials()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                synchronized(requests) { requests += request }
+                val path = request.path.orEmpty().substringBefore('?')
+                return when {
+                    path.endsWith("/auth/refresh") -> {
+                        refreshCalls.incrementAndGet()
+                        refreshResponse
+                    }
+                    // The first hop redirects, so the 401 arrives with a non-empty chain.
+                    path == "/api/v1/tenants" ->
+                        MockResponse().setResponseCode(307).setHeader("Location", "/moved/tenants")
+                    request.getHeader("Authorization") == "Bearer $acceptedToken" -> json("[]")
+                    else -> json("""{"detail":"expired"}""", code = 401)
+                }
+            }
+        }
+        val api = factory(credentials, connections())
+            .create(server.url("/").toString()) { runCatchingBlocking(credentials) }
+
+        val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+        assertTrue("the redirected call should still have been refreshed", response.isSuccessful)
+        assertEquals(1, refreshCalls.get())
+    }
+
     /** A token the server keeps rejecting must not put the client in a refresh loop. */
     @Test
     fun `a token the server keeps rejecting is not retried forever`() = runTest {

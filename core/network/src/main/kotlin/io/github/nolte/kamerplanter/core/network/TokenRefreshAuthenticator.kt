@@ -34,6 +34,10 @@ class TokenRefreshAuthenticator @Inject constructor(
             // expired token — light mode, or a call made before pairing.
             ?: return null
 
+        // Only sessions expire. An API key does not, so a 401 on one is the instance's
+        // verdict on that key and refreshing would answer it with somebody else's token.
+        if (response.request.tag(SignedWith::class.java)?.session != true) return null
+
         // One refresh per call. Counting *401s* in the chain rather than testing
         // `priorResponse != null`: OkHttp sets priorResponse for every follow-up it makes,
         // including redirects. An instance behind a proxy that rewrites a path, or FastAPI's

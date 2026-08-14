@@ -44,12 +44,11 @@ class InstanceApiFactory @Inject constructor(
     fun create(baseUrl: String, credential: () -> Credential = { Credential.None }): Retrofit {
         val client = httpClient.newBuilder()
             .addInterceptor(CredentialInterceptor(credential))
-            // Attached unconditionally, and the decision about *whether* to refresh is made
-            // per request inside SessionRefresher, which reads the credential it actually
-            // finds. Deciding here would mean calling `credential()` at build time — a
-            // snapshot, and a blocking store read on whichever thread built the client. A
-            // client built before pairing would then never refresh, and one built while a
-            // session was stored would keep trying after the user switched to an API key.
+            // Attached unconditionally: deciding here would mean calling `credential()` at
+            // build time, which is a snapshot of something the KDoc above promises is read
+            // per request — and a blocking store read on whichever thread built the client.
+            // Which requests may be refreshed is decided per request instead, from the tag
+            // the interceptor attaches.
             .authenticator(tokenRefresh)
             .build()
 
@@ -102,17 +101,36 @@ internal class CredentialInterceptor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val token = when (val current = credential()) {
+        val current = credential()
+        val token = when (current) {
             is Credential.Session -> current.accessToken
             is Credential.ApiKey -> current.key
             Credential.None -> null
         }
-        val authenticated = token
-            ?.let { request.newBuilder().header("Authorization", "Bearer $it").build() }
-            ?: request
+        val authenticated = token?.let {
+            request.newBuilder()
+                .header("Authorization", "Bearer $it")
+                // Records which *kind* of credential signed this request, so the
+                // authenticator can tell an expired session from a rejected API key. Reading
+                // the store instead would answer a different question: what is stored now,
+                // not what went out — and during a method change those differ.
+                .tag(SignedWith::class.java, SignedWith(current is Credential.Session))
+                .build()
+        } ?: request
         return chain.proceed(authenticated)
     }
 }
+
+/**
+ * Marks a request as signed by a session rather than by an API key.
+ *
+ * Only a session can be renewed. Without this the authenticator has to ask the credential
+ * store what it holds *now*, which is the wrong question the moment the two differ — and
+ * they differ exactly when a user with a stored session types in an API key: the rejected
+ * key's 401 would be answered by handing the request the stored session's token, and an
+ * invalid key would verify as good.
+ */
+internal data class SignedWith(val session: Boolean)
 
 /**
  * Encodes a scalar `@Part` as its bare `toString`, leaving everything else to the converter

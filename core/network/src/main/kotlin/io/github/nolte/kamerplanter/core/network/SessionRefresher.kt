@@ -121,9 +121,10 @@ class SessionRefresher(
             refreshToken = body.refreshToken,
             accessTokenExpiresAtEpochMillis = clock() + body.expiresIn * MILLIS_PER_SECOND,
         )
-        runCatchingCancellable { credentials.save(session) }.getOrElse {
-            return Outcome.Undecided
-        }
+        // The server has rotated by now, so the refresh token still in the store is dead. A
+        // failure to persist the new one leaves a pair that cannot recover; clearing is the
+        // honest end, and saves the user a round trip that can only fail.
+        runCatchingCancellable { credentials.save(session) }.getOrElse { return abandon() }
         Outcome.Renewed(session)
     }
 
@@ -183,8 +184,15 @@ class SessionRefresher(
     private companion object {
         const val MILLIS_PER_SECOND = 1_000L
 
-        /** The statuses that are about *this token*, rather than about the server right now. */
-        val TOKEN_REFUSED = setOf(401, 403)
+        /**
+         * The status that is about *this token*, rather than about the server right now.
+         *
+         * 401 only. The schema declares 200, 401, 404, 409 and 422 for this route and no
+         * 403 — so a 403 here comes from something in front of the instance (a WAF, a
+         * corporate proxy), which is exactly the class of answer that must not delete a
+         * working credential.
+         */
+        val TOKEN_REFUSED = setOf(401)
 
         /** Same instance, whatever path the failing endpoint happened to sit under. */
         fun HttpUrl.sameInstanceAs(other: HttpUrl): Boolean =
