@@ -10,7 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The implementation drives `libuvc` directly and is the only place in the codebase
  * allowed to touch it, so the engine can be swapped without changing callers. Reference
- * device: Generalplus `1b3f:2002`, MJPEG, captured at 1920x1080 (issue #1).
+ * device: Generalplus `1b3f:2002`, MJPEG (issue #1).
+ *
+ * Preview and capture need **not** share a resolution. The preview runs in whichever mode the
+ * stream negotiated — 1080p on the reference device, since 4K delivers only ~4.7 fps there —
+ * while [captureFrame] tries to retune to a larger mode for the shutter moment. A pest
+ * photograph is worth that latency; a live preview is not. On a device whose largest mode
+ * already fits the preview budget the two coincide, and nothing is retuned.
  *
  * Lifecycle: [createPreviewView] once per UI composition, [start] when the screen
  * becomes visible, [stop] when it leaves. Everything in between is event-driven
@@ -39,7 +45,31 @@ interface MicroscopeCamera {
     /** Stops the stream and USB monitoring. */
     fun stop()
 
-    /** Grabs a single frame from the running stream as a JPEG. */
+    /**
+     * Grabs a single frame as a JPEG, **preferring the largest mode the device offers for the
+     * negotiated format**, and restores the preview mode afterwards.
+     *
+     * Both halves of that are attempts, not guarantees, and callers should not promise their
+     * users otherwise:
+     *
+     * - The retune is skipped when no larger mode exists, and the device may refuse the
+     *   switch (bandwidth, an unsupported combination). Either way the frame is taken in the
+     *   mode that is running, so the capture can come back at preview resolution. "Largest
+     *   offered" also means largest *within the negotiated format* — a mode that exists only
+     *   under a format the stream did not negotiate is not considered.
+     * - Restoring the preview can fail too. It is attempted after every capture, but a failed
+     *   restart can leave the stream in the capture mode, which on the reference device means
+     *   a preview at ~4.7 fps until the stream is rebuilt.
+     *
+     * The call therefore takes noticeably longer than one frame interval: retune, await one
+     * frame, restore.
+     *
+     * The zoom set through [zoomBy] applies to the captured region as well, but preview and
+     * capture do **not** frame identically. The preview letterboxes the stream into the view
+     * before scaling, while the capture crops a centred `1/zoom` of *both* axes — so a
+     * zoomed capture can lose content along the axis the preview was still showing, and a
+     * capture mode with a different aspect ratio shifts the framing further.
+     */
     suspend fun captureFrame(): Result<CapturedFrame>
 
     /**

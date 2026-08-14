@@ -19,7 +19,8 @@ source_language: en
 kamerplanter-android is the native Android companion to
 [nolte/kamerplanter](https://github.com/nolte/kamerplanter) (FastAPI backend + React
 frontend). The reason a native app exists at all is issue #1: capturing pest photos from a
-USB (UVC) microscope (reference device `1b3f:2002`, MJPEG, 1080p sweet spot) and feeding
+USB (UVC) microscope (reference device `1b3f:2002`, MJPEG, 1080p preview sweet spot;
+stills are taken at a larger mode where the device offers one) and feeding
 them into kamerplanter's upload / pest-identification pipeline.
 
 That issue establishes a hard technical constraint that dominates the stack choice:
