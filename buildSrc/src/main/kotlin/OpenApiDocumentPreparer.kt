@@ -186,14 +186,30 @@ object OpenApiDocumentPreparer {
                             unsupported += "unsupported \$ref $ref"
                         }
                     }
-                    // A `discriminator.mapping` names its targets as plain strings, which the
-                    // walk above cannot see — the subtypes would be pruned while the mapping
-                    // still points at them. A discriminator *without* a mapping is fine: its
-                    // subtypes sit in the sibling oneOf/anyOf as ordinary refs. v0.2.0 has
-                    // neither, but pydantic discriminated unions emit exactly this shape.
-                    (node["discriminator"] as? Map<*, *>)
-                        ?.takeIf { it.containsKey("mapping") }
-                        ?.let { unsupported += "discriminator.mapping on ${it["propertyName"]}" }
+                    // Polymorphism hides subtypes from a `$ref` walk in two ways, and only
+                    // one of them is safe to wave through:
+                    //
+                    //   mapping present      targets are plain strings the walk cannot see.
+                    //   no mapping, no sibling oneOf/anyOf
+                    //                        the `allOf` inheritance form: the discriminator
+                    //                        sits on the parent and the subtypes point *at*
+                    //                        it, so nothing reachable from here names them.
+                    //                        The implicit mapping is "schema name == value",
+                    //                        i.e. every schema in the document.
+                    //   no mapping, sibling oneOf/anyOf
+                    //                        safe — the subtypes are ordinary refs right
+                    //                        there, which the walk already follows.
+                    //
+                    // v0.2.0 contains no discriminator at all; this guards the next bump.
+                    (node["discriminator"] as? Map<*, *>)?.let { discriminator ->
+                        val name = discriminator["propertyName"] ?: "<unnamed>"
+                        val union = node["oneOf"] ?: node["anyOf"]
+                        if (discriminator.containsKey("mapping")) {
+                            unsupported += "discriminator.mapping on $name"
+                        } else if (union == null) {
+                            unsupported += "discriminator without oneOf/anyOf on $name"
+                        }
+                    }
                     node.values.forEach(::collect)
                 }
                 is List<*> -> node.forEach(::collect)

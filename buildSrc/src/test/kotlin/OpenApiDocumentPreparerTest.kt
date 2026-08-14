@@ -235,6 +235,50 @@ class OpenApiDocumentPreparerTest {
         assertEquals(setOf("A"), schemas(result).keys)
     }
 
+    /**
+     * The `allOf` inheritance form: the discriminator sits on the parent and the subtypes
+     * point at it, so nothing reachable from the parent names them. Narrowing the guard to
+     * `mapping` alone made this case pass silently and prune `Cat`/`Dog` away.
+     */
+    @Test
+    fun `fails loudly on a discriminator whose subtypes inherit via allOf`() {
+        val failure = runCatching {
+            OpenApiDocumentPreparer.prepare(
+                document(
+                    paths = mapOf(
+                        "/p" to mapOf(
+                            "get" to mapOf(
+                                "tags" to listOf("plant-instances"),
+                                "responses" to mapOf(
+                                    "200" to mapOf(
+                                        "content" to mapOf(
+                                            "application/json" to mapOf(
+                                                "schema" to
+                                                    mapOf("\$ref" to "#/components/schemas/Pet"),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    schemas = mapOf(
+                        "Pet" to mapOf(
+                            "type" to "object",
+                            "discriminator" to mapOf("propertyName" to "petType"),
+                        ),
+                        "Cat" to mapOf("allOf" to listOf(mapOf("\$ref" to "#/components/schemas/Pet"))),
+                        "Dog" to mapOf("allOf" to listOf(mapOf("\$ref" to "#/components/schemas/Pet"))),
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(
+            failure?.message.orEmpty().contains("discriminator without oneOf/anyOf on petType"),
+        )
+    }
+
     @Test
     fun `fails loudly on a ref into a component section it does not walk`() {
         val failure = runCatching {

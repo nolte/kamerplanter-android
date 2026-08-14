@@ -146,12 +146,19 @@ class GeneratedClientSerializationTest {
             )
         }
 
-        // Asserted on the message, not just the type: `MissingFieldException` is also a
-        // `SerializationException`, so a schema bump adding a required property would keep
-        // a type-only expectation green while it stopped pinning the enum behaviour at all.
+        // Asserted on the message, not just the type, because `SerializationException` has
+        // subclasses this payload could plausibly start throwing instead — a type-only
+        // expectation would stay green while it had stopped pinning enum behaviour at all.
+        //
+        // Both halves are needed. The value alone is not enough: a `JsonDecodingException`
+        // appends the offending JSON to its message, so any unrelated failure on this
+        // payload would contain the string too. The phrase alone would not survive a
+        // reworded value.
+        val message = thrown.message.orEmpty()
         assertTrue(
-            "expected the failure to name the unknown enum value, but was: ${thrown.message}",
-            thrown.message.orEmpty().contains("invented_in_a_future_release"),
+            "expected an unknown-enum-element failure, but was: $message",
+            message.contains("does not contain element with name") &&
+                message.contains("invented_in_a_future_release"),
         )
     }
 

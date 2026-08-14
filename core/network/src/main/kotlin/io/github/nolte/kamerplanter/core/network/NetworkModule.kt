@@ -24,10 +24,17 @@ object NetworkModule {
      * and without those adapters every response carrying a date fails to deserialize.
      *
      * `ignoreUnknownKeys` is the setting actually carrying R-COMPAT-1 today.
-     * `coerceInputValues` is declared because R-COMPAT-1 names it, but it currently changes
-     * nothing: it only applies to a non-nullable property with a declared default, and the
-     * generated models contain none. It notably does *not* rescue an unknown enum value —
-     * see the asserted limitation in `GeneratedClientSerializationTest`.
+     * `coerceInputValues` is declared because R-COMPAT-1 names it, but it changes nothing
+     * here — and the reason matters, because it is not the obvious one. The models *do*
+     * have properties it would normally apply to (18 nullable enum properties defaulting to
+     * `null`, e.g. `PlantResponse.cultivationCycleType`). It is inert because every enum
+     * property is `@Contextual`: coercion is keyed off the element descriptor's kind, and a
+     * contextual descriptor is not `ENUM`, so the check is skipped.
+     *
+     * That distinction is load-bearing. Removing `@Contextual` from the enums — the obvious
+     * fix for the limitation asserted in `GeneratedClientSerializationTest` — would switch
+     * this flag on for those 18 fields, silently coercing an unknown enum value to `null`
+     * instead of failing. Decide that deliberately, not as a side effect.
      */
     @Provides
     @Singleton
