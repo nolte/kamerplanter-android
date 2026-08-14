@@ -18,14 +18,16 @@ subprojects {
         config.setFrom(rootProject.files("config/detekt/detekt.yml"))
 
         // detekt looks at src/{main,test}/{java,kotlin} and nothing else. Build-variant
-        // source sets are where the per-variant ConnectionClient binding lives (R34), so
-        // without this they would compile and ship unanalysed — a lint gate that is green
-        // because it never looked. Directories that do not exist contribute nothing.
+        // source sets are where the per-variant ConnectionClient binding lives (R34), and
+        // testFixtures is where fakes shared across modules live — without this they would
+        // compile and ship unanalysed, a lint gate that is green because it never looked.
+        // Directories that do not exist contribute nothing.
         source.from(
             files(
                 "src/debug/kotlin",
                 "src/release/kotlin",
                 "src/testDebug/kotlin",
+                "src/testFixtures/kotlin",
                 "src/testRelease/kotlin",
             ),
         )

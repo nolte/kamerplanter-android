@@ -39,7 +39,18 @@ dependencies {
     // which instance to talk to and with which credential; the code that establishes a
     // connection stays in :feature:settings.
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.kotlinx.coroutines.android)
+
+    // `api`, not `implementation`: ConnectionStore.connection is a public `Flow`, so the
+    // type belongs to this module's API surface and has to travel with the dependency.
+    //
+    // Consumers would compile without it — coroutines reaches the classpath transitively
+    // through AndroidX regardless, verified by removing this and rebuilding. That is
+    // precisely the problem: the transitive path resolves 1.9.0, not the 1.11.0 pinned in
+    // the catalog. Leaning on it means compiling against whatever version the next AndroidX
+    // bump happens to drag in — chosen nowhere, reviewed by no one.
+    //
+    // `-core` rather than `-android`: this module uses Flow, not the Android dispatcher.
+    api(libs.kotlinx.coroutines.core)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

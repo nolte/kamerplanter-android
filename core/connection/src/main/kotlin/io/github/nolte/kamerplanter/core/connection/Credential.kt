@@ -4,7 +4,7 @@ package io.github.nolte.kamerplanter.core.connection
  * The **secret** half of a connection — what the app must prove itself with on every later
  * call, and the only part of a connection that is encrypted under an Android Keystore-backed
  * key (R17). Its non-secret counterpart is [Connection], which stays in plain DataStore for
- * display (R18); the two are stored and cleared together by [SettingsViewModel].
+ * display (R18); the two are stored and cleared together by `SettingsViewModel`.
  *
  * One variant per [ConnectionMethod], because what a verified connection holds differs per
  * method — and light mode holds nothing at all. That "nothing" is [None]: a real member of

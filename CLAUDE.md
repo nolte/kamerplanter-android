@@ -13,8 +13,10 @@ proposing stack changes.
   `org.jetbrains.kotlin.android`; AGP 9 refuses it. Kotlin compiler options live in the
   `android { kotlin { } }` block.
 - Multi-module: `app/` (entry point, navigation, Hilt aggregation), `core/network/`
-  (kamerplanter API; the OpenAPI-generated client lands here), `feature/microscope/`
-  (UVC capture).
+  (kamerplanter API; the OpenAPI-generated client lands here), `core/connection/` (which
+  instance to talk to and with which credential — every feature module reads it, only
+  `feature/settings/` establishes it), `feature/microscope/` (UVC capture),
+  `feature/settings/` (connecting to an instance).
 - **UVC isolation rule (ADR 0001):** the UVC engine (libuvc, catalog key
   `libuvc`) may only be referenced inside `feature/microscope/`, always behind the
   app-owned `MicroscopeCamera` interface. Never let it leak into other modules.
