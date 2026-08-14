@@ -210,7 +210,7 @@ object OpenApiDocumentPreparer {
                         if (discriminator.containsKey("mapping")) {
                             unsupported += "discriminator.mapping on $name"
                         } else if (union == null) {
-                            unsupported += "discriminator without oneOf/anyOf on $name"
+                            unsupported += "discriminator without a usable oneOf/anyOf on $name"
                         }
                     }
                     node.values.forEach(::collect)

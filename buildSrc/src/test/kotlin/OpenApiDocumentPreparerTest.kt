@@ -275,7 +275,43 @@ class OpenApiDocumentPreparerTest {
         }.exceptionOrNull()
 
         assertTrue(
-            failure?.message.orEmpty().contains("discriminator without oneOf/anyOf on petType"),
+            failure?.message.orEmpty()
+                .contains("discriminator without a usable oneOf/anyOf on petType"),
+        )
+    }
+
+    /** An empty union names no subtype, so it is worth no more than an absent one. */
+    @Test
+    fun `treats an empty union beside a discriminator as no union at all`() {
+        val failure = runCatching {
+            OpenApiDocumentPreparer.prepare(
+                document(
+                    paths = mapOf(
+                        "/p" to mapOf(
+                            "get" to mapOf(
+                                "tags" to listOf("plant-instances"),
+                                "responses" to mapOf(
+                                    "200" to mapOf(
+                                        "content" to mapOf(
+                                            "application/json" to mapOf(
+                                                "schema" to mapOf(
+                                                    "oneOf" to emptyList<Any?>(),
+                                                    "discriminator" to mapOf("propertyName" to "kind"),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(
+            failure?.message.orEmpty()
+                .contains("discriminator without a usable oneOf/anyOf on kind"),
         )
     }
 
