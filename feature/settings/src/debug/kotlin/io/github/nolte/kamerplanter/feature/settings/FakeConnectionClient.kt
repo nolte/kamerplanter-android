@@ -1,5 +1,7 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 

@@ -1,4 +1,4 @@
-package io.github.nolte.kamerplanter.feature.settings
+package io.github.nolte.kamerplanter.core.connection
 
 /**
  * The **secret** half of a connection — what the app must prove itself with on every later

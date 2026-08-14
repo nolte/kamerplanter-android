@@ -1,5 +1,12 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.ConnectionStore
+import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
+import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

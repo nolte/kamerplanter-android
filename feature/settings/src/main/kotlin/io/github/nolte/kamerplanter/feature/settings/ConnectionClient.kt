@@ -1,5 +1,11 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.Tenant
+import io.github.nolte.kamerplanter.core.connection.maskSecret
+
 /**
  * What the user supplied for a connection attempt, before anything about it is proven —
  * one variant per [ConnectionMethod] (R6).

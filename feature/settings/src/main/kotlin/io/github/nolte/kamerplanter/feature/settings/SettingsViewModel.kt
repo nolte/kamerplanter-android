@@ -3,6 +3,12 @@ package io.github.nolte.kamerplanter.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.ConnectionStore
+import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

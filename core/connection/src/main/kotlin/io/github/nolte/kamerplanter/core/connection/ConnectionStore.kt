@@ -1,4 +1,4 @@
-package io.github.nolte.kamerplanter.feature.settings
+package io.github.nolte.kamerplanter.core.connection
 
 import kotlinx.coroutines.flow.Flow
 

@@ -43,6 +43,11 @@ androidComponents {
 }
 
 dependencies {
+    // Connection model and its two stores. `api`, not `implementation`: ConnectionState —
+    // and therefore SettingsViewModel.state — exposes Connection to whoever renders this
+    // screen, so the type has to travel with the dependency.
+    api(project(":core:connection"))
+
     // The device-camera QR scanner lives here — and only here. The rest of the app
     // pairs through the app-owned PairingClient seam, never through CameraX/ML Kit.
     // (This is the phone camera, distinct from the USB/UVC camera in :feature:microscope.)
@@ -68,4 +73,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(testFixtures(project(":core:connection")))
 }
