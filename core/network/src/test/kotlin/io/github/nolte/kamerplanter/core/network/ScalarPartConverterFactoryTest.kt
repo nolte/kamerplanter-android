@@ -41,7 +41,7 @@ class ScalarPartConverterFactoryTest {
      * parts and sits one tag away from being generated.
      *
      * The list is hand-maintained because the classes cannot be enumerated without a
-     * classpath scanner; `generatedApisAreAllListed` is what keeps it honest.
+     * classpath scanner; `every generated api is listed above` is what keeps it honest.
      */
     private val generatedApis = listOf(
         AttachmentsApi::class.java,

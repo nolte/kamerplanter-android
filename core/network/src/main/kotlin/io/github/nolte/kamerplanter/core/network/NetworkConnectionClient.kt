@@ -104,7 +104,7 @@ class NetworkConnectionClient(
                 onFailure = { failure ->
                     ConnectionResult.Failure(
                         "the pairing code was accepted, but reading the account behind it " +
-                            "failed (${failure.diagnostic()}). The code is now spent — " +
+                            "failed (${failure.shortCause()}). The code is now spent — " +
                             "generate a new one and scan again.",
                     )
                 },
@@ -118,13 +118,21 @@ class NetworkConnectionClient(
         val credential = Credential.ApiKey(request.key)
         val retrofit = apis.create(request.baseUrl) { credential }
 
-        // R15 wants the tenant taken from the key's own `tenant_scope`, and
-        // `POST /auth/service-accounts/validate` is the only route that reports it. It is
-        // not always reachable: the backend gates it behind the instance's MCP flag and
-        // answers 404 when MCP is off, so relying on it alone would report a perfectly valid
-        // key as rejected on any instance that does not run MCP. Hence the fallback — the
-        // requirement is met wherever the route exists, and the connection still works where
-        // it does not.
+        // Order matters, and both calls earn their place.
+        //
+        // Listing tenants comes first because it is the only *authenticated* call on this
+        // path, and R13 will not let a connection be established without one succeeding. The
+        // scope route cannot serve that purpose: the key travels in its JSON body, it carries
+        // `security: []`, and it answers the same generic 401 for an invalid key as for a
+        // valid non-service one — so a success there says nothing about whether the key
+        // authenticates anything.
+        //
+        // The scope route runs second, for R15: `tenant_scope` from the key itself is what
+        // the requirement asks for, and this is the only route that reports it. The backend
+        // gates it behind the instance's MCP flag and answers 404 when MCP is off, so a
+        // missing route falls back to the listing already in hand — the requirement holds
+        // wherever it exists, and a valid key still connects where it does not.
+        val reachable = retrofit.tenants()
         val scoped = runCatchingCancellable { retrofit.tenantsFromKeyScope(request.key) }
             .getOrElse { failure ->
                 if (failure is HttpFailure && failure.status == HTTP_NOT_FOUND) null else throw failure
@@ -134,7 +142,7 @@ class NetworkConnectionClient(
             // A service-account key has no user profile, so an unreadable identity is not a
             // failed connection — the instance simply has nothing to volunteer.
             identity = runCatchingCancellable { retrofit.identityOrNull() }.getOrNull(),
-            tenants = scoped ?: retrofit.tenants(),
+            tenants = scoped ?: reachable,
             credential = credential,
         )
     }
@@ -238,7 +246,9 @@ class NetworkConnectionClient(
          */
         fun <T> Response<T>.bodyOrThrow(call: Call): T {
             if (!isSuccessful) throw HttpFailure(code(), call)
-            return body() ?: throw ConnectionFailure("${call.description} returned an empty body")
+            return body() ?: throw ConnectionFailure(
+                "the instance answered ${call.description} with an empty body",
+            )
         }
 
         fun kotlinx.serialization.json.JsonElement.stringOrNull(): String? =
@@ -251,10 +261,13 @@ class NetworkConnectionClient(
         }
 
         /**
-         * The statuses come from the endpoints' own descriptions in the vendored schema, and
-         * they matter because the obvious reading of each is wrong: a locked-out address or a
-         * rate limit is not an expired code, and an instance answering at all is not a wrong
-         * address.
+         * These matter because the obvious reading of each is wrong: a locked-out address is
+         * not an expired code, and an instance answering at all is not a wrong address.
+         *
+         * 401, 422 and 423 come from the redeem endpoint's own description in the vendored
+         * schema. 429 does not — the document never mentions it — but a pairing endpoint the
+         * backend already rate-limits per source address is the obvious place for one, and
+         * mapping it costs nothing if it never arrives.
          */
         fun HttpFailure.reason(baseUrl: String): String = when (call) {
             Call.REDEEM_PAIRING -> when (status) {
@@ -273,7 +286,12 @@ class NetworkConnectionClient(
             Call.HEALTH_PROBE ->
                 "$baseUrl answered HTTP $status instead of a health report — it may be a " +
                     "kamerplanter instance that is still starting, or not one at all"
-            Call.VALIDATE_KEY, Call.LIST_TENANTS -> message.orEmpty()
+            // Both are the key being used. The instance collapses an invalid key, a revoked
+            // one and a valid non-service one into the same generic 401, so there is nothing
+            // more specific to say — but it must read as the key being refused rather than
+            // as whatever internal call happened to carry it.
+            Call.VALIDATE_KEY, Call.LIST_TENANTS ->
+                "the instance refused this API key (HTTP $status)"
         }
 
         const val HTTP_UNAUTHORIZED = 401
@@ -287,6 +305,16 @@ class NetworkConnectionClient(
          * stack trace of a failed connection attempt can carry the request that produced it.
          */
         fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
+
+        /**
+         * The cause without the class name. [diagnostic] is for a reason nobody expected;
+         * where the failure is already understood, leaking `HttpFailure:` into the text adds
+         * nothing a reader can act on.
+         */
+        fun Throwable.shortCause(): String = when (this) {
+            is HttpFailure -> "HTTP $status"
+            else -> this::class.simpleName.orEmpty()
+        }
 
         /**
          * [runCatching], minus the throwable it must never swallow. Catching

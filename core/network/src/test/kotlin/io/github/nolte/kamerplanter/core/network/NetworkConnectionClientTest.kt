@@ -180,7 +180,7 @@ class NetworkConnectionClientTest {
         val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
 
         val reason = (result as ConnectionResult.Failure).reason
-        assertTrue(reason, reason.contains("too many"))
+        assertTrue(reason, reason.contains("in a short time"))
         assertFalse(reason, reason.contains("expires within two minutes"))
     }
 
@@ -213,6 +213,10 @@ class NetworkConnectionClientTest {
     fun `an api key takes its tenant from the key's own scope`() = runTest {
         enqueueHealth()
         enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
+        enqueueJson(
             """{"display_name":"CI robot","service_account_key":"sa1",
                "tenants":[{"tenant_key":"t1","tenant_slug":"scoped","role":"editor",
                "mcp_permissions":[]}]}""",
@@ -228,8 +232,9 @@ class NetworkConnectionClientTest {
         val verified = result as ConnectionResult.Verified
         assertEquals(listOf(Tenant(slug = "scoped", displayName = "scoped")), verified.tenants)
         assertEquals(Credential.ApiKey("kp_sk_secret"), verified.credential)
-        // The scope route answered, so no tenant listing was needed.
-        assertTrue(requestsMade().none { it.path?.endsWith("/api/v1/tenants") == true })
+        // The tenant listing still goes out — it is the authenticated call R13 requires —
+        // but the scope answered, so its "scoped" wins over the listing's "demo".
+        assertTrue(requestsMade().any { it.path?.endsWith("/api/v1/tenants") == true })
     }
 
     /**
@@ -239,15 +244,15 @@ class NetworkConnectionClientTest {
     @Test
     fun `an api key falls back to the tenant list when MCP is switched off`() = runTest {
         enqueueHealth()
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
         enqueueJson("""{"detail":"not found"}""", code = 404)
         enqueueJson(
             """{"key":"u1","email":"robot@example.org","display_name":"CI robot",
                "email_verified":true,"is_active":true,"created_at":null,"last_login_at":null,
                "avatar_url":null,"locale":"de"}""",
-        )
-        enqueueJson(
-            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
-               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
         )
 
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
@@ -259,11 +264,15 @@ class NetworkConnectionClientTest {
     /**
      * R9: a `kp_sk_…` key travels in the same Authorization: Bearer header the JWT uses.
      * The schema's other scheme, X-API-Key, is accepted by six routes, all under
-     * /api/v1/mcp — sending the key there would leave the other 744 unauthenticated.
+     * /api/v1/mcp — sending the key there would leave 738 operations unauthenticated.
      */
     @Test
     fun `an api key is presented as a bearer token`() = runTest {
         enqueueHealth()
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
         enqueueJson(
             """{"display_name":"CI robot","service_account_key":"sa1",
                "tenants":[{"tenant_key":"t1","tenant_slug":"demo","role":"editor",
@@ -273,10 +282,12 @@ class NetworkConnectionClientTest {
 
         client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
 
-        val scopeCall = requestsMade()
-            .single { it.path?.endsWith("/service-accounts/validate") == true }
-        assertEquals("Bearer kp_sk_secret", scopeCall.getHeader("Authorization"))
-        assertNull(scopeCall.getHeader("X-API-Key"))
+        // Asserted on /api/v1/tenants, a route the schema actually guards with BearerAuth.
+        // The scope route carries `security: []` and would ignore the header entirely, so
+        // checking it there would prove nothing.
+        val authenticated = requestsMade().single { it.path?.endsWith("/api/v1/tenants") == true }
+        assertEquals("Bearer kp_sk_secret", authenticated.getHeader("Authorization"))
+        assertNull(authenticated.getHeader("X-API-Key"))
     }
 
     /** A 401 is the instance rejecting the key, not the route being absent — no fallback. */
@@ -284,17 +295,23 @@ class NetworkConnectionClientTest {
     fun `an api key rejected by the instance is a failure`() = runTest {
         enqueueHealth()
         enqueueJson("""{"detail":"invalid"}""", code = 401)
-        enqueueJson("""{"detail":"invalid"}""", code = 401)
 
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_wrong"))
 
-        assertTrue((result as ConnectionResult.Failure).reason.contains("401"))
+        val reason = (result as ConnectionResult.Failure).reason
+        assertTrue(reason, reason.contains("refused this API key"))
+        // The authenticated call failed, so nothing past it was attempted (R13).
+        assertEquals(2, server.requestCount)
     }
 
     /** A service-account key has no user profile; that must not read as a failed connection. */
     @Test
     fun `an api key without a readable profile still connects`() = runTest {
         enqueueHealth()
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
         enqueueJson(
             """{"display_name":"CI robot","service_account_key":"sa1",
                "tenants":[{"tenant_key":"t1","tenant_slug":"demo","role":"editor",
