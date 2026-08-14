@@ -11,7 +11,6 @@ import okhttp3.Response
 import retrofit2.Converter
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import retrofit2.http.Field
 import retrofit2.http.Part
 import java.lang.reflect.Type
 import javax.inject.Inject
@@ -75,9 +74,15 @@ class InstanceApiFactory @Inject constructor(
 /**
  * Attaches the stored credential to every outgoing request (R21).
  *
- * A session and an API key travel differently — `Authorization: Bearer` versus the
- * `X-API-Key` header the backend's `McpApiKey` scheme declares — and light mode sends
- * neither, because an instance without accounts has nothing to authenticate.
+ * A session token and a `kp_sk_…` API key travel in the *same* `Authorization: Bearer`
+ * header (R9). The schema's `BearerAuth` says so in as many words — "JWT access token or
+ * `kp_`-prefixed service-account API key" — and it guards 738 of the operations, while the
+ * `X-API-Key` header belongs to a second scheme, `McpApiKey`, accepted by six `/api/v1/mcp*`
+ * routes and nothing else. Sending a key as `X-API-Key` therefore authenticates against
+ * almost nothing: every ordinary call would go out unauthenticated and come back 401.
+ *
+ * Light mode sends neither header — an instance without accounts has nothing to
+ * authenticate (R11).
  */
 internal class CredentialInterceptor(
     private val credential: () -> Credential,
@@ -85,28 +90,35 @@ internal class CredentialInterceptor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val authenticated = when (val current = credential()) {
-            is Credential.Session ->
-                request.newBuilder()
-                    .header("Authorization", "Bearer ${current.accessToken}")
-                    .build()
-            is Credential.ApiKey ->
-                request.newBuilder()
-                    .header("X-API-Key", current.key)
-                    .build()
-            Credential.None -> request
+        val token = when (val current = credential()) {
+            is Credential.Session -> current.accessToken
+            is Credential.ApiKey -> current.key
+            Credential.None -> null
         }
+        val authenticated = token
+            ?.let { request.newBuilder().header("Authorization", "Bearer $it").build() }
+            ?: request
         return chain.proceed(authenticated)
     }
 }
 
 /**
- * Encodes `@Part`/`@Field` values that are plain scalars as their bare `toString`, leaving
- * everything else to the converter behind it.
+ * Encodes a scalar `@Part` as its bare `toString`, leaving everything else to the converter
+ * behind it.
  *
- * Only [requestBodyConverter] is implemented: response bodies always go through the JSON
- * converter, and answering [responseBodyConverter] here would hijack every `String`-typed
- * response as a raw body instead of a JSON string.
+ * `@Part` only, not `@Field`: Retrofit resolves `@Field` values through `stringConverter`,
+ * which never reaches this method, and its built-in `ToStringConverter` already handles them
+ * correctly.
+ *
+ * Only [requestBodyConverter] is implemented. Answering `responseBodyConverter` here would
+ * hijack every `String`-typed response as a raw body instead of a JSON string.
+ *
+ * The type list is an allowlist, which is the conservative direction but not a free one: a
+ * future `@Part` typed as an enum, `UUID` or `BigDecimal` would fall through to the JSON
+ * converter and arrive quote-wrapped — the very bug this class exists to prevent, again
+ * visible only at runtime. `ScalarPartConverterFactoryTest` pins the list against the part
+ * types the generated client actually declares, so adding one that is not covered fails the
+ * build rather than the upload.
  */
 internal object ScalarPartConverterFactory : Converter.Factory() {
 
@@ -116,17 +128,18 @@ internal object ScalarPartConverterFactory : Converter.Factory() {
         methodAnnotations: Array<out Annotation>,
         retrofit: Retrofit,
     ): Converter<*, RequestBody>? {
-        if (parameterAnnotations.none { it is Part || it is Field }) return null
+        if (parameterAnnotations.none { it is Part }) return null
         if (type !in SCALAR_TYPES) return null
         return Converter<Any, RequestBody> { value -> value.toString().toRequestBody() }
     }
 
-    private val SCALAR_TYPES: Set<Type> = setOf(
+    /** Both the Kotlin primitives and their boxed forms: Retrofit hands over the boxed type. */
+    val SCALAR_TYPES: Set<Type> = setOf(
         String::class.java,
-        Boolean::class.java, java.lang.Boolean::class.java,
-        Int::class.java, Integer::class.java,
-        Long::class.java, java.lang.Long::class.java,
-        Double::class.java, java.lang.Double::class.java,
-        Float::class.java, java.lang.Float::class.java,
+        Boolean::class.java, Boolean::class.javaObjectType,
+        Int::class.java, Int::class.javaObjectType,
+        Long::class.java, Long::class.javaObjectType,
+        Double::class.java, Double::class.javaObjectType,
+        Float::class.java, Float::class.javaObjectType,
     )
 }

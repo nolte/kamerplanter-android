@@ -69,12 +69,15 @@ session belongs to — silently when there is only one, by asking when there are
 
 **Prior art dominates three criteria.** The reviewer verified against `feat/backend-connection`
 that acceptance-3 and the adoption rule behind acceptance-4 are committed and unit-tested.
-They are recorded as regression contracts rather than new work, and their hooks say so. What
-does **not** exist anywhere is a single HTTP call: `core/network/` provides a bare
-`OkHttpClient` and nothing else, `ConnectionClient`'s release binding is
-`UnavailableConnectionClient`, which refuses everything, and there is no vendored schema. So
-every criterion needing a round trip is unimplemented, and the whole feature is
-`revisit-after feat/backend-connection merges to develop`.
+They are recorded as regression contracts rather than new work, and their hooks say so.
+
+**This paragraph described a state that no longer holds.** When it was written no HTTP call
+existed anywhere: `core/network/` provided a bare `OkHttpClient`, `ConnectionClient`'s
+release binding was `UnavailableConnectionClient` refusing everything, and there was no
+vendored schema. All three have since landed — the schema in #20, Retrofit and
+`NetworkConnectionClient` in #22, the latter serving every variant rather than only release.
+Criteria needing a round trip are implemented; what stays open is the session lifecycle
+(token refresh) and verification against a live instance.
 
 **acceptance-2 was rewritten because it collided with shipped behaviour.** As first drafted
 it demanded a message for an unrecognised version. The shipped `QrPayloadParser` returns

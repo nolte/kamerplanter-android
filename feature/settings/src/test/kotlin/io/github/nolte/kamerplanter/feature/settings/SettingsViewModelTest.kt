@@ -536,10 +536,11 @@ class SettingsViewModelTest {
 
 // --- the canned instance these tests connect to ---
 //
-// Deliberately owned by the test source set rather than reused from the debug variant's
-// `FakeConnectionClient`: that fake exists only in the debug variant (R34), while these
-// tests compile against both variants. Keeping the double here also stops a change to the
-// developer affordance from silently rewriting what the state machine is asserted to do.
+// Owned by this test source set rather than shared with the real client. The debug fake this
+// used to contrast with is gone — NetworkConnectionClient in :core:network now serves every
+// variant — which makes the separation matter more, not less: these tests are about the state
+// machine's decisions, so they must not start depending on what a live instance answers or on
+// the HTTP client changing underneath them.
 
 private const val CANNED_FAIL_CODE = "fail"
 private const val CANNED_IDENTITY = "demo@kamerplanter.local"

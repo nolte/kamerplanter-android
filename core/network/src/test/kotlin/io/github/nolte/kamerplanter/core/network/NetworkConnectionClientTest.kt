@@ -181,19 +181,41 @@ class NetworkConnectionClientTest {
     fun `an api key reports the tenants its scope grants`() = runTest {
         enqueueHealth()
         enqueueJson(
-            """{"display_name":"CI robot","service_account_key":"sa1",
-               "tenants":[{"tenant_key":"t1","tenant_slug":"demo","role":"editor",
-               "mcp_permissions":[]}]}""",
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
+        enqueueJson(
+            """{"key":"u1","email":"robot@example.org","display_name":"CI robot",
+               "email_verified":true,"is_active":true,"created_at":null,"last_login_at":null,
+               "avatar_url":null,"locale":"de"}""",
         )
 
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
 
         val verified = result as ConnectionResult.Verified
-        assertEquals("CI robot", verified.identity)
-        assertEquals(listOf(Tenant(slug = "demo", displayName = "demo")), verified.tenants)
+        assertEquals(listOf(Tenant(slug = "demo", displayName = "Demo garden")), verified.tenants)
         assertEquals(Credential.ApiKey("kp_sk_secret"), verified.credential)
     }
 
+    /**
+     * R9: a `kp_sk_…` key travels in the same Authorization: Bearer header the JWT uses.
+     * The schema's other scheme, X-API-Key, is accepted by six /api/v1/mcp* routes and
+     * nothing else — sending the key there would leave 738 operations unauthenticated.
+     */
+    @Test
+    fun `an api key is presented as a bearer token`() = runTest {
+        enqueueHealth()
+        enqueueJson("[]")
+        enqueueJson("""{"detail":"no profile"}""", code = 404)
+
+        client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
+
+        val tenantCall = requestsMade().single { it.path?.endsWith("/api/v1/tenants") == true }
+        assertEquals("Bearer kp_sk_secret", tenantCall.getHeader("Authorization"))
+        assertNull(tenantCall.getHeader("X-API-Key"))
+    }
+
+    /** Proven by using the key on a real authenticated call, not by asking a probe route. */
     @Test
     fun `an api key rejected by the instance is a failure`() = runTest {
         enqueueHealth()
@@ -201,7 +223,71 @@ class NetworkConnectionClientTest {
 
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_wrong"))
 
-        assertTrue((result as ConnectionResult.Failure).reason.contains("rejected the API key"))
+        assertTrue((result as ConnectionResult.Failure).reason.contains("401"))
+    }
+
+    /** A service-account key has no user profile; that must not read as a failed connection. */
+    @Test
+    fun `an api key without a readable profile still connects`() = runTest {
+        enqueueHealth()
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
+        enqueueJson("""{"detail":"service accounts have no profile"}""", code = 404)
+
+        val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
+
+        val verified = result as ConnectionResult.Verified
+        assertNull(verified.identity)
+        assertEquals(1, verified.tenants.size)
+    }
+
+    // --- diagnostics that used to be wrong --------------------------------------------
+
+    /**
+     * The code is single-use with a 60-120 second life. Once redeemed it is spent, so a
+     * failure after that point cannot be retried by tapping again — and must not read like
+     * the code was wrong, which would send the user to re-scan the same dead code.
+     */
+    @Test
+    fun `a failure after redemption says the code is spent`() = runTest {
+        enqueueHealth()
+        enqueueJson("""{"access_token":"at-1","refresh_token":"rt-1","expires_in":900}""")
+        enqueueJson("""{"detail":"boom"}""", code = 500)
+
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
+
+        val reason = (result as ConnectionResult.Failure).reason
+        assertTrue(reason, reason.contains("now spent"))
+        assertFalse(reason, reason.contains("expires within two minutes"))
+    }
+
+    /**
+     * A 503 from an instance that is still starting, or a 502 from a proxy in front of a
+     * healthy one, is not "wrong address" — reporting it as such sends the user to check a
+     * URL that is perfectly correct.
+     */
+    @Test
+    fun `an instance that answers with an error keeps its status in the reason`() = runTest {
+        enqueueJson("""{"detail":"starting"}""", code = 503)
+
+        val result = client.connect(ConnectionRequest.LightMode(baseUrl()))
+
+        assertTrue((result as ConnectionResult.Failure).reason.contains("503"))
+    }
+
+    /** R-HEALTH-3: a reachable but unhealthy instance must not be connected to silently. */
+    @Test
+    fun `an instance reporting a non-healthy status is refused`() = runTest {
+        enqueueJson("""{"status":"degraded","version":"1.0.0","mode":"full"}""")
+
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
+
+        val reason = (result as ConnectionResult.Failure).reason
+        assertTrue(reason, reason.contains("degraded"))
+        // Nothing was attempted past the probe, so the code is still unspent.
+        assertEquals(1, server.requestCount)
     }
 
     // --- unreachable and secret hygiene -----------------------------------------------
