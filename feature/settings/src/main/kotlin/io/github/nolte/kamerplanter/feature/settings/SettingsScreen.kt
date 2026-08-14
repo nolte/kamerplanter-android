@@ -32,6 +32,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
 
 /**

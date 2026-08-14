@@ -56,6 +56,11 @@ val openApiGenerator = configurations.create("openApiGenerator") {
 }
 
 dependencies {
+    // Which instance to talk to and with which credential. `api`, not `implementation`:
+    // NetworkConnectionClient implements the ConnectionClient declared over there, so the
+    // seam and its request/result types are part of what this module offers.
+    api(project(":core:connection"))
+
     // The OpenAPI-generated kamerplanter client (ADR 0001) lands in this module;
     // Retrofit/OkHttp/serialization are its runtime and part of this module's API.
     api(libs.retrofit)
@@ -67,6 +72,8 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
 
     add(openApiGenerator.name, libs.openapi.generator.cli)
 }

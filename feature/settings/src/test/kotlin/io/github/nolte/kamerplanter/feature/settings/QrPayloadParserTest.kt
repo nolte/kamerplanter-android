@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

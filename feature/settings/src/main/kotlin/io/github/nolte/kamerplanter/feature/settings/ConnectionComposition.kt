@@ -1,6 +1,7 @@
 package io.github.nolte.kamerplanter.feature.settings
 
 import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import io.github.nolte.kamerplanter.core.connection.maskSecret
 

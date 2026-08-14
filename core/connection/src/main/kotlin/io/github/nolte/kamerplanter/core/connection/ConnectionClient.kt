@@ -1,10 +1,4 @@
-package io.github.nolte.kamerplanter.feature.settings
-
-import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
-import io.github.nolte.kamerplanter.core.connection.Credential
-import io.github.nolte.kamerplanter.core.connection.CredentialStore
-import io.github.nolte.kamerplanter.core.connection.Tenant
-import io.github.nolte.kamerplanter.core.connection.maskSecret
+package io.github.nolte.kamerplanter.core.connection
 
 /**
  * What the user supplied for a connection attempt, before anything about it is proven —
@@ -82,15 +76,15 @@ sealed interface ConnectionResult {
 
 /**
  * App-owned seam in front of a kamerplanter instance (mirrors the UVC isolation pattern of
- * `:feature:microscope`): this module states *what* has to be proven, never *how* it
- * travels. No networking type crosses this interface, so the generated OpenAPI client
- * stays inside `core/network/` (R4, ADR 0001).
+ * `:feature:microscope`): this states *what* has to be proven, never *how* it travels. No
+ * networking type crosses this interface, so the generated OpenAPI client stays inside
+ * `core/network/` (R4, ADR 0001) — which is exactly what lets the implementation live there
+ * while `:feature:settings` keeps consuming nothing but this.
  *
- * The implementation is chosen per build variant, and is the only thing that differs between
- * them: `src/debug/` binds the backend-free `FakeConnectionClient` so the flow stays
- * clickable, `src/release/` cannot see that class at all and binds a refusing placeholder
- * until the real client exists (R34). The real one — `/api/health` probe, pairing redemption,
- * tenant lookup — replaces the release binding, with no change to the state machine or the UI.
+ * The per-variant split this used to carry is gone. It existed because no real
+ * implementation had been built: debug bound a backend-free fake, release bound a
+ * placeholder that refused every attempt (R34). `NetworkConnectionClient` in `:core:network`
+ * now serves both variants, so a release build can connect for the first time.
  */
 interface ConnectionClient {
 

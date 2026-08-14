@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
+import io.github.nolte.kamerplanter.core.connection.ConnectionResult
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
