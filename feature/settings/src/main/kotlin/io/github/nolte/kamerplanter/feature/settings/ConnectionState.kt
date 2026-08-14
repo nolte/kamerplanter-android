@@ -1,5 +1,9 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.Tenant
+
 /**
  * The states of the Settings connection flow (requirement R29). It widens the clickable
  * dummy's QR-only `loading → idle → scanning → verifying → paired | failed` into a

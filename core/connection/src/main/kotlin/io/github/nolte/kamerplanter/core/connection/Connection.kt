@@ -1,4 +1,4 @@
-package io.github.nolte.kamerplanter.feature.settings
+package io.github.nolte.kamerplanter.core.connection
 
 /**
  * How the app proves itself to a self-hosted kamerplanter instance. Exactly three methods
@@ -83,27 +83,16 @@ sealed interface Connection {
 }
 
 /**
- * Composes the connection to store from what the user supplied and what verification
- * resolved. Returns `null` when a credential-bearing method has no [tenant] to adopt —
- * an unscoped credential is not a connection (R15), and the caller turns that into a
- * failure rather than persisting half of one.
+ * The most of a secret that may ever appear in a log line or a UI string — its last few
+ * characters (R19). Anything short enough to be guessed from a hint is masked entirely.
  *
- * Light mode ignores [tenant] and [identity]: an instance without accounts has neither.
+ * Public rather than `internal` because the masking rule has to hold on both sides of the
+ * module boundary: [Credential] masks its tokens here, and `ConnectionRequest` in
+ * `:feature:settings` masks the pairing code and API key the user just supplied. A second
+ * copy over there would be a rule that can drift, and the direction it drifts in is one
+ * where a secret starts appearing in full.
  */
-internal fun ConnectionRequest.connectionFor(tenant: Tenant?, identity: String?): Connection? =
-    when (this) {
-        is ConnectionRequest.QrPairing ->
-            tenant?.let { Connection.QrPairing(baseUrl, it.slug, identity) }
-        is ConnectionRequest.ApiKey ->
-            tenant?.let { Connection.ApiKey(baseUrl, it.slug, maskSecret(key)) }
-        is ConnectionRequest.LightMode -> Connection.LightMode(baseUrl)
-    }
-
-/**
- * The most of a secret that may ever leave this module — its last few characters (R19).
- * Anything short enough to be guessed from a hint is masked entirely.
- */
-internal fun maskSecret(secret: String): String =
+fun maskSecret(secret: String): String =
     if (secret.length <= HINT_LENGTH) MASK else MASK + secret.takeLast(HINT_LENGTH)
 
 private const val HINT_LENGTH = 4

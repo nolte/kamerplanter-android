@@ -25,8 +25,10 @@ Building requires a JDK 21 and the Android SDK (`local.properties` → `sdk.dir`
 | Path | Contents |
 | --- | --- |
 | `app/` | Application module — entry point, navigation, theming |
+| `core/connection/` | Which instance the app talks to and with which credential, plus the two stores that persist it |
 | `core/network/` | kamerplanter API client (OpenAPI-generated, Retrofit) |
 | `feature/microscope/` | UVC capture feature; the engine stays isolated behind `MicroscopeCamera` |
+| `feature/settings/` | Connecting to an instance — QR pairing and the connection state machine |
 | `docs/` | MkDocs documentation, incl. architecture decision records |
 | `spec/` | Requirements and domain knowledge |
 

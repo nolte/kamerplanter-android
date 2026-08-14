@@ -1,4 +1,4 @@
-package io.github.nolte.kamerplanter.feature.settings
+package io.github.nolte.kamerplanter.core.connection
 
 /**
  * Persistence seam for the secret half of a connection (R17) — the twin of [ConnectionStore],
