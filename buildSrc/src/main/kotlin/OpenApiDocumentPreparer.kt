@@ -79,8 +79,9 @@ object OpenApiDocumentPreparer {
                 if (tags.none { it in KEEP_TAGS }) continue
 
                 val rewritten = LinkedHashMap(operation)
-                val functional = tags.filterNot { it in DROP_TAGS }
-                rewritten["tags"] = (functional.ifEmpty { tags.filter { it in KEEP_TAGS } }).sorted()
+                // Cannot empty the list: the operation is only here because it carries a
+                // KEEP_TAGS tag, and no KEEP_TAGS tag is in DROP_TAGS.
+                rewritten["tags"] = tags.filterNot { it in DROP_TAGS }.sorted()
 
                 // Retrofit has no cookie-parameter annotation. openapi-generator drops such
                 // parameters but leaves the separator behind, emitting `fun refresh(, @Body …)`
@@ -176,20 +177,23 @@ object OpenApiDocumentPreparer {
                     (node["\$ref"] as? String)?.let { ref ->
                         if (ref.startsWith(SCHEMA_REF_PREFIX)) {
                             pending.addLast(ref.removePrefix(SCHEMA_REF_PREFIX))
-                        } else if (ref.startsWith("#/components/")) {
-                            // Reachability only walks components.schemas. A ref into
-                            // responses/parameters/requestBodies would be pruned away while
-                            // something still points at it.
-                            unsupported += "\$ref $ref"
+                        } else {
+                            // Anything else — `#/components/responses/…`, `#/definitions/…`,
+                            // an external `common.yaml#/Foo` — is a target this walk never
+                            // enters. Schemas reachable *only* through such a node are
+                            // therefore invisible to it and would be pruned while still
+                            // referenced. Flag rather than guess.
+                            unsupported += "unsupported \$ref $ref"
                         }
                     }
-                    // Discriminator mappings name their targets as plain strings, so the
-                    // walk above cannot see them and would prune a live subtype. v0.2.0 has
-                    // none, but pydantic discriminated unions emit exactly this shape — fail
-                    // loudly here rather than as an opaque generator error later.
-                    (node["discriminator"] as? Map<*, *>)?.let {
-                        unsupported += "discriminator on ${it["propertyName"] ?: "<unnamed>"}"
-                    }
+                    // A `discriminator.mapping` names its targets as plain strings, which the
+                    // walk above cannot see — the subtypes would be pruned while the mapping
+                    // still points at them. A discriminator *without* a mapping is fine: its
+                    // subtypes sit in the sibling oneOf/anyOf as ordinary refs. v0.2.0 has
+                    // neither, but pydantic discriminated unions emit exactly this shape.
+                    (node["discriminator"] as? Map<*, *>)
+                        ?.takeIf { it.containsKey("mapping") }
+                        ?.let { unsupported += "discriminator.mapping on ${it["propertyName"]}" }
                     node.values.forEach(::collect)
                 }
                 is List<*> -> node.forEach(::collect)

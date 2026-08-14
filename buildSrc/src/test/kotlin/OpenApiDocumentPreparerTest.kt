@@ -159,16 +159,104 @@ class OpenApiDocumentPreparerTest {
         assertEquals(1, result.summary.binaryFieldsNormalized)
     }
 
+    /**
+     * Guards the other half of the binary rewrite. Without a string field actually present
+     * this asserts nothing: dropping the `contentMediaType` condition would turn every
+     * string in the schema into `format: binary`, and a fixture with no strings stays green.
+     */
     @Test
-    fun `leaves a plain string field alone`() {
+    fun `leaves a string field without contentMediaType alone`() {
         val result = OpenApiDocumentPreparer.prepare(
             document(
-                paths = mapOf("/p" to mapOf("get" to operation("health"))),
-                schemas = emptyMap(),
+                paths = mapOf(
+                    "/p" to mapOf(
+                        "get" to mapOf(
+                            "tags" to listOf("health"),
+                            "responses" to mapOf(
+                                "200" to mapOf(
+                                    "content" to mapOf(
+                                        "application/json" to mapOf(
+                                            "schema" to
+                                                mapOf("\$ref" to "#/components/schemas/Body"),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                schemas = mapOf(
+                    "Body" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf("name" to mapOf("type" to "string")),
+                    ),
+                ),
             ),
         )
 
+        val name = (
+            (schemas(result)["Body"] as Map<*, *>)["properties"] as Map<*, *>
+            )["name"] as Map<*, *>
+        assertEquals("string", name["type"])
+        assertFalse(name.containsKey("format"))
         assertEquals(0, result.summary.binaryFieldsNormalized)
+    }
+
+    /** A discriminator without a mapping resolves through ordinary refs — must not fail. */
+    @Test
+    fun `accepts a discriminator that carries no mapping`() {
+        val result = OpenApiDocumentPreparer.prepare(
+            document(
+                paths = mapOf(
+                    "/p" to mapOf(
+                        "get" to mapOf(
+                            "tags" to listOf("plant-instances"),
+                            "responses" to mapOf(
+                                "200" to mapOf(
+                                    "content" to mapOf(
+                                        "application/json" to mapOf(
+                                            "schema" to mapOf(
+                                                "oneOf" to listOf(
+                                                    mapOf("\$ref" to "#/components/schemas/A"),
+                                                ),
+                                                "discriminator" to mapOf("propertyName" to "kind"),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                schemas = mapOf("A" to mapOf("type" to "object")),
+            ),
+        )
+
+        assertEquals(setOf("A"), schemas(result).keys)
+    }
+
+    @Test
+    fun `fails loudly on a ref into a component section it does not walk`() {
+        val failure = runCatching {
+            OpenApiDocumentPreparer.prepare(
+                document(
+                    paths = mapOf(
+                        "/p" to mapOf(
+                            "get" to mapOf(
+                                "tags" to listOf("plant-instances"),
+                                "responses" to mapOf(
+                                    "200" to mapOf("\$ref" to "#/components/responses/Shared"),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(
+            failure?.message.orEmpty().contains("unsupported \$ref #/components/responses/Shared"),
+        )
     }
 
     /** Retrofit has no cookie annotation; a leftover one emits `fun f(, @Body …)`. */
@@ -195,7 +283,7 @@ class OpenApiDocumentPreparerTest {
     }
 
     @Test
-    fun `fails loudly on a discriminator rather than pruning its subtypes away`() {
+    fun `fails loudly on a discriminator mapping rather than pruning its subtypes away`() {
         val failure = runCatching {
             OpenApiDocumentPreparer.prepare(
                 document(
@@ -208,8 +296,15 @@ class OpenApiDocumentPreparerTest {
                                         "content" to mapOf(
                                             "application/json" to mapOf(
                                                 "schema" to mapOf(
-                                                    "discriminator" to
-                                                        mapOf("propertyName" to "kind"),
+                                                    "discriminator" to mapOf(
+                                                        "propertyName" to "kind",
+                                                        // Names its target as a plain string,
+                                                        // invisible to the $ref walk.
+                                                        "mapping" to mapOf(
+                                                            "leaf" to
+                                                                "#/components/schemas/Leaf",
+                                                        ),
+                                                    ),
                                                 ),
                                             ),
                                         ),
@@ -222,7 +317,7 @@ class OpenApiDocumentPreparerTest {
             )
         }.exceptionOrNull()
 
-        assertTrue(failure?.message.orEmpty().contains("discriminator"))
+        assertTrue(failure?.message.orEmpty().contains("discriminator.mapping on kind"))
     }
 
     @Test

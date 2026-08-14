@@ -17,11 +17,17 @@ object NetworkModule {
      * Lenient by design: the app must not crash when the self-hosted kamerplanter
      * backend is newer than the generated client and returns additional fields.
      *
-     * This builder — not the generated `Serializer.kotlinxSerializationJson` — is the one
-     * the app uses, because the generated one omits `coerceInputValues`, which R-COMPAT-1
-     * makes binding. Only the generator's [SerializersModule][Serializer] is adopted: the
-     * DTOs annotate temporal and decimal fields `@Contextual`, and without those adapters
-     * every response carrying a date fails to deserialize.
+     * This builder — not the generated `Serializer.kotlinxSerializationJson` — is what the
+     * app injects, so the app owns its parsing policy rather than inheriting whatever the
+     * generator's template happens to set. Only the generator's [SerializersModule]
+     * [Serializer] is adopted: the DTOs annotate temporal and decimal fields `@Contextual`,
+     * and without those adapters every response carrying a date fails to deserialize.
+     *
+     * `ignoreUnknownKeys` is the setting actually carrying R-COMPAT-1 today.
+     * `coerceInputValues` is declared because R-COMPAT-1 names it, but it currently changes
+     * nothing: it only applies to a non-nullable property with a declared default, and the
+     * generated models contain none. It notably does *not* rescue an unknown enum value —
+     * see the asserted limitation in `GeneratedClientSerializationTest`.
      */
     @Provides
     @Singleton

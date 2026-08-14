@@ -5,9 +5,12 @@ import io.github.nolte.kamerplanter.core.network.generated.models.CycleType
 import io.github.nolte.kamerplanter.core.network.generated.models.ErrorResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.ReminderType
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -127,18 +130,28 @@ class GeneratedClientSerializationTest {
      * entry-level error handling in the repositories — a decision that belongs with the
      * feature work, not with client generation. Kept as a test so it cannot be forgotten.
      */
-    @Test(expected = kotlinx.serialization.SerializationException::class)
+    @Test
     fun `an unknown enum value from a newer backend still fails the whole response`() {
-        json.decodeFromString<CareDashboardEntryResponse>(
-            """
-            {
-              "care_profile_key": "cp-1",
-              "plant_key": "plant-7",
-              "plant_name": "Monstera",
-              "reminder_type": "invented_in_a_future_release",
-              "urgency": "due"
-            }
-            """.trimIndent(),
+        val thrown = assertThrows(SerializationException::class.java) {
+            json.decodeFromString<CareDashboardEntryResponse>(
+                """
+                {
+                  "care_profile_key": "cp-1",
+                  "plant_key": "plant-7",
+                  "plant_name": "Monstera",
+                  "reminder_type": "invented_in_a_future_release",
+                  "urgency": "due"
+                }
+                """.trimIndent(),
+            )
+        }
+
+        // Asserted on the message, not just the type: `MissingFieldException` is also a
+        // `SerializationException`, so a schema bump adding a required property would keep
+        // a type-only expectation green while it stopped pinning the enum behaviour at all.
+        assertTrue(
+            "expected the failure to name the unknown enum value, but was: ${thrown.message}",
+            thrown.message.orEmpty().contains("invented_in_a_future_release"),
         )
     }
 
