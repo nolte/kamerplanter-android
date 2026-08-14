@@ -361,6 +361,13 @@ class NetworkConnectionClientTest {
 
         val verified = result as ConnectionResult.Verified
         assertEquals(listOf(Tenant(slug = "demo", displayName = "Demo garden")), verified.tenants)
+        // Pinned by path, not by position: the canned responses are matched to calls purely
+        // by order, so reordering the client's calls would otherwise keep this green while
+        // handing each response to the wrong request.
+        assertEquals(
+            listOf("/api/health", "/api/v1/tenants", "/api/v1/auth/service-accounts/validate", "/api/v1/users/me"),
+            requestsMade().map { it.path },
+        )
     }
 
     // --- diagnostics that used to be wrong --------------------------------------------

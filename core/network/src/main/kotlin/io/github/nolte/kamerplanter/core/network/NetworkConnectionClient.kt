@@ -144,6 +144,9 @@ class NetworkConnectionClient(
             // A service-account key has no user profile, so an unreadable identity is not a
             // failed connection — the instance simply has nothing to volunteer.
             identity = runCatchingCancellable { retrofit.identityOrNull() }.getOrNull(),
+            // `scoped` wins whenever the route answered, empty list included: a key whose
+            // scope is genuinely empty grants nothing, and substituting the wider listing
+            // there would hand it tenants it was never scoped to.
             tenants = scoped ?: reachable,
             credential = credential,
         )
@@ -288,17 +291,21 @@ class NetworkConnectionClient(
             Call.HEALTH_PROBE ->
                 "$baseUrl answered HTTP $status instead of a health report — it may be a " +
                     "kamerplanter instance that is still starting, or not one at all"
-            // Only the statuses that are actually about the credential may say so. The
-            // instance collapses an invalid key, a revoked one and a valid non-service one
-            // into the same generic 401, so there is nothing more specific to say there — but
-            // a 503 from an instance that is still starting says nothing about the key, and
-            // reporting it as a refusal sends the user to replace one that works.
-            Call.VALIDATE_KEY, Call.LIST_TENANTS -> when (status) {
+            // Only the statuses that are actually about the credential may say so: a 503
+            // from an instance that is still starting says nothing about it, and reporting
+            // that as a refusal sends the user to replace a key that works.
+            Call.LIST_TENANTS -> when (status) {
                 HTTP_UNAUTHORIZED -> "the instance refused this credential"
                 HTTP_FORBIDDEN ->
                     "this credential is accepted but not allowed to read the tenant list"
                 else -> "the instance answered HTTP $status while ${call.description}"
             }
+            // Unreachable: the only caller swallows every failure from this route, because
+            // by then the credential has already authenticated elsewhere. Kept for
+            // exhaustiveness and deliberately generic — the sentences above would both be
+            // wrong here, where a 401 can also mean a valid key that is simply not a service
+            // account.
+            Call.VALIDATE_KEY -> message.orEmpty()
         }
 
         const val HTTP_UNAUTHORIZED = 401
@@ -314,10 +321,13 @@ class NetworkConnectionClient(
         fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
 
         /**
-         * The most useful short form of a cause. A status where there is one, the prepared
-         * sentence where the failure already carries one, and — only when neither applies —
-         * the exception type, which for an unexpected `IOException` or parse error is the
-         * only thing there is to say.
+         * The most useful short form of a cause that is safe to show. A status where there
+         * is one, the prepared sentence where the failure already carries one, and otherwise
+         * the exception type alone.
+         *
+         * The type alone, even though an unexpected throwable usually has a message: a
+         * `JsonDecodingException` quotes the offending payload in its message, and R19 does
+         * not allow a failure reason to echo what it failed on.
          */
         fun Throwable.shortCause(): String = when (this) {
             is HttpFailure -> "HTTP $status"
