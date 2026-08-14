@@ -3,10 +3,10 @@ package io.github.nolte.kamerplanter.feature.microscope
 import android.graphics.SurfaceTexture
 import android.hardware.usb.UsbDevice
 import android.util.Log
-import com.serenegiant.usb.IFrameCallback
-import com.serenegiant.usb.Size
-import com.serenegiant.usb.USBMonitor
-import com.serenegiant.usb.UVCCamera
+import com.jiangdg.usb.USBMonitor
+import com.jiangdg.utils.Size
+import com.jiangdg.uvc.IFrameCallback
+import com.jiangdg.uvc.UVCCamera
 
 /** What a restart has to hand the engine again after `stopPreview` releases it. */
 private class StreamBinding(

@@ -46,3 +46,11 @@ tasks:
     desc: Build a release APK
     cmds:
       - ./gradlew assembleRelease
+      - task: verify:page-size
+
+  verify:page-size:
+    desc: Fail if a 64-bit native library is not 16 KB-page aligned (#14)
+    cmds:
+      # Runs on the assembled artefact rather than on sources: the libraries come from
+      # a prebuilt dependency, so only the packaged APK shows what actually ships.
+      - python3 scripts/check_page_alignment.py app/build/outputs/apk/release/*.apk

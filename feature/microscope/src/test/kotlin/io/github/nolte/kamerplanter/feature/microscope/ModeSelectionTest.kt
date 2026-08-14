@@ -1,6 +1,6 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
-import com.serenegiant.usb.Size
+import com.jiangdg.utils.Size
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

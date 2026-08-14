@@ -30,11 +30,15 @@ android {
     }
 
     lint {
-        // libuvc pulls in libuvccommon, which bundles a notification helper for consumers
-        // that run the camera from a foreground service. This app never reaches it —
-        // neither USBMonitor nor UVCCamera references it, and R8 strips it — so declaring
-        // POST_NOTIFICATIONS would be requesting a permission we never use, which
-        // permission minimalism forbids. Re-enable the moment this app posts anything.
+        // Kept as a guard, not as a fix for a current finding. The original cause was
+        // libuvccommon — a runtime dependency of the upstream libuvc POM bundling a
+        // notification helper for consumers that run the camera from a foreground service.
+        // The fork's POM (#14) declares only androidx.appcompat and com.elvishew:xlog, so
+        // that transitive dependency is gone and the finding it produced cannot recur from
+        // there. The suppression stays because the reasoning is unchanged: this app posts
+        // no notifications, so declaring POST_NOTIFICATIONS would request a permission we
+        // never use, which permission minimalism forbids. Remove it the moment this app
+        // posts anything — at which point the permission belongs in the manifest.
         disable += "NotificationPermission"
     }
 
