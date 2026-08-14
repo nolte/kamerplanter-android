@@ -91,7 +91,7 @@ class SessionRefreshTest {
             httpClient = http,
             json = json,
             tokenRefresh = TokenRefreshAuthenticator(
-                SessionRefresher(http, json, credentials, connections),
+                SessionRefresher(http, json, credentials, connections, clock = { FIXED_NOW }),
             ),
         )
     }
@@ -122,7 +122,10 @@ class SessionRefreshTest {
         api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
 
         assertEquals(
-            Credential.Session("at-new", "rt-new", credentials.stored.expiryOrZero()),
+            // Asserted against a known instant, not against the stored value: comparing the
+            // expiry with itself would wave through a unit mix-up — seconds where the field
+            // holds milliseconds — in the one field the refresh cycle consults.
+            Credential.Session("at-new", "rt-new", FIXED_NOW + 900_000L),
             credentials.stored,
         )
     }
@@ -194,6 +197,52 @@ class SessionRefreshTest {
         assertEquals(Credential.ApiKey("kp_sk_wrong"), credentials.stored)
     }
 
+    /**
+     * R23 clears the stored connection, so it may only fire when the instance has actually
+     * refused the token. A network drop or a restarting instance would otherwise send the
+     * user to generate a new pairing code for a server that is merely busy.
+     */
+    @Test
+    fun `an unreachable instance does not clear the stored connection`() = runTest {
+        refreshResponse = json("""{"detail":"bad gateway"}""", code = 502)
+        val credentials = credentials()
+        val connections = connections()
+        val api = factory(credentials, connections)
+            .create(server.url("/").toString()) { runCatchingBlocking(credentials) }
+
+        val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+        assertEquals(401, response.code())
+        assertEquals("the session must survive a server-side hiccup", STALE_SESSION, credentials.stored)
+        assertTrue("the connection must survive it too", connections.current != null)
+    }
+
+    /**
+     * The authenticator is a singleton on every session-bearing client, including the one
+     * the pairing flow builds for an address the user has just typed in. A 401 from that
+     * instance must not be answered with the token belonging to the one already stored.
+     */
+    @Test
+    fun `a 401 from a different instance is never answered with the stored token`() = runTest {
+        val other = MockWebServer()
+        other.start()
+        try {
+            other.enqueue(json("""{"detail":"nope"}""", code = 401))
+            val credentials = credentials()
+            // Stored connection points at `server`; the call goes to `other`.
+            val api = factory(credentials, connections())
+                .create(other.url("/").toString()) { runCatchingBlocking(credentials) }
+
+            val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+            assertEquals(401, response.code())
+            assertEquals("no refresh may be attempted for a foreign host", 0, refreshCalls.get())
+            assertEquals(1, other.requestCount)
+        } finally {
+            other.shutdown()
+        }
+    }
+
     /** A token the server keeps rejecting must not put the client in a refresh loop. */
     @Test
     fun `a token the server keeps rejecting is not retried forever`() = runTest {
@@ -210,6 +259,8 @@ class SessionRefreshTest {
     }
 }
 
+private const val FIXED_NOW = 1_760_000_000_000L
+
 private val STALE_SESSION = Credential.Session(
     accessToken = "at-stale",
     refreshToken = "rt-stale",
@@ -219,9 +270,6 @@ private val STALE_SESSION = Credential.Session(
 /** The credential lookup the factory takes; blocking is what the interceptor does too. */
 private fun runCatchingBlocking(store: CredentialStore): Credential =
     kotlinx.coroutines.runBlocking { store.load() }
-
-private fun Credential.expiryOrZero(): Long =
-    (this as? Credential.Session)?.accessTokenExpiresAtEpochMillis ?: 0L
 
 private class FakeConnectionStore(initial: Connection?) : ConnectionStore {
     private val flow = MutableStateFlow(initial)

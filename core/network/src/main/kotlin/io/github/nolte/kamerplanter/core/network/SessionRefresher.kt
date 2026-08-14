@@ -12,6 +12,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.Dispatcher
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -32,12 +34,22 @@ import kotlin.coroutines.cancellation.CancellationException
  * authenticator that calls it, which would recurse on the first failure.
  */
 @Singleton
-class SessionRefresher @Inject constructor(
+class SessionRefresher(
     private val httpClient: OkHttpClient,
     private val json: Json,
     private val credentials: CredentialStore,
     private val connections: ConnectionStore,
+    private val clock: () -> Long,
 ) {
+
+    /** Dagger does not read Kotlin default arguments; see `NetworkConnectionClient`. */
+    @Inject
+    constructor(
+        httpClient: OkHttpClient,
+        json: Json,
+        credentials: CredentialStore,
+        connections: ConnectionStore,
+    ) : this(httpClient, json, credentials, connections, System::currentTimeMillis)
 
     /**
      * Serializes refreshes. Several requests routinely fail with 401 at the same moment —
@@ -47,31 +59,59 @@ class SessionRefresher @Inject constructor(
      */
     private val mutex = Mutex()
 
+    /** What a refresh attempt can end in. */
+    sealed interface Outcome {
+
+        /** Use this session and retry the call. */
+        data class Renewed(val session: Credential.Session) : Outcome
+
+        /** The instance refused the refresh token; credential and connection are gone (R23). */
+        data object Abandoned : Outcome
+
+        /**
+         * Nothing could be decided — the instance was unreachable, or answered with
+         * something that says nothing about the token. The stored state is untouched.
+         */
+        data object Undecided : Outcome
+    }
+
     /**
-     * Renews the session that issued [staleAccessToken], or returns `null` when it could not
-     * be renewed.
+     * Renews the session that issued [staleAccessToken], for the instance [requestUrl]
+     * addresses.
      *
-     * `null` is terminal: per R23 the credential and the connection are already cleared by
-     * the time it returns, so the caller's job is to give up rather than to retry.
+     * [requestUrl] is checked against the stored connection rather than trusted. This is a
+     * singleton attached to every session-bearing client — including the one the pairing
+     * flow builds for an instance the user has only just typed in. Without the check, a 401
+     * from that new address would be answered with the token issued by the old one: a
+     * credential for host A sent to host B.
      */
-    suspend fun refresh(staleAccessToken: String): Credential.Session? = mutex.withLock {
-        val current = credentials.load()
-        if (current !is Credential.Session) return null
+    suspend fun refresh(staleAccessToken: String, requestUrl: HttpUrl): Outcome = mutex.withLock {
+        val current = loadCredential()
+        if (current !is Credential.Session) return Outcome.Undecided
+
+        val connection = loadConnection() ?: return Outcome.Undecided
+        val stored = connection.baseUrl.toHttpUrlOrNull() ?: return Outcome.Undecided
+        if (!stored.sameInstanceAs(requestUrl)) return Outcome.Undecided
 
         // Someone else already refreshed while this call waited for the lock. Handing back
         // the fresh session lets the caller retry immediately instead of spending a refresh
         // token that has just been rotated away.
-        if (current.accessToken != staleAccessToken) return current
+        if (current.accessToken != staleAccessToken) return Outcome.Renewed(current)
 
-        val baseUrl = connections.connection.first()?.baseUrl ?: return abandon()
-
-        val renewed = runCatchingCancellable {
-            refreshApi(baseUrl).refreshApiV1AuthRefreshPost(
+        val response = runCatchingCancellable {
+            refreshApi(connection.baseUrl).refreshApiV1AuthRefreshPost(
                 RefreshRequest(refreshToken = current.refreshToken),
             )
         }.getOrNull()
+            // No answer at all: a dropped network, a timeout, an instance mid-restart. None
+            // of that says the refresh token is dead, and clearing the connection over it
+            // would send the user to re-pair against a server that is merely busy.
+            ?: return Outcome.Undecided
 
-        val body = renewed?.takeIf { it.isSuccessful }?.body() ?: return abandon()
+        val body = response.takeIf { it.isSuccessful }?.body()
+            // Only the instance refusing the token itself proves it is spent. A 502 from a
+            // proxy in front of a restarting instance proves nothing.
+            ?: return if (response.code() in TOKEN_REFUSED) abandon() else Outcome.Undecided
 
         val session = Credential.Session(
             accessToken = body.accessToken,
@@ -79,29 +119,42 @@ class SessionRefresher @Inject constructor(
             // invalidated across both transports. Keeping the old one would work exactly
             // once more — never.
             refreshToken = body.refreshToken,
-            accessTokenExpiresAtEpochMillis = System.currentTimeMillis() +
-                body.expiresIn * MILLIS_PER_SECOND,
+            accessTokenExpiresAtEpochMillis = clock() + body.expiresIn * MILLIS_PER_SECOND,
         )
-        runCatchingCancellable { credentials.save(session) }.getOrElse { return abandon() }
-        session
+        runCatchingCancellable { credentials.save(session) }.getOrElse {
+            return Outcome.Undecided
+        }
+        Outcome.Renewed(session)
     }
 
     /**
-     * R23: a failed refresh drops the app to the disconnected state and clears the stored
-     * credential. Both halves go, because a connection whose secret is gone cannot call
-     * anything, and leaving it behind would show a connected-looking Settings screen that
-     * fails on every request.
+     * R23: a refresh the instance refused drops the app to the disconnected state and clears
+     * the stored credential. Both halves go, because a connection whose secret is gone
+     * cannot call anything, and leaving it behind would show a connected-looking Settings
+     * screen that fails on every request.
      *
      * [NonCancellable] because this runs on the way out of a failed call, and a cancelled
      * erase is what would strand a credential the user believes is gone.
      */
-    private suspend fun abandon(): Credential.Session? {
+    private suspend fun abandon(): Outcome {
         withContext(NonCancellable) {
             runCatchingCancellable { credentials.clear() }
             runCatchingCancellable { connections.clear() }
         }
-        return null
+        return Outcome.Abandoned
     }
+
+    /**
+     * Both stores can throw — a truncated DataStore file, a Keystore key the system
+     * invalidated. This runs under `runBlocking` inside an OkHttp authenticator, where an
+     * escaping RuntimeException is not a failed request but an uncaught exception on a
+     * dispatcher thread: a crash rather than a 401.
+     */
+    private suspend fun loadCredential(): Credential? =
+        runCatchingCancellable { credentials.load() }.getOrNull()
+
+    private suspend fun loadConnection() =
+        runCatchingCancellable { connections.connection.first() }.getOrNull()
 
     /**
      * The refresh call needs a dispatcher of its own, and this is not a tuning detail —
@@ -121,7 +174,7 @@ class SessionRefresher @Inject constructor(
     }
 
     private fun refreshApi(baseUrl: String): AuthApi = Retrofit.Builder()
-        .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+        .baseUrl(baseUrl.withTrailingSlash())
         .client(refreshClient)
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()
@@ -129,6 +182,13 @@ class SessionRefresher @Inject constructor(
 
     private companion object {
         const val MILLIS_PER_SECOND = 1_000L
+
+        /** The statuses that are about *this token*, rather than about the server right now. */
+        val TOKEN_REFUSED = setOf(401, 403)
+
+        /** Same instance, whatever path the failing endpoint happened to sit under. */
+        fun HttpUrl.sameInstanceAs(other: HttpUrl): Boolean =
+            scheme == other.scheme && host == other.host && port == other.port
 
         @Suppress("TooGenericExceptionCaught")
         inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =

@@ -44,11 +44,13 @@ class InstanceApiFactory @Inject constructor(
     fun create(baseUrl: String, credential: () -> Credential = { Credential.None }): Retrofit {
         val client = httpClient.newBuilder()
             .addInterceptor(CredentialInterceptor(credential))
-            // Only sessions expire. An API key does not, and light mode has no credential at
-            // all, so attaching the authenticator to either would turn a legitimate 401 —
-            // a revoked key, a permission the key lacks — into a pointless refresh attempt
-            // that then clears a credential the user never asked to lose (R23).
-            .apply { if (credential() is Credential.Session) authenticator(tokenRefresh) }
+            // Attached unconditionally, and the decision about *whether* to refresh is made
+            // per request inside SessionRefresher, which reads the credential it actually
+            // finds. Deciding here would mean calling `credential()` at build time — a
+            // snapshot, and a blocking store read on whichever thread built the client. A
+            // client built before pairing would then never refresh, and one built while a
+            // session was stored would keep trying after the user switched to an API key.
+            .authenticator(tokenRefresh)
             .build()
 
         return Retrofit.Builder()
@@ -69,14 +71,16 @@ class InstanceApiFactory @Inject constructor(
 
     private companion object {
         const val JSON_MEDIA_TYPE = "application/json"
-
-        /**
-         * Retrofit rejects a base URL that does not end in `/`, and instance URLs are typed
-         * by hand or scanned from a QR payload, so both spellings reach here.
-         */
-        fun String.withTrailingSlash(): String = if (endsWith("/")) this else "$this/"
     }
 }
+
+/**
+ * Retrofit rejects a base URL that does not end in `/`, and instance URLs are typed by hand
+ * or scanned from a QR payload, so both spellings reach the builders. Shared rather than
+ * copied, so a future refinement — trimming whitespace, say — cannot apply to one caller and
+ * not the other.
+ */
+internal fun String.withTrailingSlash(): String = if (endsWith("/")) this else "$this/"
 
 /**
  * Attaches the stored credential to every outgoing request (R21).
