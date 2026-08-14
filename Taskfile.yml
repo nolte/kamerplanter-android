@@ -24,6 +24,7 @@ tasks:
     desc: Static analysis (detekt incl. ktlint rules, Android Lint)
     cmds:
       - ./gradlew detekt lint
+      - task: verify:openapi-client
 
   test:
     desc: JVM unit tests for all modules
@@ -54,3 +55,13 @@ tasks:
       # Runs on the assembled artefact rather than on sources: the libraries come from
       # a prebuilt dependency, so only the packaged APK shows what actually ships.
       - python3 scripts/check_page_alignment.py app/build/outputs/apk/release/*.apk
+
+  verify:openapi-client:
+    desc: Fail if the vendored OpenAPI schema or the generated client has drifted
+    cmds:
+      # Two gates from spec/api/openapi-client-integration/:
+      #   R-GEN-3 the vendored document still matches the sha256 in its provenance file
+      #   R-GEN-7 the checked-in client still matches what that document generates
+      # Chained from `lint` rather than declared as its own CI job so the required status
+      # check named in .github/settings.yml stays "Build, lint & test".
+      - ./gradlew :core:network:verifyOpenApiSchema :core:network:checkApiClientUpToDate

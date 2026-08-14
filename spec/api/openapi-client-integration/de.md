@@ -155,19 +155,24 @@ treibende Anforderung dieser Spec.
 
 ## Acceptance Criteria
 <!-- Testable, checkable conditions. A reviewer should be able to mark each as done/not done. -->
-- [ ] Ein Gradle-Task generiert den Client deterministisch aus dem vendored
+- [x] Ein Gradle-Task generiert den Client deterministisch aus dem vendored
       `openapi.json`; zweimaliges Ausführen liefert byte-identische Ausgabe. (R-GEN-1,
-      R-GEN-4)
-- [ ] Das vendored Schema trägt Provenance (Backend-Release-Tag) und einen `sha256`, den
+      R-GEN-4) — `:core:network:generateApiClient`.
+- [x] Das vendored Schema trägt Provenance (Backend-Release-Tag) und einen `sha256`, den
       CI verifiziert; ein manipuliertes Schema lässt den Build scheitern. (R-GEN-2, R-GEN-3)
-- [ ] Ein CI-Check scheitert, wenn der eingecheckte generierte Client nicht zum gepinnten
-      Schema passt. (R-GEN-7)
+      — `:core:network:verifyOpenApiSchema`, erreicht über `task lint`.
+- [x] Ein CI-Check scheitert, wenn der eingecheckte generierte Client nicht zum gepinnten
+      Schema passt. (R-GEN-7) — `:core:network:checkApiClientUpToDate`, erreicht über
+      `task lint`.
 - [ ] `core/network/` exponiert keine UVC/`libuvc`-Symbole, und Feature-Module referenzieren
-      die API nur über `core/network/`-Interfaces. (R-GEN-5)
-- [ ] Die Deserialisierung eines Response mit zusätzlichen unbekannten Feldern (neuerer
+      die API nur über `core/network/`-Interfaces. (R-GEN-5) — die erste Hälfte gilt; die
+      zweite hat noch keinen Konsumenten und ist damit noch nicht beobachtbar.
+- [x] Die Deserialisierung eines Response mit zusätzlichen unbekannten Feldern (neuerer
       Server) wirft nicht und liefert die bekannten Felder korrekt. (R-COMPAT-1)
-- [ ] Die Deserialisierung eines Response ohne neu hinzugefügte optionale Felder (älterer
+      — `GeneratedClientSerializationTest`.
+- [x] Die Deserialisierung eines Response ohne neu hinzugefügte optionale Felder (älterer
       Server) liefert Defaults/nulls ohne Fehler. (R-COMPAT-2)
+      — `GeneratedClientSerializationTest`.
 - [ ] Gegen einen Server, der nur `/api/v1` anbietet, wählt der Client v1, obwohl er auch
       v2 kennt; gegen einen Server mit v1 und v2 wählt er v2. (R-NEG-1, R-NEG-3)
 - [ ] Alle Session-Requests nutzen die ausgehandelte Major als Pfad-Präfix, inklusive
@@ -195,11 +200,20 @@ treibende Anforderung dieser Spec.
   Backend einen Discovery-/Capabilities-Endpoint erhalten (oder ein Feld `supported_majors`
   zu `/api/health` hinzufügen)? Nachverfolgt als
   [nolte/kamerplanter#1124](https://github.com/nolte/kamerplanter/issues/1124).
-- **Provenance-Kodierung:** wie werden Release-Tag + `sha256` technisch gepinnt — eine
-  Provenance-Geschwisterdatei, ein Header-Kommentar oder eine Gradle-Property, die der
-  Verify-Task konsumiert? Zu beachten: der Tag allein identifiziert die Anwendungsversion
-  nicht (Tag `v0.1.0` liefert `info.version` `1.0.0`), eine Provenance, die nur den Tag
-  festhält, lässt die Versions-Achse also unprotokolliert.
+- ~~**Provenance-Kodierung**~~ — **entschieden:** eine Geschwisterdatei,
+  `core/network/openapi/provenance.json`, neben dem vendored `openapi.json`. Ein
+  Header-Kommentar schied aus, weil sein Schreiben das Dokument verändern und genau den
+  `sha256` entwerten würde, den er festhält; eine Gradle-Property schied aus, weil sie den
+  Digest von der Datei trennt, die er beschreibt. Die Datei hält `releaseTag`, `apiVersion`
+  (die `info.version`, die das Asset tatsächlich trägt) und `sha256` als drei unabhängige
+  Felder fest, sodass die Versions-Achse, die der Tag nicht identifiziert, explizit
+  protokolliert ist.
+- **Welche Tags deckt der generierte Client ab?** Die Generierung filtert auf eine benannte
+  Menge von OpenAPI-Tags, statt das ganze Dokument abzudecken — 578 Pfade und 875 Schemas
+  ergäben einen Client, gegen den kein Reviewer einen Schema-Bump prüfen kann, was R-GEN-6
+  aushebeln würde. Die Menge steht in
+  `buildSrc/src/main/kotlin/OpenApiDocumentPreparer.kt`. Sie zu erweitern ist je Tag eine
+  bewusste Entscheidung, kein Default.
 - **Sollte die `MIN_SUPPORTED`-Untergrenze neu angesetzt werden?** Die Untergrenze ist
   `0.1.0`, während das aktuelle Release bereits `1.0.0` meldet — das Gate ist derzeit also
   um eine volle Major zu großzügig. Ob sie angehoben wird, ist eine

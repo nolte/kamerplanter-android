@@ -143,18 +143,22 @@ spec.
 
 ## Acceptance Criteria
 <!-- Testable, checkable conditions. A reviewer should be able to mark each as done/not done. -->
-- [ ] A Gradle task generates the client deterministically from the vendored
+- [x] A Gradle task generates the client deterministically from the vendored
       `openapi.json`; running it twice yields byte-identical output. (R-GEN-1, R-GEN-4)
-- [ ] The vendored schema carries provenance (backend release tag) and a `sha256` that CI
+      — `:core:network:generateApiClient`.
+- [x] The vendored schema carries provenance (backend release tag) and a `sha256` that CI
       verifies; a tampered schema fails the build. (R-GEN-2, R-GEN-3)
-- [ ] A CI check fails when the checked-in generated client does not match the pinned
-      schema. (R-GEN-7)
+      — `:core:network:verifyOpenApiSchema`, reached from `task lint`.
+- [x] A CI check fails when the checked-in generated client does not match the pinned
+      schema. (R-GEN-7) — `:core:network:checkApiClientUpToDate`, reached from `task lint`.
 - [ ] `core/network/` exposes no UVC/`libuvc` symbols, and feature modules reference the API
       only through `core/network/` interfaces. (R-GEN-5)
-- [ ] Deserializing a response with extra unknown fields (newer server) does not throw and
+      — first half holds; the second half has no consumer yet, so it is not yet observable.
+- [x] Deserializing a response with extra unknown fields (newer server) does not throw and
       returns the known fields correctly. (R-COMPAT-1)
-- [ ] Deserializing a response missing newly added optional fields (older server) yields
-      defaults/nulls without error. (R-COMPAT-2)
+      — `GeneratedClientSerializationTest`.
+- [x] Deserializing a response missing newly added optional fields (older server) yields
+      defaults/nulls without error. (R-COMPAT-2) — `GeneratedClientSerializationTest`.
 - [ ] Against a server offering only `/api/v1`, the client selects v1 even though it also
       knows v2; against a server offering v1 and v2, it selects v2. (R-NEG-1, R-NEG-3)
 - [ ] All session requests use the negotiated major as their path prefix, including
@@ -178,11 +182,18 @@ spec.
   today; probing `/api/v{n}/openapi.json` is a workaround. Should the backend gain a
   discovery/capabilities endpoint (or add a `supported_majors` field to `/api/health`)?
   Tracked as [nolte/kamerplanter#1124](https://github.com/nolte/kamerplanter/issues/1124).
-- **Provenance encoding:** how is the release tag + `sha256` pinned technically — a sibling
-  provenance file, a header comment, or a Gradle property consumed by the verify task?
-  Note that the tag alone does not identify the application version (tag `v0.1.0` ships
-  `info.version` `1.0.0`), so provenance that records only the tag leaves the version axis
-  unrecorded.
+- ~~**Provenance encoding**~~ — **resolved:** a sibling file,
+  `core/network/openapi/provenance.json`, beside the vendored `openapi.json`. A header
+  comment was rejected because writing it would edit the document and invalidate the very
+  `sha256` it records; a Gradle property was rejected because it separates the digest from
+  the file it describes. The file records `releaseTag`, `apiVersion` (the `info.version`
+  the asset actually carries) and `sha256` as three independent fields, so the version axis
+  the tag does not identify is captured explicitly.
+- **Which tags does the generated client cover?** Generation is filtered to a named set of
+  OpenAPI tags rather than covering the whole document — 578 paths and 875 schemas would
+  produce a client no reviewer can check a schema bump against, defeating R-GEN-6. The set
+  lives in `buildSrc/src/main/kotlin/OpenApiDocumentPreparer.kt`. Widening it is a
+  deliberate decision per added tag, not a default.
 - **Should the `MIN_SUPPORTED` floor be re-based?** The floor is `0.1.0` while the current
   release already reports `1.0.0`, so the gate is presently permissive by a full major.
   Deciding whether to raise it is a compatibility-policy call, not a factual correction, and
