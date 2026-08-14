@@ -40,14 +40,18 @@ dependencies {
     // connection stays in :feature:settings.
     implementation(libs.androidx.datastore.preferences)
 
-    // `api`, not `implementation`: ConnectionStore.connection is a public `Flow`, so the
-    // type belongs to this module's API surface and has to travel with the dependency.
+    // Declared for two separate reasons, because neither alone covers it.
     //
-    // Consumers would compile without it — coroutines reaches the classpath transitively
-    // through AndroidX regardless, verified by removing this and rebuilding. That is
-    // precisely the problem: the transitive path resolves 1.9.0, not the 1.11.0 pinned in
-    // the catalog. Leaning on it means compiling against whatever version the next AndroidX
-    // bump happens to drag in — chosen nowhere, reviewed by no one.
+    // Declared at all: without it this module still compiled — coroutines arrives
+    // transitively through AndroidX — but against 1.9.0, while the catalog pins 1.11.0.
+    // Measured on debugCompileClasspath: 1.9.0 without this line, 1.11.0 with it. The
+    // version was being chosen by whatever AndroidX dragged in, not by the catalog.
+    //
+    // `api` rather than `implementation`: ConnectionStore.connection is a public `Flow`, so
+    // the type is part of this module's API surface. Note this does *not* currently change
+    // any consumer's resolved version — :feature:settings declares coroutines-android
+    // itself, whose BOM already pulls core to 1.11.0. It matters the day a consumer stops
+    // declaring coroutines of its own, which is exactly when nobody would think to look.
     //
     // `-core` rather than `-android`: this module uses Flow, not the Android dispatcher.
     api(libs.kotlinx.coroutines.core)
