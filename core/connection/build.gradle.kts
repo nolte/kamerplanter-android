@@ -50,8 +50,9 @@ dependencies {
     // `api` rather than `implementation`: ConnectionStore.connection is a public `Flow`, so
     // the type is part of this module's API surface. Note this does *not* currently change
     // any consumer's resolved version — :feature:settings declares coroutines-android
-    // itself, whose BOM already pulls core to 1.11.0. It matters the day a consumer stops
-    // declaring coroutines of its own, which is exactly when nobody would think to look.
+    // itself, which requires core 1.11.0 directly. It matters the day a consumer stops
+    // declaring coroutines of its own: dropping it there resolves core back to 1.9.0 via
+    // lifecycle-viewmodel-ktx, and this line is what pulls it forward again.
     //
     // `-core` rather than `-android`: this module uses Flow, not the Android dispatcher.
     api(libs.kotlinx.coroutines.core)
