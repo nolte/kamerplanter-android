@@ -133,10 +133,12 @@ class NetworkConnectionClient(
         // missing route falls back to the listing already in hand — the requirement holds
         // wherever it exists, and a valid key still connects where it does not.
         val reachable = retrofit.tenants()
-        val scoped = runCatchingCancellable { retrofit.tenantsFromKeyScope(request.key) }
-            .getOrElse { failure ->
-                if (failure is HttpFailure && failure.status == HTTP_NOT_FOUND) null else throw failure
-            }
+        // Any failure falls back, not just 404. Once the listing above has succeeded the key
+        // has authenticated, so this route is no longer a verdict on it — it is one source of
+        // tenants and the listing is the other. Letting a 500, a rate limit or the masked 401
+        // it returns for a valid non-service key sink the whole connection would throw away a
+        // credential that has just demonstrably worked.
+        val scoped = runCatchingCancellable { retrofit.tenantsFromKeyScope(request.key) }.getOrNull()
 
         return ConnectionResult.Verified(
             // A service-account key has no user profile, so an unreadable identity is not a
@@ -286,16 +288,21 @@ class NetworkConnectionClient(
             Call.HEALTH_PROBE ->
                 "$baseUrl answered HTTP $status instead of a health report — it may be a " +
                     "kamerplanter instance that is still starting, or not one at all"
-            // Both are the key being used. The instance collapses an invalid key, a revoked
-            // one and a valid non-service one into the same generic 401, so there is nothing
-            // more specific to say — but it must read as the key being refused rather than
-            // as whatever internal call happened to carry it.
-            Call.VALIDATE_KEY, Call.LIST_TENANTS ->
-                "the instance refused this API key (HTTP $status)"
+            // Only the statuses that are actually about the credential may say so. The
+            // instance collapses an invalid key, a revoked one and a valid non-service one
+            // into the same generic 401, so there is nothing more specific to say there — but
+            // a 503 from an instance that is still starting says nothing about the key, and
+            // reporting it as a refusal sends the user to replace one that works.
+            Call.VALIDATE_KEY, Call.LIST_TENANTS -> when (status) {
+                HTTP_UNAUTHORIZED -> "the instance refused this credential"
+                HTTP_FORBIDDEN ->
+                    "this credential is accepted but not allowed to read the tenant list"
+                else -> "the instance answered HTTP $status while ${call.description}"
+            }
         }
 
         const val HTTP_UNAUTHORIZED = 401
-        const val HTTP_NOT_FOUND = 404
+        const val HTTP_FORBIDDEN = 403
         const val HTTP_LOCKED = 423
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_MANY_REQUESTS = 429
@@ -307,12 +314,14 @@ class NetworkConnectionClient(
         fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
 
         /**
-         * The cause without the class name. [diagnostic] is for a reason nobody expected;
-         * where the failure is already understood, leaking `HttpFailure:` into the text adds
-         * nothing a reader can act on.
+         * The most useful short form of a cause. A status where there is one, the prepared
+         * sentence where the failure already carries one, and — only when neither applies —
+         * the exception type, which for an unexpected `IOException` or parse error is the
+         * only thing there is to say.
          */
         fun Throwable.shortCause(): String = when (this) {
             is HttpFailure -> "HTTP $status"
+            is ConnectionFailure -> message.orEmpty()
             else -> this::class.simpleName.orEmpty()
         }
 

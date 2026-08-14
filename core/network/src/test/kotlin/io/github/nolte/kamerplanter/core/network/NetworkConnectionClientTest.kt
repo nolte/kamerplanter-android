@@ -299,7 +299,7 @@ class NetworkConnectionClientTest {
         val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_wrong"))
 
         val reason = (result as ConnectionResult.Failure).reason
-        assertTrue(reason, reason.contains("refused this API key"))
+        assertTrue(reason, reason.contains("refused this credential"))
         // The authenticated call failed, so nothing past it was attempted (R13).
         assertEquals(2, server.requestCount)
     }
@@ -324,6 +324,43 @@ class NetworkConnectionClientTest {
         val verified = result as ConnectionResult.Verified
         assertNull(verified.identity)
         assertEquals(1, verified.tenants.size)
+    }
+
+    /**
+     * A 503 says the instance is unwell, not that the credential is wrong. Reporting it as a
+     * refusal sends the user to replace a key that works.
+     */
+    @Test
+    fun `a server error while listing tenants is not blamed on the credential`() = runTest {
+        enqueueHealth()
+        enqueueJson("""{"detail":"starting"}""", code = 503)
+
+        val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
+
+        val reason = (result as ConnectionResult.Failure).reason
+        assertTrue(reason, reason.contains("503"))
+        assertFalse(reason, reason.contains("refused"))
+    }
+
+    /**
+     * Once the tenant listing has succeeded the key has authenticated. The scope route is
+     * then only a second source of tenants — and it returns the same masked 401 for a valid
+     * non-service key — so its failure must not sink a connection that already works.
+     */
+    @Test
+    fun `a failing scope route does not sink an already-authenticated key`() = runTest {
+        enqueueHealth()
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
+        enqueueJson("""{"detail":"masked"}""", code = 401)
+        enqueueJson("""{"detail":"no profile"}""", code = 404)
+
+        val result = client.connect(ConnectionRequest.ApiKey(baseUrl(), key = "kp_sk_secret"))
+
+        val verified = result as ConnectionResult.Verified
+        assertEquals(listOf(Tenant(slug = "demo", displayName = "Demo garden")), verified.tenants)
     }
 
     // --- diagnostics that used to be wrong --------------------------------------------
