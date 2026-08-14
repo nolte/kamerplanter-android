@@ -76,8 +76,9 @@ existed anywhere: `core/network/` provided a bare `OkHttpClient`, `ConnectionCli
 release binding was `UnavailableConnectionClient` refusing everything, and there was no
 vendored schema. All three have since landed — the schema in #20, Retrofit and
 `NetworkConnectionClient` in #22, the latter serving every variant rather than only release.
-Criteria needing a round trip are implemented; what stays open is the session lifecycle
-(token refresh) and verification against a live instance.
+Criteria needing a round trip are implemented, with acceptance-6 (the `423`/`429` mappings)
+covered by `NetworkConnectionClientTest`. What stays open is the session lifecycle (token
+refresh) and verification against a live instance.
 
 **acceptance-2 was rewritten because it collided with shipped behaviour.** As first drafted
 it demanded a message for an unrecognised version. The shipped `QrPayloadParser` returns

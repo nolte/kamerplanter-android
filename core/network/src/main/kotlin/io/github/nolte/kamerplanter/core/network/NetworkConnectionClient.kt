@@ -10,6 +10,7 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.HealthApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.TenantsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.UsersApi
 import io.github.nolte.kamerplanter.core.network.generated.models.DevicePairingRedeemRequest
+import io.github.nolte.kamerplanter.core.network.generated.models.ServiceAccountValidateRequest
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -83,7 +84,7 @@ class NetworkConnectionClient(
             .redeemDevicePairingApiV1AuthDevicePairingRedeemPost(
                 DevicePairingRedeemRequest(code = request.code, deviceName = DEVICE_NAME),
             )
-            .bodyOrThrow("redeeming the pairing code")
+            .bodyOrThrow(Call.REDEEM_PAIRING)
 
         val session = Credential.Session(
             accessToken = redeemed.accessToken,
@@ -114,32 +115,49 @@ class NetworkConnectionClient(
         val health = probeHealth(request.baseUrl)
         if (health.mode == LIGHT_MODE) return lightModeRejects("an API key")
 
-        // Proven by using it, not by asking about it. `POST /auth/service-accounts/validate`
-        // looks like the purpose-built route, but it sits behind the instance's MCP flag and
-        // answers 404 when MCP is off — a valid key on an MCP-less instance would read as
-        // rejected. It also carries `security: []`, so a success there proves nothing about
-        // whether the key authenticates a real request. Listing tenants is a real
-        // authenticated call (R13) and returns the scope the key may address (R9, R15).
         val credential = Credential.ApiKey(request.key)
-        val tenants = apis.create(request.baseUrl) { credential }.tenants()
+        val retrofit = apis.create(request.baseUrl) { credential }
+
+        // R15 wants the tenant taken from the key's own `tenant_scope`, and
+        // `POST /auth/service-accounts/validate` is the only route that reports it. It is
+        // not always reachable: the backend gates it behind the instance's MCP flag and
+        // answers 404 when MCP is off, so relying on it alone would report a perfectly valid
+        // key as rejected on any instance that does not run MCP. Hence the fallback — the
+        // requirement is met wherever the route exists, and the connection still works where
+        // it does not.
+        val scoped = runCatchingCancellable { retrofit.tenantsFromKeyScope(request.key) }
+            .getOrElse { failure ->
+                if (failure is HttpFailure && failure.status == HTTP_NOT_FOUND) null else throw failure
+            }
 
         return ConnectionResult.Verified(
-            // A service-account key has no user profile, so the identity is left to the
-            // instance to volunteer; failing to read one is not a failed connection.
-            identity = runCatchingCancellable {
-                apis.create(request.baseUrl) { credential }.identityOrNull()
-            }.getOrNull(),
-            tenants = tenants,
+            // A service-account key has no user profile, so an unreadable identity is not a
+            // failed connection — the instance simply has nothing to volunteer.
+            identity = runCatchingCancellable { retrofit.identityOrNull() }.getOrNull(),
+            tenants = scoped ?: retrofit.tenants(),
             credential = credential,
         )
     }
 
-    /** What `/api/health` reported. Throws when the instance did not answer it at all. */
+    /** The tenants the key itself is scoped to (R15), or `null` where MCP is switched off. */
+    private suspend fun Retrofit.tenantsFromKeyScope(key: String): List<Tenant> =
+        create(AuthApi::class.java)
+            .validateServiceAccountApiV1AuthServiceAccountsValidatePost(
+                ServiceAccountValidateRequest(apiKey = key),
+            )
+            .bodyOrThrow(Call.VALIDATE_KEY)
+            .tenants
+            .map { Tenant(slug = it.tenantSlug, displayName = it.tenantSlug) }
+
+    /**
+     * What `/api/health` reported. Throws when the instance did not answer the route, and
+     * also when it answered but called itself something other than healthy (R-HEALTH-3).
+     */
     private suspend fun probeHealth(baseUrl: String): HealthReport {
         val payload = apis.create(baseUrl)
             .create(HealthApi::class.java)
             .rootHealthApiHealthGet()
-            .bodyOrThrow("probing $baseUrl")
+            .bodyOrThrow(Call.HEALTH_PROBE)
 
         // The route has no response schema upstream, so it generates as a free-form map and
         // its fields are read by hand.
@@ -177,15 +195,27 @@ class NetworkConnectionClient(
     private suspend fun Retrofit.tenants(): List<Tenant> =
         create(TenantsApi::class.java)
             .listMyTenantsApiV1TenantsGet()
-            .bodyOrThrow("listing the tenants this credential may address")
+            .bodyOrThrow(Call.LIST_TENANTS)
             .map { Tenant(slug = it.slug, displayName = it.name) }
 
     /** Carries a reason that is already user-appropriate, so [asReason] passes it through. */
     private class ConnectionFailure(message: String) : Exception(message)
 
+    /**
+     * Which request failed, so [asReason] can dispatch on the call rather than on a substring
+     * of its description. An earlier version matched `what.startsWith("redeeming")`, which
+     * tied the diagnostics to prose nobody would think to keep in step when editing it.
+     */
+    private enum class Call(val description: String) {
+        HEALTH_PROBE("probing the instance"),
+        REDEEM_PAIRING("redeeming the pairing code"),
+        VALIDATE_KEY("reading the key's tenant scope"),
+        LIST_TENANTS("listing the tenants this credential may address"),
+    }
+
     /** An HTTP status the caller did not expect, kept so the reason can name it. */
-    private class HttpFailure(val status: Int, val what: String) :
-        Exception("$what failed with HTTP $status")
+    private class HttpFailure(val status: Int, val call: Call) :
+        Exception("${call.description} failed with HTTP $status")
 
     private companion object {
         const val LIGHT_MODE = "light"
@@ -206,9 +236,9 @@ class NetworkConnectionClient(
          * one, as "no instance answered here" — sending the user to check an address that is
          * perfectly correct.
          */
-        fun <T> Response<T>.bodyOrThrow(what: String): T {
-            if (!isSuccessful) throw HttpFailure(code(), what)
-            return body() ?: throw HttpFailure(code(), "$what returned an empty body")
+        fun <T> Response<T>.bodyOrThrow(call: Call): T {
+            if (!isSuccessful) throw HttpFailure(code(), call)
+            return body() ?: throw ConnectionFailure("${call.description} returned an empty body")
         }
 
         fun kotlinx.serialization.json.JsonElement.stringOrNull(): String? =
@@ -216,20 +246,41 @@ class NetworkConnectionClient(
 
         fun Throwable.asReason(baseUrl: String): String = when (this) {
             is ConnectionFailure -> message.orEmpty()
-            is HttpFailure -> when {
-                what.startsWith("redeeming") && status in CLIENT_ERRORS -> REDEEM_REJECTED
-                what.startsWith("probing") ->
-                    "no kamerplanter instance answered at $baseUrl (HTTP $status)"
-                else -> message.orEmpty()
-            }
+            is HttpFailure -> reason(baseUrl)
             else -> "could not reach $baseUrl: ${diagnostic()}"
         }
 
-        val CLIENT_ERRORS = 400..409
+        /**
+         * The statuses come from the endpoints' own descriptions in the vendored schema, and
+         * they matter because the obvious reading of each is wrong: a locked-out address or a
+         * rate limit is not an expired code, and an instance answering at all is not a wrong
+         * address.
+         */
+        fun HttpFailure.reason(baseUrl: String): String = when (call) {
+            Call.REDEEM_PAIRING -> when (status) {
+                HTTP_UNAUTHORIZED ->
+                    "the instance rejected the pairing code — it expires within two minutes " +
+                        "and can be redeemed only once"
+                HTTP_LOCKED ->
+                    "the instance has temporarily locked this device out after too many " +
+                        "attempts; wait before trying again"
+                HTTP_TOO_MANY_REQUESTS ->
+                    "too many pairing attempts in a short time; wait before trying again"
+                HTTP_UNPROCESSABLE ->
+                    "the instance could not process this pairing code"
+                else -> message.orEmpty()
+            }
+            Call.HEALTH_PROBE ->
+                "$baseUrl answered HTTP $status instead of a health report — it may be a " +
+                    "kamerplanter instance that is still starting, or not one at all"
+            Call.VALIDATE_KEY, Call.LIST_TENANTS -> message.orEmpty()
+        }
 
-        const val REDEEM_REJECTED =
-            "the instance rejected the pairing code — it expires within two minutes and can " +
-                "be redeemed only once"
+        const val HTTP_UNAUTHORIZED = 401
+        const val HTTP_NOT_FOUND = 404
+        const val HTTP_LOCKED = 423
+        const val HTTP_UNPROCESSABLE = 422
+        const val HTTP_TOO_MANY_REQUESTS = 429
 
         /**
          * Deliberately the exception's type and message rather than the whole throwable: a

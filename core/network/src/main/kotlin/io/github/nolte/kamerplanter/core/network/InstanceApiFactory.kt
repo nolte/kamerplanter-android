@@ -76,10 +76,11 @@ class InstanceApiFactory @Inject constructor(
  *
  * A session token and a `kp_sk_…` API key travel in the *same* `Authorization: Bearer`
  * header (R9). The schema's `BearerAuth` says so in as many words — "JWT access token or
- * `kp_`-prefixed service-account API key" — and it guards 738 of the operations, while the
- * `X-API-Key` header belongs to a second scheme, `McpApiKey`, accepted by six `/api/v1/mcp*`
- * routes and nothing else. Sending a key as `X-API-Key` therefore authenticates against
- * almost nothing: every ordinary call would go out unauthenticated and come back 401.
+ * `kp_`-prefixed service-account API key" — and 744 of the vendored document's 783 operations
+ * declare it, 738 of them exclusively. The `X-API-Key` header belongs to a second scheme,
+ * `McpApiKey`, which six routes accept and all six are under `/api/v1/mcp`. Sending a key
+ * there therefore authenticates against almost nothing: every ordinary call would go out
+ * unauthenticated and come back 401.
  *
  * Light mode sends neither header — an instance without accounts has nothing to
  * authenticate (R11).
@@ -116,9 +117,9 @@ internal class CredentialInterceptor(
  * The type list is an allowlist, which is the conservative direction but not a free one: a
  * future `@Part` typed as an enum, `UUID` or `BigDecimal` would fall through to the JSON
  * converter and arrive quote-wrapped — the very bug this class exists to prevent, again
- * visible only at runtime. `ScalarPartConverterFactoryTest` pins the list against the part
- * types the generated client actually declares, so adding one that is not covered fails the
- * build rather than the upload.
+ * visible only at runtime. `ScalarPartConverterFactoryTest` walks every generated API for
+ * `@Part` types that are neither a file part nor covered here, and separately asserts that
+ * it knows about every generated API, so a widened tag filter cannot slip one past it.
  */
 internal object ScalarPartConverterFactory : Converter.Factory() {
 

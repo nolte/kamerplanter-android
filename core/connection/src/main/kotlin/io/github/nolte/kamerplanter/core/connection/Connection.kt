@@ -64,7 +64,12 @@ sealed interface Connection {
         override val method: ConnectionMethod = ConnectionMethod.QR_PAIRING
     }
 
-    /** Connected with a `kp_sk_…` key; the tenant comes from the key's own `tenant_scope` (R9, R15). */
+    /**
+     * Connected with a `kp_sk_…` key. The tenant comes from the key's own `tenant_scope`
+     * (R9, R15) where the instance will report it — that route is gated behind the MCP flag
+     * and 404s when MCP is off, in which case the tenants the key can reach are listed
+     * instead, so a valid key still connects.
+     */
     data class ApiKey(
         override val baseUrl: String,
         val tenantSlug: String,
