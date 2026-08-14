@@ -167,10 +167,13 @@ abstract class GenerateApiClient : DefaultTask() {
     fun generate() {
         val target = outputDirectory.get().asFile
 
-        // A schema bump that drops a model leaves its file behind otherwise, and a stale
-        // DTO still compiles — the drift gate would flag it, but only as an unexplained
-        // diff. Starting from empty keeps the tree a pure function of the schema.
-        fileSystemOperations.delete { delete(target) }
+        // Generate into a scratch tree and swap on success. Writing into `target` directly
+        // would mean a failed run (malformed schema, no network for the CLI jar, OOM)
+        // leaves the module with neither sources nor the proguard-rules.pro that
+        // consumerProguardFiles points at — after which every later Gradle invocation dies
+        // during AGP configuration on a missing file that has nothing to do with the cause.
+        val scratch = File(temporaryDir, "generated")
+        fileSystemOperations.delete { delete(scratch) }
 
         execOperations.javaexec {
             classpath = generatorClasspath
@@ -179,7 +182,7 @@ abstract class GenerateApiClient : DefaultTask() {
                 "generate",
                 "-i", preparedSchema.get().asFile.path,
                 "-g", "kotlin",
-                "-o", target.path,
+                "-o", scratch.path,
                 "--library", "jvm-retrofit2",
                 "--ignore-file-override", ignoreFile.get().asFile.path,
                 // Free-form JSON (`additionalProperties: true`) otherwise becomes
@@ -198,6 +201,15 @@ abstract class GenerateApiClient : DefaultTask() {
                     "sourceFolder=",
                 ).joinToString(","),
             )
+        }
+
+        // Only now that the generator has succeeded is the checked-in tree replaced. A
+        // schema bump that drops a model would otherwise leave its file behind, and a stale
+        // DTO still compiles — the drift gate would flag it, but as an unexplained diff.
+        fileSystemOperations.delete { delete(target) }
+        fileSystemOperations.copy {
+            from(scratch)
+            into(target)
         }
     }
 }

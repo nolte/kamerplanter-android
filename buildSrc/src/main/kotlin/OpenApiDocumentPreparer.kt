@@ -84,8 +84,15 @@ object OpenApiDocumentPreparer {
 
                 // Retrofit has no cookie-parameter annotation. openapi-generator drops such
                 // parameters but leaves the separator behind, emitting `fun refresh(, @Body …)`
-                // — a syntax error. The app is a QR-paired device holding its refresh token in
-                // the platform keystore; it has no cookie jar, so these carry no meaning here.
+                // — a syntax error, so they cannot simply be kept.
+                //
+                // All three occurrences are the optional `kp_refresh` cookie. `/auth/refresh`
+                // also accepts the token in its body, which is the transport a QR-paired
+                // device uses. `/auth/logout` and `/users/me/sessions` have no body at all,
+                // so for a client without a cookie jar the credential has nowhere to go —
+                // sign-out cannot revoke the refresh token server-side. That is an upstream
+                // gap, not one this filter creates; whoever wires auth will need an OkHttp
+                // interceptor that sets the Cookie header, or a backend body transport.
                 val parameters = rewritten["parameters"] as? List<*>
                 if (parameters != null) {
                     val withoutCookies = parameters.filter {
@@ -99,9 +106,22 @@ object OpenApiDocumentPreparer {
 
             if (keptOperations.isEmpty()) continue
 
-            // Path-level members (shared `parameters`, `summary`, …) travel with the path.
+            // Path-level members (shared `parameters`, `summary`, …) travel with the path —
+            // with the same cookie filter applied, since a path-level cookie parameter
+            // reaches every operation under it and would produce the same syntax error.
             val merged = linkedMapOf<String, Any?>()
-            item.filterKeys { it.lowercase() !in METHODS }.forEach { (k, v) -> merged[k] = v }
+            for ((key, value) in item) {
+                if (key.lowercase() in METHODS) continue
+                if (key == "parameters" && value is List<*>) {
+                    val withoutCookies = value.filter {
+                        (it as? Map<String, Any?>)?.get("in") != "cookie"
+                    }
+                    cookieParametersRemoved += value.size - withoutCookies.size
+                    merged[key] = withoutCookies
+                } else {
+                    merged[key] = value
+                }
+            }
             merged.putAll(keptOperations)
             keptPaths[path] = merged
         }
@@ -148,13 +168,28 @@ object OpenApiDocumentPreparer {
     private fun reachableSchemas(paths: Map<String, Any?>, schemas: Map<String, Any?>): Set<String> {
         val reachable = mutableSetOf<String>()
         val pending = ArrayDeque<String>()
+        val unsupported = sortedSetOf<String>()
 
         fun collect(node: Any?) {
             when (node) {
                 is Map<*, *> -> {
-                    (node["\$ref"] as? String)
-                        ?.takeIf { it.startsWith(SCHEMA_REF_PREFIX) }
-                        ?.let { pending.addLast(it.removePrefix(SCHEMA_REF_PREFIX)) }
+                    (node["\$ref"] as? String)?.let { ref ->
+                        if (ref.startsWith(SCHEMA_REF_PREFIX)) {
+                            pending.addLast(ref.removePrefix(SCHEMA_REF_PREFIX))
+                        } else if (ref.startsWith("#/components/")) {
+                            // Reachability only walks components.schemas. A ref into
+                            // responses/parameters/requestBodies would be pruned away while
+                            // something still points at it.
+                            unsupported += "\$ref $ref"
+                        }
+                    }
+                    // Discriminator mappings name their targets as plain strings, so the
+                    // walk above cannot see them and would prune a live subtype. v0.2.0 has
+                    // none, but pydantic discriminated unions emit exactly this shape — fail
+                    // loudly here rather than as an opaque generator error later.
+                    (node["discriminator"] as? Map<*, *>)?.let {
+                        unsupported += "discriminator on ${it["propertyName"] ?: "<unnamed>"}"
+                    }
                     node.values.forEach(::collect)
                 }
                 is List<*> -> node.forEach(::collect)
@@ -166,6 +201,17 @@ object OpenApiDocumentPreparer {
             val name = pending.removeLast()
             if (!reachable.add(name)) continue
             schemas[name]?.let(::collect)
+        }
+
+        (reachable - schemas.keys).sorted().forEach { unsupported += "unresolved schema $it" }
+
+        if (unsupported.isNotEmpty()) {
+            error(
+                "The schema uses constructs this preparer cannot resolve, so pruning would " +
+                    "silently drop live definitions:\n" +
+                    unsupported.joinToString("\n") { "  $it" } +
+                    "\nExtend OpenApiDocumentPreparer.reachableSchemas before regenerating.",
+            )
         }
         return reachable
     }

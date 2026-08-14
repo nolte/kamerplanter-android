@@ -112,6 +112,36 @@ class GeneratedClientSerializationTest {
         assertEquals("plant-7", decoded.plantKey)
     }
 
+    /**
+     * Documents a real gap in R-COMPAT-1, deliberately asserted rather than fixed.
+     *
+     * `coerceInputValues` cannot reach an enum here. The generator annotates every
+     * enum-typed property `@Contextual`, and kotlinx.serialization only coerces an unknown
+     * enum name when the element descriptor's kind is `ENUM` — for a contextual property it
+     * is `CONTEXTUAL`, so the check is skipped and the enum's own serializer throws. On a
+     * required property there is also nothing to coerce *to*: no null, no declared default.
+     *
+     * Consequence: a backend one release ahead that adds a `ReminderType` value fails the
+     * whole care-dashboard response, not just the affected entry. Closing this needs either
+     * a custom generator template that gives every enum an unknown fallback, or
+     * entry-level error handling in the repositories — a decision that belongs with the
+     * feature work, not with client generation. Kept as a test so it cannot be forgotten.
+     */
+    @Test(expected = kotlinx.serialization.SerializationException::class)
+    fun `an unknown enum value from a newer backend still fails the whole response`() {
+        json.decodeFromString<CareDashboardEntryResponse>(
+            """
+            {
+              "care_profile_key": "cp-1",
+              "plant_key": "plant-7",
+              "plant_name": "Monstera",
+              "reminder_type": "invented_in_a_future_release",
+              "urgency": "due"
+            }
+            """.trimIndent(),
+        )
+    }
+
     /** R-COMPAT-2: an older server omitting newly added optional fields still decodes. */
     @Test
     fun `defaults the optional fields an older backend omits`() {

@@ -154,9 +154,12 @@ spec.
 - [ ] `core/network/` exposes no UVC/`libuvc` symbols, and feature modules reference the API
       only through `core/network/` interfaces. (R-GEN-5)
       — first half holds; the second half has no consumer yet, so it is not yet observable.
-- [x] Deserializing a response with extra unknown fields (newer server) does not throw and
+- [ ] Deserializing a response with extra unknown fields (newer server) does not throw and
       returns the known fields correctly. (R-COMPAT-1)
-      — `GeneratedClientSerializationTest`.
+      — unknown *fields* hold (`GeneratedClientSerializationTest`), but an unknown *enum
+      value* still fails the whole response: the generator marks every enum property
+      `@Contextual`, and `coerceInputValues` does not apply to a contextual descriptor.
+      See Open Questions.
 - [x] Deserializing a response missing newly added optional fields (older server) yields
       defaults/nulls without error. (R-COMPAT-2) — `GeneratedClientSerializationTest`.
 - [ ] Against a server offering only `/api/v1`, the client selects v1 even though it also
@@ -189,6 +192,15 @@ spec.
   the file it describes. The file records `releaseTag`, `apiVersion` (the `info.version`
   the asset actually carries) and `sha256` as three independent fields, so the version axis
   the tag does not identify is captured explicitly.
+- **How should an unknown enum value be tolerated?** R-COMPAT-1 aims at "a newer server
+  never crashes the app", but a new value in a *required* enum currently fails the entire
+  response, not just the affected entry — `coerceInputValues` does not apply to the
+  `@Contextual` descriptor the generator emits, and a required property has no null or
+  declared default to fall back to. Two ways out, both with real cost: a custom generator
+  template giving every enum an unknown fallback member (owns a Mustache template across
+  generator upgrades), or entry-level error handling in the repositories (leaves the DTO
+  layer honest but repeats per call site). Asserted as a known limitation in
+  `GeneratedClientSerializationTest` until decided.
 - **Which tags does the generated client cover?** Generation is filtered to a named set of
   OpenAPI tags rather than covering the whole document — 578 paths and 875 schemas would
   produce a client no reviewer can check a schema bump against, defeating R-GEN-6. The set

@@ -30,6 +30,10 @@ tasks:
     desc: JVM unit tests for all modules
     cmds:
       - ./gradlew test
+      # buildSrc is a separate build: Gradle compiles it for every invocation but never
+      # runs its tests, so without this line the OpenAPI document preparer — the only
+      # hand-written transformation in the generation pipeline — ships untested.
+      - ./gradlew -p buildSrc test
 
   check:
     desc: Aggregated quality gate (composition owned by spec/project/quality-gate/)

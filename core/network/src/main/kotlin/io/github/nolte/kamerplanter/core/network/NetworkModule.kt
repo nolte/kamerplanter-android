@@ -34,4 +34,13 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+    // NOTE for whoever wires the Retrofit instance next: the generated multipart endpoints
+    // declare plain `@Part("language") language: String` alongside the file part. Retrofit
+    // routes those through the request-body converter chain, and its built-in converters
+    // only handle RequestBody subtypes there — so with the kotlinx.serialization converter
+    // as the only one registered, the part is encoded as a JSON string: `"de"` with quotes,
+    // Content-Type application/json, which FastAPI's Form(...) then reads including the
+    // quotes. A scalar converter factory has to sit ahead of the JSON one. This bites the
+    // pest-detection upload (#10) and attachment upload, i.e. the driving use case (#1).
 }

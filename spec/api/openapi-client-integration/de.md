@@ -167,9 +167,12 @@ treibende Anforderung dieser Spec.
 - [ ] `core/network/` exponiert keine UVC/`libuvc`-Symbole, und Feature-Module referenzieren
       die API nur über `core/network/`-Interfaces. (R-GEN-5) — die erste Hälfte gilt; die
       zweite hat noch keinen Konsumenten und ist damit noch nicht beobachtbar.
-- [x] Die Deserialisierung eines Response mit zusätzlichen unbekannten Feldern (neuerer
+- [ ] Die Deserialisierung eines Response mit zusätzlichen unbekannten Feldern (neuerer
       Server) wirft nicht und liefert die bekannten Felder korrekt. (R-COMPAT-1)
-      — `GeneratedClientSerializationTest`.
+      — unbekannte *Felder* gelten (`GeneratedClientSerializationTest`), ein unbekannter
+      *Enum-Wert* lässt jedoch weiterhin den ganzen Response scheitern: der Generator
+      markiert jede Enum-Property `@Contextual`, und `coerceInputValues` greift bei einem
+      kontextuellen Deskriptor nicht. Siehe Open Questions.
 - [x] Die Deserialisierung eines Response ohne neu hinzugefügte optionale Felder (älterer
       Server) liefert Defaults/nulls ohne Fehler. (R-COMPAT-2)
       — `GeneratedClientSerializationTest`.
@@ -208,6 +211,16 @@ treibende Anforderung dieser Spec.
   (die `info.version`, die das Asset tatsächlich trägt) und `sha256` als drei unabhängige
   Felder fest, sodass die Versions-Achse, die der Tag nicht identifiziert, explizit
   protokolliert ist.
+- **Wie soll ein unbekannter Enum-Wert toleriert werden?** R-COMPAT-1 zielt darauf, dass
+  ein neuerer Server die App nie zum Absturz bringt — ein neuer Wert in einem *required*
+  Enum lässt derzeit aber den gesamten Response scheitern, nicht nur den betroffenen
+  Eintrag: `coerceInputValues` greift beim `@Contextual`-Deskriptor des Generators nicht,
+  und eine required Property hat weder null noch einen deklarierten Default als Rückfall.
+  Zwei Auswege, beide mit echten Kosten: ein eigenes Generator-Template, das jedem Enum ein
+  Unknown-Element gibt (bedeutet ein Mustache-Template über Generator-Upgrades hinweg zu
+  pflegen), oder Fehlerbehandlung je Eintrag in den Repositories (hält die DTO-Schicht
+  ehrlich, wiederholt sich aber je Aufrufstelle). Bis zur Entscheidung als bekannte Grenze
+  in `GeneratedClientSerializationTest` festgeschrieben.
 - **Welche Tags deckt der generierte Client ab?** Die Generierung filtert auf eine benannte
   Menge von OpenAPI-Tags, statt das ganze Dokument abzudecken — 578 Pfade und 875 Schemas
   ergäben einen Client, gegen den kein Reviewer einen Schema-Bump prüfen kann, was R-GEN-6
