@@ -379,7 +379,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
         const val PERCENT = 100f
         const val MIN_ZOOM = 1f
 
-        /** Past 4x, a 1080p frame has no detail left to reveal. */
+        /**
+         * Past 4x the *preview* has no detail left to reveal — the cap follows the mode the
+         * preview runs in (1080p on the reference device), not what a capture resolves. A
+         * still may be taken at a larger mode, so for captures the cap is deliberately
+         * conservative rather than derived from their resolution.
+         */
         const val MAX_ZOOM = 4f
 
         const val NV21_BYTES_NUMERATOR = 3
