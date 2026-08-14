@@ -1,0 +1,62 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+}
+
+android {
+    namespace = "io.github.nolte.kamerplanter.feature.plants"
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 26
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+}
+
+dependencies {
+    // Whether an instance is connected — the list is gated on it and shows nothing without
+    // one. This module reads the connection; it never establishes one.
+    implementation(project(":core:connection"))
+
+    // For the PlantsClient seam and its app-owned types only. No Retrofit type, no generated
+    // DTO and no OkHttp type crosses into this module (ADR 0001, R-GEN-5) — the one exception
+    // is the OkHttpClient handed to Coil below, which carries the credential to thumbnail
+    // requests and never appears in this module's own API.
+    implementation(project(":core:network"))
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.ui)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Thumbnails. The OkHttp-backed loader is what lets the stored credential reach an
+    // attachment URI, which is tenant-scoped and authenticated.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    // The in-memory CredentialStore, so the ViewModel's image client can be built off-device.
+    testImplementation(testFixtures(project(":core:connection")))
+}

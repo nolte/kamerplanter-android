@@ -1,0 +1,235 @@
+package io.github.nolte.kamerplanter.core.network
+
+import io.github.nolte.kamerplanter.core.connection.Connection
+import io.github.nolte.kamerplanter.core.connection.ConnectionStore
+import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.network.generated.apis.CareRemindersApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.LocationsApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.PlantInstancesApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
+import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import retrofit2.Response
+import retrofit2.Retrofit
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
+
+/**
+ * Loads the plant list from the connected instance.
+ *
+ * The endpoint shapes force the structure here. `GET /plant-instances` returns keys, not
+ * names: `location_key` has to be resolved against `GET /locations`, and the cover photo is
+ * a per-plant call. Done naively that is one request per row, twice over.
+ *
+ * So the care dashboard is fetched once for the whole tenant, locations once per *site*
+ * (that endpoint requires a `site_key`, so a single tenant-wide call is not on offer), and
+ * only the photos stay per-plant — bounded, because fifty plants must not open fifty
+ * sockets. Everything is joined in memory afterwards.
+ */
+@Singleton
+class NetworkPlantsClient @Inject constructor(
+    private val apis: InstanceApiFactory,
+    private val connections: ConnectionStore,
+    private val credentials: CredentialStore,
+) : PlantsClient {
+
+    override suspend fun loadPlants(): PlantListOutcome = runCatchingCancellable {
+        val connection = connections.connection.first()
+            ?: return PlantListOutcome.Unavailable("the app is not connected to an instance")
+        val tenant = connection.tenantSlug
+            ?: return PlantListOutcome.Unavailable(
+                "this connection has no tenant, so it addresses no plants",
+            )
+
+        val credential = credentials.load()
+        val retrofit = apis.create(connection.baseUrl) { credential }
+
+        loadFor(retrofit, tenant, connection.baseUrl)
+    }.getOrElse { failure ->
+        when {
+            failure is HttpFailure && failure.status == HTTP_UNAUTHORIZED -> PlantListOutcome.Unauthorized
+            failure is HttpFailure -> PlantListOutcome.Unavailable(
+                "the instance answered HTTP ${failure.status}",
+            )
+            else -> PlantListOutcome.Unavailable(failure::class.simpleName.orEmpty())
+        }
+    }
+
+    private suspend fun loadFor(
+        retrofit: Retrofit,
+        tenant: String,
+        baseUrl: String,
+    ): PlantListOutcome = coroutineScope {
+        // The plant list is the only call whose failure is fatal: without it there is no
+        // list. Locations and the care dashboard are enrichment — a row without a resolved
+        // location name is still a usable row, and one without a badge is merely one whose
+        // care state is unknown, which beats showing nothing at all (R-COMPAT-4).
+        val plants = retrofit.create(PlantInstancesApi::class.java)
+            .listPlantsApiV1TTenantSlugPlantInstancesGet(tenantSlug = tenant, offset = 0, limit = PAGE_SIZE)
+            .bodyOrThrow()
+            // Removed instances come back from this endpoint too. A list that mixes dead
+            // plants into living ones answers the wrong question, and without a filter row
+            // there is nowhere to opt back in.
+            .filter { it.removedOn == null }
+
+        // Only the sites the plants actually sit in — resolving a tenant's full site list
+        // would fetch locations nothing on this screen refers to.
+        val siteKeys = plants.mapNotNull { it.siteKey }.toSet()
+        val locationNames = async { retrofit.locationNames(tenant, siteKeys) }
+        val careActions = async { retrofit.careActions(tenant) }
+
+        // Bounded so a large tenant does not open one socket per plant. The permit is held
+        // across the call, so at most FETCH_CONCURRENCY photo requests are ever in flight.
+        val photoLimit = Semaphore(FETCH_CONCURRENCY)
+        val thumbnails = plants.map { plant ->
+            async { plant.key to photoLimit.withPermit { retrofit.coverThumbnail(tenant, plant.key, baseUrl) } }
+        }
+
+        val locations = locationNames.await()
+        val care = careActions.await()
+        val covers = thumbnails.awaitAll().toMap()
+
+        PlantListOutcome.Loaded(
+            plants
+                .map { plant ->
+                    PlantSummary(
+                        key = plant.key,
+                        displayName = plant.displayName(),
+                        species = plant.speciesLabel(),
+                        location = plant.locationKey?.let(locations::get),
+                        thumbnailUrl = covers[plant.key],
+                        careAction = care[plant.key],
+                    )
+                }
+                // No order is specified by the endpoint, and a list has to have one. By name
+                // is the order a reader can predict; case-insensitive so "acer" and "Acer"
+                // do not end up in different halves of the list.
+                .sortedBy { it.displayName.lowercase() },
+        )
+    }
+
+    /**
+     * `location_key` to display name.
+     *
+     * One call per *site*, not per plant: `GET /locations` requires `site_key`, so there is
+     * no way to ask for a tenant's locations in one go. The sites come from the plants
+     * themselves. A tenant has a handful of sites and can have hundreds of plants, so this
+     * stays far from a request per row.
+     */
+    private suspend fun Retrofit.locationNames(
+        tenant: String,
+        siteKeys: Set<String>,
+    ): Map<String, String> = coroutineScope {
+        siteKeys
+            .map { site ->
+                async {
+                    runCatchingCancellable {
+                        create(LocationsApi::class.java)
+                            .listLocationsApiV1TTenantSlugLocationsGet(tenantSlug = tenant, siteKey = site)
+                            .bodyOrThrow()
+                            .associate { it.key to it.name }
+                    }.getOrElse { emptyMap() }
+                }
+            }
+            .awaitAll()
+            .fold(emptyMap()) { all, ofSite -> all + ofSite }
+    }
+
+    /** One tenant-wide call that joins onto rows by `plant_key`. */
+    private suspend fun Retrofit.careActions(tenant: String): Map<String, CareAction> =
+        runCatchingCancellable {
+            create(CareRemindersApi::class.java)
+                .getCareDashboardApiV1TTenantSlugCareRemindersDashboardGet(tenantSlug = tenant)
+                .bodyOrThrow()
+                .associate {
+                    it.plantKey to CareAction(
+                        // `.value` rather than `.name`: the wire spelling is what the UI maps
+                        // to a label, and it survives an enum this build does not know.
+                        kind = it.reminderType.value,
+                        urgency = it.urgency,
+                        dueDate = it.dueDate,
+                    )
+                }
+        }.getOrElse { emptyMap() }
+
+    /**
+     * The small thumbnail of the plant's cover photo.
+     *
+     * A missing photo is the common case, not an error — most plants have none — so every
+     * failure here yields `null` rather than sinking the row.
+     */
+    private suspend fun Retrofit.coverThumbnail(
+        tenant: String,
+        plantKey: String,
+        baseUrl: String,
+    ): String? = runCatchingCancellable {
+        val photos = create(PlantPhotosApi::class.java)
+            .listPlantPhotosApiV1TTenantSlugPlantInstancesKeyPhotosGet(key = plantKey, tenantSlug = tenant)
+            .bodyOrThrow()
+            .photos
+        val cover = photos.firstOrNull { it.isCover } ?: photos.firstOrNull()
+        cover?.thumbnailUris?.small?.let { absoluteAgainst(baseUrl, it) }
+    }.getOrElse { null }
+
+    private class HttpFailure(val status: Int) : Exception("HTTP $status")
+
+    private companion object {
+        /**
+         * `GET /plant-instances` takes only offset and limit — it has no filter parameters —
+         * so one generous page is what the list works from until the endpoint grows them.
+         */
+        const val PAGE_SIZE = 200
+        const val FETCH_CONCURRENCY = 6
+        const val HTTP_UNAUTHORIZED = 401
+
+        fun <T> Response<T>.bodyOrThrow(): T {
+            if (!isSuccessful) throw HttpFailure(code())
+            return body() ?: throw HttpFailure(code())
+        }
+
+        /** `plant_name` is nullable, and a blank one is as unusable as a missing one. */
+        fun PlantResponse.displayName(): String =
+            plantName?.takeIf { it.isNotBlank() } ?: instanceId
+
+        /** Common name first — that is what the owner calls it — with the cultivar appended. */
+        fun PlantResponse.speciesLabel(): String? {
+            val base = species?.commonNames?.firstOrNull()?.takeIf { it.isNotBlank() }
+                ?: species?.scientificName
+                ?: return cultivar?.name
+            return cultivar?.name?.let { "$base '$it'" } ?: base
+        }
+
+        /**
+         * Thumbnail URIs may come back relative to the instance. Coil needs an absolute URL,
+         * and prefixing one that is already absolute would produce a broken address.
+         */
+        fun absoluteAgainst(baseUrl: String, uri: String): String = when {
+            uri.startsWith("http://") || uri.startsWith("https://") -> uri
+            else -> baseUrl.trimEnd('/') + "/" + uri.trimStart('/')
+        }
+
+        @Suppress("TooGenericExceptionCaught")
+        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
+            try {
+                Result.success(block())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Throwable) {
+                Result.failure(failure)
+            }
+    }
+}
+
+/** The tenant a connection addresses, where it has one; light mode has none. */
+private val Connection.tenantSlug: String?
+    get() = when (this) {
+        is Connection.QrPairing -> tenantSlug
+        is Connection.ApiKey -> tenantSlug
+        is Connection.LightMode -> null
+    }

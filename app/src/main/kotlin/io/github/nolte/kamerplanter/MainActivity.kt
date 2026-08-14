@@ -28,8 +28,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeScreen
+import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
-import io.github.nolte.kamerplanter.ui.PlantsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
 
 @AndroidEntryPoint
@@ -68,9 +68,27 @@ fun KamerplanterApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(TopLevelDestination.CAPTURE.route) { MicroscopeScreen() }
-            composable(TopLevelDestination.PLANTS.route) { PlantsScreen() }
+            composable(TopLevelDestination.PLANTS.route) {
+                PlantsScreen(
+                    // The disconnected and credential-rejected states both point here: the
+                    // list cannot fix either, and Settings is where a connection is made.
+                    onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+                )
+            }
             composable(TopLevelDestination.SETTINGS.route) { SettingsScreen() }
         }
+    }
+}
+
+/**
+ * Switches tabs the same way the bottom bar does, so a jump from the Plants tab into Settings
+ * leaves the back stack in the state a tap on Settings would have.
+ */
+private fun NavHostController.navigateToTab(destination: TopLevelDestination) {
+    navigate(destination.route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }
 
