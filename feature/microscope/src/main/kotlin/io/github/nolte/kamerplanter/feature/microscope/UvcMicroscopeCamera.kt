@@ -8,9 +8,9 @@ import android.hardware.usb.UsbManager
 import android.util.Log
 import android.view.TextureView
 import android.view.View
-import com.serenegiant.usb.IFrameCallback
-import com.serenegiant.usb.USBMonitor
-import com.serenegiant.usb.UVCCamera
+import com.jiangdg.usb.USBMonitor
+import com.jiangdg.uvc.IFrameCallback
+import com.jiangdg.uvc.UVCCamera
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.asCoroutineDispatcher

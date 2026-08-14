@@ -1,7 +1,7 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
 import android.graphics.Matrix
-import com.serenegiant.usb.Size
+import com.jiangdg.utils.Size
 
 /**
  * The transform that fits a [streamWidth] x [streamHeight] stream into a

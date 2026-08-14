@@ -11,7 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // UVC capture library (ADR 0001): com.github.jiangdongguo.AndroidUSBCamera
+        // UVC capture library (ADR 0001): com.github.nolte.AndroidUSBCamera, our fork of
+        // jiangdongguo/AndroidUSBCamera carrying 16 KB-aligned native libraries (#14).
         maven("https://jitpack.io") {
             content {
                 includeGroupByRegex("com\\.github\\..*")

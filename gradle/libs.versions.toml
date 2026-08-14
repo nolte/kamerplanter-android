@@ -18,7 +18,7 @@ okhttp = "5.4.0"
 kotlinxSerialization = "1.11.0"
 kotlinxCoroutines = "1.11.0"
 coil = "3.5.0"
-libuvc = "3.2.7"
+libuvc = "3.2.7-16kb.2"
 junit = "4.13.2"
 mockk = "1.14.11"
 turbine = "1.2.1"
@@ -56,7 +56,13 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 # UVC engine (ADR 0001) — only :feature:microscope may reference this. The libausbc
 # wrapper is deliberately absent: driving libuvc directly avoids its targetSdk-34 crash,
 # needs no reflection for the hardware shutter, and keeps this to one published artifact.
-libuvc = { group = "com.github.jiangdongguo.AndroidUSBCamera", name = "libuvc", version.ref = "libuvc" }
+#
+# Sourced from nolte/AndroidUSBCamera, our fork of jiangdongguo/AndroidUSBCamera, because
+# upstream ships 4 KB-aligned native libraries: Android 15+ warns over the app and Play
+# rejects it (#14). The fix exists upstream as PR #753 but has sat unmerged since
+# 2026-03-14 on a repository whose last merge was 2024-09-02. The fork rebuilds the .so
+# with NDK r28 and -Wl,-z,max-page-size=16384 and changes nothing else about the API.
+libuvc = { group = "com.github.nolte.AndroidUSBCamera", name = "libuvc", version.ref = "libuvc" }
 detekt-formatting = { group = "io.gitlab.arturbosch.detekt", name = "detekt-formatting", version.ref = "detekt" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
