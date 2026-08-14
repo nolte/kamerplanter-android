@@ -80,7 +80,7 @@ class SessionRefresher(
      * addresses.
      *
      * [requestUrl] is checked against the stored connection rather than trusted. This is a
-     * singleton attached to every session-bearing client — including the one the pairing
+     * singleton attached to every client — including the one the pairing
      * flow builds for an instance the user has only just typed in. Without the check, a 401
      * from that new address would be answered with the token issued by the old one: a
      * credential for host A sent to host B.

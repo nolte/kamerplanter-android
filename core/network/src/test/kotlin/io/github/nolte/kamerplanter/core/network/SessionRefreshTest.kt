@@ -299,6 +299,44 @@ class SessionRefreshTest {
         assertEquals(1, refreshCalls.get())
     }
 
+    /**
+     * The refresh route declares 200, 401, 404, 409 and 422 and no 403 — so a 403 there is
+     * something in front of the instance answering: a WAF, a corporate proxy. Treating it as
+     * a dead token would delete a credential that still works.
+     */
+    @Test
+    fun `a 403 from something in front of the instance clears nothing`() = runTest {
+        refreshResponse = json("blocked", code = 403)
+        val credentials = credentials()
+        val connections = connections()
+        val api = factory(credentials, connections)
+            .create(server.url("/").toString()) { runCatchingBlocking(credentials) }
+
+        val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+        assertEquals(401, response.code())
+        assertEquals("the session must survive it", STALE_SESSION, credentials.stored)
+        assertTrue("the connection must survive it too", connections.current != null)
+    }
+
+    /**
+     * By the time the store is written the server has already rotated, so the pair still on
+     * disk is dead. Keeping it would cost the user a round trip that can only fail.
+     */
+    @Test
+    fun `a store that cannot save the rotated pair clears rather than keep a dead one`() = runTest {
+        val credentials = credentials().apply { failOnSave = true }
+        val connections = connections()
+        val api = factory(credentials, connections)
+            .create(server.url("/").toString()) { runCatchingBlocking(credentials) }
+
+        val response = api.create(TenantsApi::class.java).listMyTenantsApiV1TenantsGet()
+
+        assertEquals(401, response.code())
+        assertEquals(Credential.None, credentials.stored)
+        assertNull(connections.current)
+    }
+
     /** A token the server keeps rejecting must not put the client in a refresh loop. */
     @Test
     fun `a token the server keeps rejecting is not retried forever`() = runTest {
