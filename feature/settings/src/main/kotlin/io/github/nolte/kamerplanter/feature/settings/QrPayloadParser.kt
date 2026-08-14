@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets

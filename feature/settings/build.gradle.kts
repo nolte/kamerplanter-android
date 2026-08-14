@@ -1,4 +1,3 @@
-import com.android.build.api.variant.HasUnitTestBuilder
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -29,24 +28,15 @@ android {
     }
 }
 
-// The ConnectionClient binding is the one thing that differs per build variant: the fake
-// lives in src/debug/, the placeholder in src/release/ (R34). AGP builds a unit-test
-// variant only for the debug build type by default, which would leave the release half of
-// that split — the half that must NOT be able to see the fake — compiled but never tested.
-// Turning the release unit-test variant on makes src/test/ compile against both variants,
-// so a reference from a variant-independent test back into src/debug/ fails the gate
-// instead of passing it by accident.
-androidComponents {
-    beforeVariants { variant ->
-        (variant as HasUnitTestBuilder).enableUnitTest = true
-    }
-}
-
 dependencies {
     // Connection model and its two stores. `api`, not `implementation`: ConnectionState —
     // and therefore SettingsViewModel.state — exposes Connection to whoever renders this
     // screen, so the type has to travel with the dependency.
     api(project(":core:connection"))
+
+    // For the ConnectionClient binding only — this module talks to the instance through
+    // that seam and touches no networking type itself (ADR 0001, R-GEN-5).
+    implementation(project(":core:network"))
 
     // The device-camera QR scanner lives here — and only here. The rest of the app
     // pairs through the app-owned PairingClient seam, never through CameraX/ML Kit.
