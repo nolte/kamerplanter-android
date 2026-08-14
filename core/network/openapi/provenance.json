@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Provenance of the vendored OpenAPI document (R-GEN-2), resolving the spec's open",
+    "'Provenance encoding' question in favour of a sibling file: the schema stays",
+    "byte-identical to the published release asset, so its sha256 keeps verifying, and the",
+    "verify task reads this without parsing 3.5 MB of JSON.",
+    "",
+    "The three version strings below are deliberately separate and none is derivable from",
+    "another (R-VER-1). 'releaseTag' is the GitHub release; 'apiVersion' is the backend",
+    "application version reported as info.version and /api/health.version; the URL major",
+    "'/api/v1' is a third axis entirely. Tag v0.2.0 ships apiVersion 1.0.0 — reading a",
+    "compatibility floor off the tag would gate against the wrong number.",
+    "",
+    "Bump all fields here in the same commit that replaces openapi.json (R-GEN-6)."
+  ],
+  "releaseTag": "v0.2.0",
+  "apiVersion": "1.0.0",
+  "sha256": "7ed50815716b101f5424a45c48c6261cc6b0e57b925d2d0f491bbd578f134726",
+  "source": "https://github.com/nolte/kamerplanter/releases/download/v0.2.0/openapi.json",
+  "retrievedOn": "2026-08-14"
+}

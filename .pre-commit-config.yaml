@@ -1,3 +1,12 @@
+# The vendored OpenAPI schema and the client generated from it are excluded from the
+# whitespace fixers below. Both are machine-written and verified byte-for-byte:
+# core/network/openapi/openapi.json is pinned by the sha256 in its provenance file, and
+# 135 of the generated Kotlin files carry trailing whitespace the generator emits. A fixer
+# touching either one would break `task verify:openapi-client` on a clean checkout — the
+# schema would stop matching its digest, and the client would stop matching the schema.
+# See spec/api/openapi-client-integration/ (R-GEN-3, R-GEN-7).
+exclude: '^core/network/(openapi/openapi\.json|src/generated/)'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

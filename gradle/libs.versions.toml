@@ -17,6 +17,7 @@ retrofit = "3.0.0"
 okhttp = "5.4.0"
 kotlinxSerialization = "1.11.0"
 kotlinxCoroutines = "1.11.0"
+openapiGenerator = "7.14.0"
 coil = "3.5.0"
 libuvc = "3.2.7-16kb.2"
 junit = "4.13.2"
@@ -51,6 +52,15 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+# Build-time only: resolved into a dedicated configuration in core/network and run as a JVM
+# process by the generateApiClient task. Never on any module's compile or runtime classpath.
+#
+# Renovate is deliberately left enabled here even though it cannot land such a bump on its
+# own: a new generator emits different code, so its PR fails checkApiClientUpToDate until
+# someone runs `./gradlew :core:network:generateApiClient` and commits the result. That red
+# check is the intended signal — it names the exact command — and it beats not hearing about
+# generator releases at all. See spec/api/openapi-client-integration/.
+openapi-generator-cli = { group = "org.openapitools", name = "openapi-generator-cli", version.ref = "openapiGenerator" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 # UVC engine (ADR 0001) — only :feature:microscope may reference this. The libausbc

@@ -1,0 +1,12 @@
+**/infrastructure/ApiClient.kt
+**/infrastructure/ResponseExt.kt
+**/auth/*
+**/docs/*
+**/README.md
+**/build.gradle
+**/settings.gradle
+**/gradlew
+**/gradlew.bat
+**/gradle/**
+**/.travis.yml
+**/src/test/**
