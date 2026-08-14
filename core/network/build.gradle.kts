@@ -74,6 +74,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    // The in-memory CredentialStore, for driving refresh without a Keystore.
+    testImplementation(testFixtures(project(":core:connection")))
 
     add(openApiGenerator.name, libs.openapi.generator.cli)
 }

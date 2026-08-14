@@ -31,17 +31,25 @@ import javax.inject.Singleton
 class InstanceApiFactory @Inject constructor(
     private val httpClient: OkHttpClient,
     private val json: Json,
+    private val tokenRefresh: TokenRefreshAuthenticator,
 ) {
 
     /**
      * A Retrofit facade for [baseUrl], authenticated with [credential].
      *
      * [credential] is read per request rather than captured, so a session refreshed mid-flight
-     * takes effect without rebuilding anything.
+     * takes effect without rebuilding anything — which is exactly what the authenticator does
+     * when a call comes back 401.
      */
     fun create(baseUrl: String, credential: () -> Credential = { Credential.None }): Retrofit {
         val client = httpClient.newBuilder()
             .addInterceptor(CredentialInterceptor(credential))
+            // Attached unconditionally: deciding here would mean calling `credential()` at
+            // build time, which is a snapshot of something the KDoc above promises is read
+            // per request — and a blocking store read on whichever thread built the client.
+            // Which requests may be refreshed is decided per request instead, from the tag
+            // the interceptor attaches.
+            .authenticator(tokenRefresh)
             .build()
 
         return Retrofit.Builder()
@@ -62,14 +70,16 @@ class InstanceApiFactory @Inject constructor(
 
     private companion object {
         const val JSON_MEDIA_TYPE = "application/json"
-
-        /**
-         * Retrofit rejects a base URL that does not end in `/`, and instance URLs are typed
-         * by hand or scanned from a QR payload, so both spellings reach here.
-         */
-        fun String.withTrailingSlash(): String = if (endsWith("/")) this else "$this/"
     }
 }
+
+/**
+ * Retrofit rejects a base URL that does not end in `/`, and instance URLs are typed by hand
+ * or scanned from a QR payload, so both spellings reach the builders. Shared rather than
+ * copied, so a future refinement — trimming whitespace, say — cannot apply to one caller and
+ * not the other.
+ */
+internal fun String.withTrailingSlash(): String = if (endsWith("/")) this else "$this/"
 
 /**
  * Attaches the stored credential to every outgoing request (R21).
@@ -91,17 +101,36 @@ internal class CredentialInterceptor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val token = when (val current = credential()) {
+        val current = credential()
+        val token = when (current) {
             is Credential.Session -> current.accessToken
             is Credential.ApiKey -> current.key
             Credential.None -> null
         }
-        val authenticated = token
-            ?.let { request.newBuilder().header("Authorization", "Bearer $it").build() }
-            ?: request
+        val authenticated = token?.let {
+            request.newBuilder()
+                .header("Authorization", "Bearer $it")
+                // Records which *kind* of credential signed this request, so the
+                // authenticator can tell an expired session from a rejected API key. Reading
+                // the store instead would answer a different question: what is stored now,
+                // not what went out — and during a method change those differ.
+                .tag(SignedWith::class.java, SignedWith(current is Credential.Session))
+                .build()
+        } ?: request
         return chain.proceed(authenticated)
     }
 }
+
+/**
+ * Marks a request as signed by a session rather than by an API key.
+ *
+ * Only a session can be renewed. Without this the authenticator has to ask the credential
+ * store what it holds *now*, which is the wrong question the moment the two differ — and
+ * they differ exactly when a user with a stored session types in an API key: the rejected
+ * key's 401 would be answered by handing the request the stored session's token, and an
+ * invalid key would verify as good.
+ */
+internal data class SignedWith(val session: Boolean)
 
 /**
  * Encodes a scalar `@Part` as its bare `toString`, leaving everything else to the converter

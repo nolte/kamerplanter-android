@@ -1,9 +1,14 @@
 package io.github.nolte.kamerplanter.core.network
 
+import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import io.github.nolte.kamerplanter.core.connection.ConnectionResult
+import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
 import io.github.nolte.kamerplanter.core.connection.Tenant
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -35,7 +40,20 @@ class NetworkConnectionClientTest {
         server = MockWebServer()
         server.start()
         client = NetworkConnectionClient(
-            apis = InstanceApiFactory(OkHttpClient(), NetworkModule.provideJson()),
+            // No refresh path here: connecting is what produces a session, so there is
+            // never one to renew during it.
+            apis = InstanceApiFactory(
+                httpClient = OkHttpClient(),
+                json = NetworkModule.provideJson(),
+                tokenRefresh = TokenRefreshAuthenticator(
+                    SessionRefresher(
+                        OkHttpClient(),
+                        NetworkModule.provideJson(),
+                        InMemoryCredentialStore(),
+                        NeverConnectedStore,
+                    ),
+                ),
+            ),
             clock = { fixedNow },
         )
     }
@@ -447,4 +465,11 @@ class NetworkConnectionClientTest {
         assertFalse((pairing as ConnectionResult.Failure).reason.contains("SUPERSECRET"))
         assertFalse((apiKey as ConnectionResult.Failure).reason.contains("SUPERSECRET"))
     }
+}
+
+/** There is no connection while one is being established, which is all these tests do. */
+private object NeverConnectedStore : ConnectionStore {
+    override val connection: Flow<Connection?> = flowOf(null)
+    override suspend fun save(connection: Connection) = Unit
+    override suspend fun clear() = Unit
 }
