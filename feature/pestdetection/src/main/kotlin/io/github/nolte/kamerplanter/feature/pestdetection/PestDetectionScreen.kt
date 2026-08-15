@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -194,23 +195,30 @@ private fun PestDetectionContent(
     when (state) {
         PestDetectionState.CheckingInstance -> Busy(stringResource(R.string.pest_checking), modifier)
 
-        PestDetectionState.NotConnected -> Explanation(
-            title = stringResource(R.string.pest_not_connected_title),
-            body = stringResource(R.string.pest_not_connected_body),
-            action = ExplanationAction(
-                stringResource(R.string.pest_not_connected_action),
-                actions.onOpenSettings,
-            ),
+        // Both send the user to Settings, because that is where a connection is made or
+        // remade, and neither can be fixed from here.
+        PestDetectionState.NotConnected -> SettingsPrompt(
+            title = R.string.pest_not_connected_title,
+            body = R.string.pest_not_connected_body,
+            onOpenSettings = actions.onOpenSettings,
             modifier = modifier,
         )
 
-        PestDetectionState.Unauthorized -> Explanation(
-            title = stringResource(R.string.pest_rejected_title),
-            body = stringResource(R.string.pest_rejected_body),
-            action = ExplanationAction(
-                stringResource(R.string.pest_not_connected_action),
-                actions.onOpenSettings,
-            ),
+        PestDetectionState.Unauthorized -> SettingsPrompt(
+            title = R.string.pest_rejected_title,
+            body = R.string.pest_rejected_body,
+            onOpenSettings = actions.onOpenSettings,
+            modifier = modifier,
+        )
+
+        // A retry is offered, but the wording promises nothing: an answer this build cannot
+        // read will read the same way again, and only a change on the instance — or a newer
+        // app — will alter it. Saying "your instance could not be reached" here would send its
+        // owner to check a server that answered perfectly well.
+        PestDetectionState.NotUnderstood -> Explanation(
+            title = stringResource(R.string.pest_not_understood_title),
+            body = stringResource(R.string.pest_not_understood_body),
+            action = ExplanationAction(stringResource(R.string.pest_failed_retry), actions.onRetry),
             modifier = modifier,
         )
 
@@ -255,7 +263,10 @@ private fun PestDetectionContent(
             action = if (state.canRetry) {
                 ExplanationAction(stringResource(R.string.pest_failed_retry), actions.onRetry)
             } else {
-                ExplanationAction(stringResource(R.string.pest_result_again), actions.onCaptureAgain)
+                // A way out, not a remedy — and labelled as one. Sending the same frame again
+                // would meet the same fixed proxy limit or the same missing permission, so the
+                // button returns to the viewfinder and says exactly that.
+                ExplanationAction(stringResource(R.string.pest_back_to_viewfinder), actions.onCaptureAgain)
             },
             modifier = modifier,
         )
@@ -290,6 +301,24 @@ private fun ConsentPrompt(
 }
 
 @Composable
+private fun SettingsPrompt(
+    @StringRes title: Int,
+    @StringRes body: Int,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Explanation(
+        title = stringResource(title),
+        body = stringResource(body),
+        action = ExplanationAction(
+            stringResource(R.string.pest_not_connected_action),
+            onOpenSettings,
+        ),
+        modifier = modifier,
+    )
+}
+
+@Composable
 private fun Viewfinder(
     camera: MicroscopeState,
     createPreviewView: (Context) -> android.view.View,
@@ -304,7 +333,11 @@ private fun Viewfinder(
         val waiting = when (camera) {
             is MicroscopeState.Unavailable -> when (camera.reason) {
                 UnavailableReason.NO_USB_HOST_SUPPORT -> R.string.pest_no_usb_host
-                else -> R.string.pest_no_device
+                // Its own message: telling someone who declined the USB dialogue to attach the
+                // microscope they already attached is the failure this whole block exists to
+                // stop, and it was still in the `else` branch.
+                UnavailableReason.PERMISSION_DENIED -> R.string.pest_usb_permission_denied
+                UnavailableReason.NO_DEVICE_ATTACHED -> R.string.pest_no_device
             }
             MicroscopeState.AwaitingPermission -> R.string.pest_awaiting_usb_permission
             MicroscopeState.Connecting -> R.string.pest_connecting

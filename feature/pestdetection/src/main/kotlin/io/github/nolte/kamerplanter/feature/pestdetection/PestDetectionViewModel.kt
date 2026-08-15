@@ -68,6 +68,7 @@ class PestDetectionViewModel @Inject constructor(
                 DetectionReadiness.NotConnected -> PestDetectionState.NotConnected
                 DetectionReadiness.Unauthorized -> PestDetectionState.Unauthorized
                 DetectionReadiness.NotPermitted -> PestDetectionState.NotPermitted
+                DetectionReadiness.NotUnderstood -> PestDetectionState.NotUnderstood
                 is DetectionReadiness.Unavailable ->
                     PestDetectionState.Failed(R.string.pest_failed_unreachable)
             }

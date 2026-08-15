@@ -140,6 +140,38 @@ class NetworkPestDetectionClientTest {
         assertEquals(DetectionReadiness.NotOffered, client().readiness())
     }
 
+    /**
+     * An instance that lists no adapters at all has nothing configured, which is exactly what
+     * "your operator has not set this up" means — and is a different answer from the one below.
+     */
+    @Test
+    fun `an instance with no adapters at all is not offered`() = runTest {
+        responses[statusPath] = """
+            {"available":true,"feature_enabled":true,"primary_adapter":"local",
+             "active_adapter":"local"}
+        """.trimIndent()
+
+        assertEquals(DetectionReadiness.NotOffered, client().readiness())
+    }
+
+    /**
+     * An instance that names an active adapter and then does not describe it.
+     *
+     * Not "the operator has not enabled this" — the feature is on — and not "unreachable"
+     * either, since it answered 200. Telling the user either would send them after the wrong
+     * thing: an administrator who has already switched it on, or a server that is answering
+     * perfectly well.
+     */
+    @Test
+    fun `an active adapter missing from the map is an answer the app cannot read`() = runTest {
+        givenStatus(
+            activeAdapter = "cloud",
+            adapters = """{"local":{"configured":true,"is_external":false}}""",
+        )
+
+        assertEquals(DetectionReadiness.NotUnderstood, client().readiness())
+    }
+
     @Test
     fun `an adapter that is not configured is not offered`() = runTest {
         givenStatus(adapters = """{"local":{"configured":false,"is_external":false}}""")

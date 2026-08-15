@@ -96,6 +96,19 @@ class PestDetectionViewModelTest {
         assertEquals(PestDetectionState.NotPermitted, viewModel().state.settled())
     }
 
+    /**
+     * An answer the app cannot read is not an unreachable instance.
+     *
+     * Collapsing the two puts "check that your instance is running" in front of someone whose
+     * instance answered 200, and attaches a retry that will meet the same answer every time.
+     */
+    @Test
+    fun `an unreadable answer is its own state`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.NotUnderstood
+
+        assertEquals(PestDetectionState.NotUnderstood, viewModel().state.settled())
+    }
+
     @Test
     fun `an unreachable instance is a retryable failure`() = runTest(dispatcher) {
         detections.readiness = DetectionReadiness.Unavailable("boom")

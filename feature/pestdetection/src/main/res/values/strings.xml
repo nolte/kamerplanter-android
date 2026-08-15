@@ -33,6 +33,10 @@
     <string name="pest_capture">Identify</string>
     <string name="pest_capturing">Identifying…</string>
     <string name="pest_no_device">Attach a USB microscope to identify a pest.</string>
+    <string name="pest_not_understood_title">Unexpected answer</string>
+    <string name="pest_not_understood_body">Your instance answered something this version of the app cannot read. Updating the app, or the instance, is what changes that.</string>
+    <string name="pest_usb_permission_denied">USB access was declined — this can also happen when the screen locks while the dialog is open.</string>
+    <string name="pest_back_to_viewfinder">Back to the viewfinder</string>
     <string name="pest_no_usb_host">This device does not support USB host mode (OTG), so a microscope cannot be attached.</string>
     <string name="pest_awaiting_usb_permission">Waiting for USB permission…</string>
     <string name="pest_connecting">Opening the microscope stream…</string>

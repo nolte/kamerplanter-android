@@ -29,6 +29,9 @@ sealed interface PestDetectionState {
     /** The credential works, but this tenant does not let it run detections. */
     data object NotPermitted : PestDetectionState
 
+    /** The instance answered something this build cannot read; asking again changes nothing. */
+    data object NotUnderstood : PestDetectionState
+
     /**
      * The active adapter sends the image off the instance, and the user has not agreed to
      * that yet. No frame is captured in this state — the consent question comes before the

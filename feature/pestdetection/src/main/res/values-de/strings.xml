@@ -24,6 +24,10 @@
     <string name="pest_capture">Bestimmen</string>
     <string name="pest_capturing">Wird bestimmt…</string>
     <string name="pest_no_device">Schließe ein USB-Mikroskop an, um einen Schädling zu bestimmen.</string>
+    <string name="pest_not_understood_title">Unerwartete Antwort</string>
+    <string name="pest_not_understood_body">Deine Instanz hat etwas geantwortet, das diese App-Version nicht lesen kann. Daran ändert nur ein Update der App oder der Instanz etwas.</string>
+    <string name="pest_usb_permission_denied">Der USB-Zugriff wurde abgelehnt — das passiert auch, wenn der Bildschirm sperrt, während der Dialog offen ist.</string>
+    <string name="pest_back_to_viewfinder">Zurück zum Sucher</string>
     <string name="pest_no_usb_host">Dieses Gerät unterstützt keinen USB-Host-Modus (OTG); ein Mikroskop lässt sich nicht anschließen.</string>
     <string name="pest_awaiting_usb_permission">Warte auf die USB-Berechtigung…</string>
     <string name="pest_connecting">Mikroskop-Stream wird geöffnet…</string>

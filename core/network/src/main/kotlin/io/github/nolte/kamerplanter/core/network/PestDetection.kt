@@ -115,6 +115,16 @@ sealed interface DetectionReadiness {
 
     /** Anything else: unreachable instance, server error, malformed answer. */
     data class Unavailable(val reason: String) : DetectionReadiness
+
+    /**
+     * The instance answered, and the answer cannot be read.
+     *
+     * Separate from [Unavailable] because the two need opposite things said about them. An
+     * unreachable instance is worth another try in a minute; an answer this build cannot make
+     * sense of will read the same way every time, and telling its owner to check whether the
+     * server is running sends them after a server that is answering perfectly well.
+     */
+    data object NotUnderstood : DetectionReadiness
 }
 
 /** The outcome of an upload, in terms the result screen can act on. */

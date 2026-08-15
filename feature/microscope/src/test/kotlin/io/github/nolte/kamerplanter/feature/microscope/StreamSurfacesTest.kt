@@ -36,13 +36,13 @@ class StreamSurfacesTest {
     @Test
     fun `a departing view does not tear down the stream the arriving one just opened`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
 
         // The arriving view finds the stream held elsewhere and hands it over.
         assertSame(first, surfaces.handoverFrom(second))
         surfaces.closing()
-        surfaces.opening(second)
+        surfaces.opening(second, 2)
         surfaces.published(second)
 
         // The departing view is disposed while the first teardown is still running.
@@ -58,10 +58,10 @@ class StreamSurfacesTest {
     @Test
     fun `a departing view whose teardown finished is handed back to the platform`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
         surfaces.closing()
-        surfaces.opening(second)
+        surfaces.opening(second, 2)
         surfaces.published(second)
         surfaces.released(first)
 
@@ -78,10 +78,10 @@ class StreamSurfacesTest {
     @Test
     fun `an open that gave up leaves no claim on its surface`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
-        surfaces.opening(second)
-        surfaces.abandoned(second, stillCurrent = true)
+        surfaces.opening(second, 2)
+        surfaces.abandoned(second, 2)
 
         assertEquals(DestroyOutcome.RECLAIM, surfaces.onDestroyed(second))
         assertEquals(
@@ -95,9 +95,9 @@ class StreamSurfacesTest {
     @Test
     fun `abandoning an older open leaves a newer one claimed`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
-        surfaces.opening(second)
-        surfaces.abandoned(first, stillCurrent = true)
+        surfaces.opening(first, 1)
+        surfaces.opening(second, 2)
+        surfaces.abandoned(first, 1)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(second))
     }
@@ -110,10 +110,10 @@ class StreamSurfacesTest {
     @Test
     fun `an overlapping close does not drop the previous surface's hold`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
         surfaces.closing()
-        surfaces.opening(second)
+        surfaces.opening(second, 2)
         surfaces.published(second)
         surfaces.closing()
 
@@ -137,7 +137,7 @@ class StreamSurfacesTest {
     @Test
     fun `a surface destroyed mid-open takes the open down with it`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
     }
@@ -156,7 +156,7 @@ class StreamSurfacesTest {
     @Test
     fun `a published session claims the surface it renders into, and only that one`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
@@ -164,20 +164,28 @@ class StreamSurfacesTest {
     }
 
     /**
-     * Publishing consumes the opening claim, so a later abandon finds nothing to clear.
+     * Publishing consumes the opening claim.
      *
-     * Asserted through `handoverFrom`, because `onDestroyed` cannot see the difference —
-     * `live` alone already answers it. Leaving `opening` set would make the *next* open on the
-     * same surface look like it was already in flight.
+     * Only visible through a *later* open on the same surface: leave `opening` set here and the
+     * stale attempt number stays with it, so the next open's abandon finds a claim it does not
+     * own — and the version of this test that closed first could not see any of that, because
+     * closing clears both slots anyway.
      */
     @Test
     fun `publishing consumes the opening claim`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
         surfaces.closing()
+        surfaces.opening(first, 2)
 
-        assertNull("nothing may be left claiming the stream", surfaces.handoverFrom(second))
+        surfaces.abandoned(first, 1)
+
+        assertEquals(
+            "the second open still holds it",
+            DestroyOutcome.TEAR_DOWN,
+            surfaces.onDestroyed(first),
+        )
     }
 
     /**
@@ -191,10 +199,10 @@ class StreamSurfacesTest {
     @Test
     fun `a surface reopened while its teardown runs belongs to the new open`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
         surfaces.closing()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
     }
@@ -207,10 +215,10 @@ class StreamSurfacesTest {
     @Test
     fun `a superseded open does not erase its successor's claim on the same surface`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
+        surfaces.opening(first, 2)
 
-        surfaces.abandoned(first, stillCurrent = false)
+        surfaces.abandoned(first, 1)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
     }
@@ -218,7 +226,7 @@ class StreamSurfacesTest {
     @Test
     fun `an arriving surface is told which one holds the stream`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
 
         assertSame("even before the open is published", first, surfaces.handoverFrom(second))
         assertNull("the holder is not elsewhere from its own point of view", surfaces.handoverFrom(first))
@@ -227,7 +235,7 @@ class StreamSurfacesTest {
     @Test
     fun `closing hands back the surface it took, and claims nothing further`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
         surfaces.published(first)
 
         assertSame(first, surfaces.closing())
@@ -238,7 +246,7 @@ class StreamSurfacesTest {
     @Test
     fun `closing during an open holds and releases its surface`() {
         val surfaces = StreamSurfaces()
-        surfaces.opening(first)
+        surfaces.opening(first, 1)
 
         assertSame(first, surfaces.closing())
         assertEquals(DestroyOutcome.AWAIT_TEARDOWN, surfaces.onDestroyed(first))

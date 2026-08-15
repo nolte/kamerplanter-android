@@ -283,8 +283,9 @@ internal class UvcMicroscopeCamera @Inject constructor(
         // reservation that already belongs to this one.
         val opening = synchronized(sessionLock) {
             openingDevice.set(device.deviceName)
-            surfaces.opening(surface)
-            generation.incrementAndGet()
+            // The generation is what identifies this open among others on the same surface,
+            // so it is taken first and handed straight to the claim.
+            generation.incrementAndGet().also { surfaces.opening(surface, it) }
         }
         cameraExecutor.execute {
             // Released on every exit, but only by the open that still owns the slot. The
@@ -304,9 +305,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 // — two opens on the same view carry the same SurfaceTexture, so identity
                 // cannot tell them apart — and the identity says whether the slot is still
                 // this open's to clear. Neither alone is enough.
-                synchronized(sessionLock) {
-                    surfaces.abandoned(surface, stillCurrent = opening == generation.get())
-                }
+                synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                 return@execute
             }
             runCatching {
@@ -335,16 +334,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 } else {
                     // A close overtook this open; nothing else would ever release it.
                     Log.i(TAG, "discarding a stream that was superseded while opening")
-                    synchronized(sessionLock) {
-                        surfaces.abandoned(surface, stillCurrent = opening == generation.get())
-                    }
+                    synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                     it.close()
                 }
             }.onFailure {
                 releaseSlot()
-                synchronized(sessionLock) {
-                    surfaces.abandoned(surface, stillCurrent = opening == generation.get())
-                }
+                synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                 Log.w(TAG, "opening the microscope stream failed", it)
                 // Same generation check as the success path, and under the same lock: a
                 // teardown landing between the check and the write would still put an

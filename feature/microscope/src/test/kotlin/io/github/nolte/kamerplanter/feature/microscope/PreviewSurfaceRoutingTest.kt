@@ -21,6 +21,7 @@ class PreviewSurfaceRoutingTest {
     private val second = Any()
 
     private val surfaces = StreamSurfaces()
+    private var attempt = 0
     private val effects = mutableListOf<String>()
 
     private val routing = PreviewSurfaceRouting(
@@ -38,7 +39,7 @@ class PreviewSurfaceRoutingTest {
 
     /** The stream is open on [surface], as it is after any successful start. */
     private fun streaming(surface: Any) {
-        surfaces.opening(surface)
+        surfaces.opening(surface, ++attempt)
         surfaces.published(surface)
     }
 
@@ -113,7 +114,7 @@ class PreviewSurfaceRoutingTest {
      */
     @Test
     fun `a surface destroyed mid-open takes the open down with it`() {
-        surfaces.opening(first)
+        surfaces.opening(first, ++attempt)
         effects.clear()
 
         assertFalse(routing.destroyed(first))
@@ -147,7 +148,7 @@ class PreviewSurfaceRoutingTest {
      */
     @Test
     fun `an arriving surface takes over from an open still in flight`() {
-        surfaces.opening(first)
+        surfaces.opening(first, ++attempt)
 
         routing.available(second)
 

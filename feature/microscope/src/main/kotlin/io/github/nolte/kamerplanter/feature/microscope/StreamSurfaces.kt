@@ -23,6 +23,16 @@ internal class StreamSurfaces {
     /** The surface an open is queued or running for; `null` when nothing is opening. */
     private var opening: Any? = null
 
+    /**
+     * Which open claimed [opening].
+     *
+     * Two consecutive opens on one preview view name the *same* `SurfaceTexture`, so identity
+     * cannot tell an obsolete open from the one that replaced it. Kept here rather than checked
+     * by the caller because that check was the thing that kept being dropped: with it inside,
+     * there is no way to call [abandoned] wrongly.
+     */
+    private var openingAttempt: Int = 0
+
     /** The surface the published session renders into. */
     private var live: Any? = null
 
@@ -36,8 +46,10 @@ internal class StreamSurfaces {
      */
     private val closing = mutableSetOf<Any>()
 
-    fun opening(surface: Any) {
+    /** [attempt] identifies this open among others on the same surface; see [openingAttempt]. */
+    fun opening(surface: Any, attempt: Int) {
         opening = surface
+        openingAttempt = attempt
     }
 
     /** The open for [surface] became the live session. */
@@ -47,17 +59,15 @@ internal class StreamSurfaces {
     }
 
     /**
-     * The open for [surface] was superseded or failed; nothing was published.
+     * The open [attempt] for [surface] was superseded or failed; nothing was published.
      *
-     * [stillCurrent] is the caller's generation check, and it is not optional: two consecutive
-     * opens on the same preview view name the *same* `SurfaceTexture`, so identity alone cannot
-     * tell an obsolete open from the one that replaced it. Without it, a superseded open erases
-     * its successor's claim, and for the several hundred milliseconds that successor needs, no
-     * surface is claimed at all — so destroying it answers "reclaim", the platform takes it,
-     * and the open publishes onto a surface that no longer exists.
+     * Ignored unless that open is still the one holding the claim. Without the attempt check a
+     * superseded open erases its successor's, and for the several hundred milliseconds that
+     * successor needs, no surface is claimed at all — so destroying it answers "reclaim", the
+     * platform takes it, and the open publishes onto a surface that no longer exists.
      */
-    fun abandoned(surface: Any, stillCurrent: Boolean) {
-        if (stillCurrent && opening === surface) opening = null
+    fun abandoned(surface: Any, attempt: Int) {
+        if (opening === surface && openingAttempt == attempt) opening = null
     }
 
     /**
