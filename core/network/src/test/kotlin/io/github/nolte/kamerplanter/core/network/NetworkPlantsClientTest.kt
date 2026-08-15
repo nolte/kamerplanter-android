@@ -75,7 +75,11 @@ class NetworkPlantsClientTest {
 
     private fun client(
         credential: Credential = Credential.ApiKey("kp_sk_x"),
-        thumbnailBudgetMillis: Long = 60_000L,
+        // Wall-clock on a real dispatcher, so it has to stay far below runTest's own 60 s
+        // timeout: a stub that stopped answering should fail as a lost thumbnail, not as a
+        // coin flip between two timeouts. The whole class runs in under a second, so this is
+        // never reached in practice.
+        thumbnailBudgetMillis: Long = 5_000L,
     ) = NetworkPlantsClient(
         apis = plantsApiFactory(),
         connections = FakeConnectionStore(
@@ -218,9 +222,10 @@ class NetworkPlantsClientTest {
      * timed out the `awaitAll` while the requests stayed children of the enclosing scope, so
      * the load took just as long *and* lost the thumbnails that had already arrived.
      *
-     * Asserted on elapsed wall-clock, because that is the difference: `withTimeoutOrNull`
-     * runs on runTest's virtual clock and returns at once, while the socket delay is real.
-     * Without the cancel, the enclosing scope waits out the full delay on the way out.
+     * Asserted on elapsed wall-clock, which is why the load runs on a real dispatcher here
+     * rather than on runTest's virtual clock (see [loaded]): budget and socket delay have to
+     * be measured against the same clock for the comparison to mean anything. Without the
+     * cancel, the enclosing scope waits out the full delay on the way out.
      */
     @Test
     fun `a slow photo endpoint costs its thumbnail, not the list`() = runTest {
