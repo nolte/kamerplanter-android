@@ -33,7 +33,9 @@ class SampleSizeTest {
 
     @Test
     fun `every result is a power of two`() {
-        (1..4000 step 7).forEach { width ->
+        // Every width, not a sample of them: the only ones that expose the off-by-one are the
+        // exact multiples, and a stride skips them.
+        (1..4400).forEach { width ->
             val sample = sampleSizeFor(width)
             assertEquals("$width produced a non-power-of-two $sample", 0, sample and (sample - 1))
         }
@@ -52,14 +54,26 @@ class SampleSizeTest {
         assertEquals(4, sampleSizeFor(4320))
     }
 
-    /** Both bounds together: at or under the target, and never further than necessary. */
+    /**
+     * The whole contract in one sweep: the smallest power of two that fits.
+     *
+     * Both halves are needed and neither implies the other. "At or under the target" alone is
+     * satisfied by every factor that is too large — which is exactly the off-by-one this test
+     * exists for. "One step less would not fit" is what makes the answer minimal, and it is
+     * stated that way rather than as a lower bound on the decoded width, because at a width
+     * just past the target the optimal answer really does land at half of it.
+     *
+     * Every width rather than a stride: the only ones that expose the off-by-one are the exact
+     * multiples of the target, and a stride steps over them.
+     */
     @Test
-    fun `the decoded width lands in the half-open band below the target`() {
-        (1..4000 step 7).forEach { width ->
-            val decoded = width / sampleSizeFor(width)
+    fun `every width gets the smallest power of two that fits`() {
+        (1..4400).forEach { width ->
+            val sample = sampleSizeFor(width)
+            val decoded = width / sample
             assert(decoded <= DISPLAY_TARGET_PX) { "$width decoded to $decoded, past $DISPLAY_TARGET_PX" }
-            assert(decoded > DISPLAY_TARGET_PX / 2 || width <= DISPLAY_TARGET_PX) {
-                "$width decoded to $decoded — subsampled one step further than needed"
+            assert(sample == 1 || width / (sample / 2) > DISPLAY_TARGET_PX) {
+                "$width used $sample, but ${sample / 2} would already have fit"
             }
         }
     }

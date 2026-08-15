@@ -63,7 +63,9 @@
     <string name="pest_failed_capture">The microscope did not deliver a frame. Check the cable and try again.</string>
     <string name="pest_failed_too_large">The photo is too large for your instance. Try again — the next frame is usually smaller.</string>
     <string name="pest_failed_proxy_limit">The photo was refused before it reached your instance — usually the request-size limit of the web server in front of it. Raising that limit is a change on the server.</string>
-    <string name="pest_failed_not_processable">Your instance could not read the photo. Try again.</string>
+    <!-- 422 covers two causes upstream — over the instance's configured size limit, and
+         undecodable — and they share one error code, so the message names both. -->
+    <string name="pest_failed_not_processable">Your instance would not process the photo. It may be larger than the instance allows, or unreadable.</string>
     <!-- Names the formats, per the feature spec: a rejection the user cannot act on is
          just a dead end. JPEG and PNG are what the backend accepts. -->
     <string name="pest_failed_unsupported_type">Your instance accepts JPEG and PNG photos only, and this one is neither.</string>

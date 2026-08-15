@@ -136,6 +136,27 @@ class PestDetectionViewModelTest {
         assertEquals("the readiness question is asked again", 2, detections.readinessCalls)
     }
 
+    /**
+     * A consent the credential may not record is not a refused credential.
+     *
+     * Re-pairing cannot widen a scope, so "connect again" sends the user round a loop back to
+     * the same 403. The client already tells the two apart; this pins that the ViewModel keeps
+     * them apart, which is where the distinction was previously lost.
+     */
+    @Test
+    fun `a consent the credential may not record does not ask for a reconnect`() =
+        runTest(dispatcher) {
+            detections.readiness = DetectionReadiness.ConsentRequired("pest_detection_cloud")
+            detections.consentOutcome = ConsentOutcome.NotPermitted
+            val model = viewModel()
+            model.state.settled()
+
+            model.grantConsent()
+            dispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(PestDetectionState.NotPermitted, model.state.value)
+        }
+
     @Test
     fun `a consent the instance will not record is a failure, not a green light`() =
         runTest(dispatcher) {
@@ -207,7 +228,13 @@ class PestDetectionViewModelTest {
      */
     @Test
     fun `the two hopeless refusals offer no retry`() = runTest(dispatcher) {
-        listOf(RefusedReason.NOT_PERMITTED, RefusedReason.UNSUPPORTED_TYPE).forEach { reason ->
+        listOf(
+            RefusedReason.NOT_PERMITTED,
+            RefusedReason.UNSUPPORTED_TYPE,
+            // A proxy's body cap is a fixed number and every capture is over it, so "try
+            // again, the next one is usually smaller" would be a loop with no exit.
+            RefusedReason.REFUSED_BY_PROXY,
+        ).forEach { reason ->
             detections.readiness = DetectionReadiness.Ready
             detections.outcome = DetectionOutcome.Refused(reason)
             val model = viewModel()

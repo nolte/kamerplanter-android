@@ -138,7 +138,13 @@ enum class RefusedReason {
     /** Not a JPEG or PNG (HTTP 415). The two capture paths should make this unreachable. */
     UNSUPPORTED_TYPE,
 
-    /** Past the instance's upload limit — caught locally where possible, else HTTP 422. */
+    /**
+     * Past the app's own copy of the upload limit, refused before anything was sent.
+     *
+     * Only reachable locally. An instance configured *below* that limit answers 422, and 422
+     * is also what an undecodable image gets — the backend raises the same `VALIDATION_ERROR`
+     * for both, so the two cannot be told apart from here and share [NOT_PROCESSABLE].
+     */
     TOO_LARGE,
 
     /**
@@ -152,7 +158,13 @@ enum class RefusedReason {
      */
     REFUSED_BY_PROXY,
 
-    /** The image was not decodable, or the instance rejected it for a reason it did not name. */
+    /**
+     * The instance would not process the image (HTTP 422).
+     *
+     * Deliberately broad, because the backend is: it raises one `VALIDATION_ERROR` both for an
+     * image past its configured size limit and for one it cannot decode. The message says so
+     * rather than picking one and being wrong half the time.
+     */
     NOT_PROCESSABLE,
 
     /**

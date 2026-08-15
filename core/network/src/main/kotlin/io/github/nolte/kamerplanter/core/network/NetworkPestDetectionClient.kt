@@ -170,8 +170,10 @@ class NetworkPestDetectionClient @Inject constructor(
 
         /**
          * The instance's own limit is configurable (`pest_detection_max_image_size_mb`,
-         * default 8). This mirrors the default so the common case fails locally and instantly;
-         * an instance configured lower still answers 422, which maps to the same refusal.
+         * default 8). This mirrors the default so the common case fails locally and instantly,
+         * before an upload is spent. An instance configured *lower* answers 422 — which the
+         * backend also uses for an undecodable image, so that lands on `NOT_PROCESSABLE` and
+         * its message names both possibilities rather than guessing.
          */
         const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
