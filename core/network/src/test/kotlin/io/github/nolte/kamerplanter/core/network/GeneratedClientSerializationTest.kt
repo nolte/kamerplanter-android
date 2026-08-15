@@ -3,6 +3,8 @@ package io.github.nolte.kamerplanter.core.network
 import io.github.nolte.kamerplanter.core.network.generated.models.CareDashboardEntryResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.CycleType
 import io.github.nolte.kamerplanter.core.network.generated.models.ErrorResponse
+import io.github.nolte.kamerplanter.core.network.generated.models.LocationCreate
+import io.github.nolte.kamerplanter.core.network.generated.models.LocationResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.ReminderType
 import kotlinx.serialization.SerializationException
@@ -43,7 +45,7 @@ class GeneratedClientSerializationTest {
               "slot_key": null,
               "species_key": "monstera-deliciosa",
               "substrate_batch_key": null,
-              "container_volume_liters": "12.50",
+              "container_volume_liters": 12.50,
               "created_at": "2026-03-14T09:15:00Z",
               "cultivation_cycle_type": "perennial"
             }
@@ -56,6 +58,60 @@ class GeneratedClientSerializationTest {
         assertEquals(OffsetDateTime.parse("2026-03-14T09:15:00Z"), decoded.createdAt)
         assertEquals(CycleType.perennial, decoded.cultivationCycleType)
         assertNull(decoded.removedOn)
+    }
+
+    /**
+     * The spelling above is the one that matters, and it is not the one the generator built
+     * for. Its `BigDecimalAdapter` calls `decodeString()`, so it accepts `"12.50"` and only
+     * that — while the backend types these fields as Python `float` and FastAPI writes them
+     * as bare JSON numbers. Every `number` in the schema is affected: twenty generated models
+     * carry one, including `LocationResponse.area_m2`, which is required.
+     *
+     * The failure is total rather than partial — kotlinx fails the document, not the field —
+     * so one decimal costs the whole response. Both spellings are pinned here: the number
+     * because it is what the backend sends, the string because dropping support for it would
+     * be a silent break the moment an endpoint answers with one.
+     */
+    @Test
+    fun `decodes a decimal whether the backend quotes it or not`() {
+        fun areaOf(spelling: String) = json.decodeFromString<LocationResponse>(
+            """
+            {
+              "key": "loc-1",
+              "name": "Living room",
+              "site_key": "site-1",
+              "area_m2": $spelling,
+              "dimensions": [],
+              "irrigation_system": "manual",
+              "light_type": "natural",
+              "orientation": null
+            }
+            """.trimIndent(),
+        ).areaM2
+
+        assertEquals(BigDecimal("12.50"), areaOf("12.50"))
+        assertEquals(BigDecimal("12.50"), areaOf("\"12.50\""))
+    }
+
+    /**
+     * The other direction, for the request bodies that carry a decimal.
+     *
+     * FastAPI's `float` fields accept a numeric string too, so this is not load-bearing today
+     * — but a JSON number is what the schema declares, and a client that sends strings where
+     * the schema says number is one backend validation setting away from being rejected.
+     *
+     * The trailing zero does not survive: `12.50` goes out as `12.5`, because the encoder
+     * routes the value through the numeric descriptor. Harmless for fields the backend types
+     * as `float` — which is all of them here — and asserted rather than glossed over, so a
+     * future field where scale *does* carry meaning fails here instead of in production.
+     */
+    @Test
+    fun `encodes a decimal as a bare JSON number`() {
+        val encoded = json.encodeToString(
+            LocationCreate(areaM2 = BigDecimal("12.50"), name = "Living room", siteKey = "site-1"),
+        )
+
+        assertTrue(encoded, encoded.contains("\"area_m2\":12.5,"))
     }
 
     @Test

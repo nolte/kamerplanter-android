@@ -6,7 +6,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.nolte.kamerplanter.core.network.generated.infrastructure.Serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
+import kotlinx.serialization.modules.overwriteWith
 import okhttp3.OkHttpClient
+import java.math.BigDecimal
 import javax.inject.Singleton
 
 @Module
@@ -42,7 +46,11 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideJson(): Json = Json {
+        // The generator's adapters, with its decimal one replaced: that adapter reads only a
+        // quoted decimal, and the backend sends bare JSON numbers, so every response carrying
+        // one fails whole. See [DecimalWireFormat].
         serializersModule = Serializer.kotlinxSerializationAdapters
+            .overwriteWith(SerializersModule { contextual(BigDecimal::class, DecimalWireFormat) })
         ignoreUnknownKeys = true
         coerceInputValues = true
     }
