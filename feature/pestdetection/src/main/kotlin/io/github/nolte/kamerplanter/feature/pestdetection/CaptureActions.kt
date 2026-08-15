@@ -215,7 +215,9 @@ private fun Viewfinder(
  */
 internal fun PestDetectionState.Ready.canFire(camera: MicroscopeState): Boolean = when (source) {
     null -> false
-    CaptureSource.PHONE -> true
+    // Binding the phone camera is asynchronous, and a shutter pressed before it finishes does
+    // not fail quietly — it ends the flow on an error screen and loses the chosen source.
+    CaptureSource.PHONE -> phoneReady
     CaptureSource.MICROSCOPE -> camera is MicroscopeState.Streaming
 }
 

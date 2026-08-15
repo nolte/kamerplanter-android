@@ -61,6 +61,15 @@ sealed interface PestDetectionState {
     data class Ready(
         val source: CaptureSource? = null,
         val isUploading: Boolean = false,
+        /**
+         * Whether the phone camera has finished binding.
+         *
+         * In the state rather than only in the ViewModel because the shutter is gated on it:
+         * binding is asynchronous, and a button offered before it completes does not fail
+         * quietly — it ends the flow on an error screen and loses the chosen source. It stays
+         * `false` for the microscope source, which has its own readiness in [MicroscopeState].
+         */
+        val phoneReady: Boolean = false,
     ) : PestDetectionState
 
     /**

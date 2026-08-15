@@ -396,9 +396,8 @@ class PestDetectionViewModelTest {
         detections.outcome = DetectionOutcome.Completed(detection())
         val model = viewModel()
         model.state.settled()
-        model.phoneShutter = FakeShutter(byteArrayOf(9, 9))
-
         model.chooseSource(CaptureSource.PHONE)
+        model.phoneShutter = FakeShutter(byteArrayOf(9, 9))
         model.capture("en")
         dispatcher.scheduler.advanceUntilIdle()
 
@@ -419,14 +418,62 @@ class PestDetectionViewModelTest {
         detections.readiness = DetectionReadiness.Ready
         val model = viewModel()
         model.state.settled()
-        model.phoneShutter = FakeShutter(null)
-
         model.chooseSource(CaptureSource.PHONE)
+        model.phoneShutter = FakeShutter(null)
         model.capture("en")
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(model.state.value is PestDetectionState.Failed)
         assertTrue("nothing was uploaded", detections.uploads.isEmpty())
+    }
+
+    /**
+     * The shutter's readiness reaches the state, because the button is gated on it.
+     *
+     * Binding the phone camera is asynchronous, and a press before it finishes does not fail
+     * quietly — it ends the flow on an error screen and loses the chosen source.
+     */
+    @Test
+    fun `the phone camera reports when it is ready to fire`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+        model.state.settled()
+        model.chooseSource(CaptureSource.PHONE)
+
+        assertEquals(
+            PestDetectionState.Ready(source = CaptureSource.PHONE, phoneReady = false),
+            model.state.value,
+        )
+
+        model.phoneShutter = FakeShutter(byteArrayOf(1))
+
+        assertEquals(
+            PestDetectionState.Ready(source = CaptureSource.PHONE, phoneReady = true),
+            model.state.value,
+        )
+    }
+
+    /**
+     * The source outlives the viewfinder.
+     *
+     * A result carries none of its own, and the screen reads it to decide whether USB
+     * monitoring is still wanted — so losing it here pops a USB permission dialogue over the
+     * photo somebody just took with the phone.
+     */
+    @Test
+    fun `the chosen source survives a result`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        detections.outcome = DetectionOutcome.Completed(detection())
+        val model = viewModel()
+        model.state.settled()
+        model.phoneShutter = FakeShutter(byteArrayOf(1))
+        model.chooseSource(CaptureSource.PHONE)
+
+        model.capture("en")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(model.state.value is PestDetectionState.Result)
+        assertEquals(CaptureSource.PHONE, model.chosenSource)
     }
 
     /** Choosing the phone with no shutter bound yet fails rather than hanging on nothing. */

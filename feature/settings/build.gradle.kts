@@ -32,14 +32,14 @@ dependencies {
     // Connection model and its two stores. `api`, not `implementation`: ConnectionState —
     // and therefore SettingsViewModel.state — exposes Connection to whoever renders this
     // screen, so the type has to travel with the dependency.
-    // The device camera and its runtime permission, shared with pest detection. ML Kit stays
-    // here: barcode decoding is this feature's concern, holding a camera is not.
-    implementation(project(":core:camera"))
-
     api(project(":core:connection"))
 
     // For the ConnectionClient binding only — this module talks to the instance through
     // that seam and touches no networking type itself (ADR 0001, R-GEN-5).
+    // The device camera and its runtime permission, shared with pest detection. ML Kit stays
+    // here: barcode decoding is this feature's concern, holding a camera is not.
+    implementation(project(":core:camera"))
+
     implementation(project(":core:network"))
 
     // The device-camera QR scanner lives here — and only here. The rest of the app

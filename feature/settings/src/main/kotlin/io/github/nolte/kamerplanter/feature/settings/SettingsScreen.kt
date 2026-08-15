@@ -57,7 +57,11 @@ fun SettingsScreen(
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
             permission = PermissionActions(
-                onRequest = { if (permission.canAsk) permission.request() else permission.openSettings() },
+                // Only ever the dialogue. The scanner fires this on its own when it opens
+                // without the grant, and routing it to system settings after a permanent
+                // denial would launch another app's screen with nobody having tapped anything.
+                onRequest = permission.request,
+                canAsk = permission.canAsk,
                 onOpenSettings = permission.openSettings,
             ),
         ),
@@ -84,6 +88,8 @@ internal class ConnectionActions(
  */
 internal class PermissionActions(
     val onRequest: () -> Unit,
+    /** `false` after "Don't ask again": asking again shows nothing, so the button must not. */
+    val canAsk: Boolean,
     val onOpenSettings: () -> Unit,
 )
 
@@ -241,9 +247,10 @@ private fun ScanningBody(
     permission: PermissionActions,
 ) {
     if (!hasCameraPermission) {
-        LaunchedEffect(Unit) { permission.onRequest() }
+        // Asked once on arrival, and only where asking still shows something.
+        LaunchedEffect(Unit) { if (permission.canAsk) permission.onRequest() }
         CameraPermissionBody(
-            onRequest = permission.onRequest,
+            onRequest = if (permission.canAsk) permission.onRequest else permission.onOpenSettings,
             onOpenSettings = permission.onOpenSettings,
         )
         return

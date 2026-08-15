@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,11 +81,15 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
     }
 
     val request = { launcher.launch(Manifest.permission.CAMERA) }
-    if (requestOnFirstShow && !isGranted && !asked) {
-        asked = true
-        // Inside the composition rather than in a LaunchedEffect: the launcher is remembered,
-        // and a request that outlived a recomposition would ask twice.
-        remember { request() }
+    // In an effect, not in the composition: `rememberLauncherForActivityResult` registers its
+    // launcher in a DisposableEffect that runs *after* composition, so launching from the
+    // composition itself throws "Launcher has not been initialized" — an immediate crash on
+    // every first visit without the grant. The flag keeps a recomposition from asking twice.
+    LaunchedEffect(Unit) {
+        if (requestOnFirstShow && !isGranted && !asked) {
+            asked = true
+            request()
+        }
     }
 
     return CameraPermission(

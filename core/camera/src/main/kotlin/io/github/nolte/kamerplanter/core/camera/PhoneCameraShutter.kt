@@ -16,7 +16,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 /**
@@ -51,7 +53,12 @@ internal class CameraXShutter(
 
     override suspend fun capture(maxBytes: Int): ByteArray? {
         val taken = takePicture() ?: return null
-        return JpegDownscale.toUploadable(taken.bytes, maxBytes, taken.rotationDegrees)
+        // Off the main thread, deliberately. Decoding, scaling, rotating and re-encoding a
+        // fifty-megapixel photo is seconds of work, and `takePicture` resumes on the main
+        // executor — so without this the UI freezes for the whole of it, right up to an ANR.
+        return withContext(Dispatchers.Default) {
+            JpegDownscale.toUploadable(taken.bytes, maxBytes, taken.rotationDegrees)
+        }
     }
 
     private class Taken(val bytes: ByteArray, val rotationDegrees: Int)
@@ -135,7 +142,11 @@ fun PhoneCameraPreview(
         onDispose {
             disposed = true
             onShutterReady(null)
-            runCatching { providerFuture.get().unbindAll() }
+            // Only when it is already resolved: `get()` blocks, and on a cold start the user
+            // can leave before the provider arrives — which would freeze the UI until the
+            // camera finished initialising for a screen they have already left. An unresolved
+            // provider has nothing bound to unbind anyway.
+            if (providerFuture.isDone) runCatching { providerFuture.get().unbindAll() }
         }
     }
 

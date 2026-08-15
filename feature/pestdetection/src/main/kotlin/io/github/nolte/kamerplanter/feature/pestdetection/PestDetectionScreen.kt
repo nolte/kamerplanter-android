@@ -81,9 +81,10 @@ fun PestDetectionScreen(
     val wantsCamera = permission.isGranted &&
         (state is PestDetectionState.Ready || state is PestDetectionState.Result)
     // USB monitoring is only worth starting for the source that uses it. Asking someone who
-    // picked the phone camera for access to a USB device would be a dialogue about nothing.
-    val wantsMicroscope = wantsCamera && (state as? PestDetectionState.Ready)?.source !=
-        CaptureSource.PHONE
+    // picked the phone camera for access to a USB device would be a dialogue about nothing —
+    // and a Result carries no source of its own, so reading only Ready would pop that dialogue
+    // over the very photo they just took with the other camera.
+    val wantsMicroscope = wantsCamera && viewModel.chosenSource != CaptureSource.PHONE
     if (wantsMicroscope) {
         DisposableEffect(Unit) {
             viewModel.start()

@@ -1,2 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Declared by the module that owns the permission, so a feature using this camera gets
+         it by depending on this module rather than by inheriting it from somewhere unrelated.
+         :feature:pestdetection reached CAMERA only through :feature:microscope, a dependency
+         the phone path is meant to shed — and the permission would have disappeared from the
+         merged manifest with it, failing at runtime rather than at build time. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Not required: a device without a camera can still connect to an instance and read its
+         plants, and the microscope path wants the permission for the USB dialogue rather than
+         for a camera of its own. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+</manifest>
