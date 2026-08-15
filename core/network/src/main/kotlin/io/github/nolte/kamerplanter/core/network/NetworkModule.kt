@@ -6,7 +6,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.nolte.kamerplanter.core.network.generated.infrastructure.Serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
+import kotlinx.serialization.modules.overwriteWith
 import okhttp3.OkHttpClient
+import java.math.BigDecimal
 import javax.inject.Singleton
 
 @Module
@@ -19,9 +23,15 @@ object NetworkModule {
      *
      * This builder — not the generated `Serializer.kotlinxSerializationJson` — is what the
      * app injects, so the app owns its parsing policy rather than inheriting whatever the
-     * generator's template happens to set. Only the generator's [SerializersModule]
-     * [Serializer] is adopted: the DTOs annotate temporal and decimal fields `@Contextual`,
-     * and without those adapters every response carrying a date fails to deserialize.
+     * generator's template happens to set. The generator's [SerializersModule] [Serializer] is
+     * adopted wholesale, with exactly one entry replaced below: its decimal adapter cannot read
+     * what the backend sends, and dropping that override restores a defect that costs whole
+     * responses rather than single fields.
+     *
+     * What the adopted module is actually load-bearing for is the temporal adapters — discard
+     * it entirely and three tests fail, all of them on a `LocalDate` or an `OffsetDateTime`.
+     * The `@Contextual` enums do *not* depend on it, which the test below named `decodes a
+     * contextual enum that carries no adapter of its own` is there to say.
      *
      * `ignoreUnknownKeys` is the setting actually carrying R-COMPAT-1 today.
      * `coerceInputValues` is declared because R-COMPAT-1 names it, but it changes nothing
@@ -42,7 +52,11 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideJson(): Json = Json {
+        // The generator's adapters, with its decimal one replaced: that adapter reads only a
+        // quoted decimal, and the backend sends bare JSON numbers, so every response carrying
+        // one fails whole. See [DecimalWireFormat].
         serializersModule = Serializer.kotlinxSerializationAdapters
+            .overwriteWith(SerializersModule { contextual(BigDecimal::class, DecimalWireFormat) })
         ignoreUnknownKeys = true
         coerceInputValues = true
     }

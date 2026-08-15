@@ -93,6 +93,16 @@ class NetworkPlantsClientTest {
         thumbnailBudgetMillis = thumbnailBudgetMillis,
     )
 
+    /**
+     * A plant as `GET /plant-instances` returns it.
+     *
+     * `container_volume_liters` carries a bare number deliberately, and that one line is doing
+     * most of the work in this class. The field is the fatal one — it sits on the response
+     * whose failure sinks the whole list — and the generated decimal adapter cannot read an
+     * unquoted number. Measured: with the app's decimal serializer removed, thirteen tests here
+     * go red with this line and one without it. Dropping it, or quoting the value, restores a
+     * blind spot that already shipped once.
+     */
     private fun plant(
         key: String,
         name: String? = "Monstera",
@@ -104,6 +114,7 @@ class NetworkPlantsClientTest {
         {"key":"$key","instance_id":"$instanceId","plant_name":${name?.let { "\"$it\"" } ?: "null"},
          "planted_on":"2026-03-14","removed_on":${removedOn?.let { "\"$it\"" } ?: "null"},
          "species_key":"sp-1","cultivar_key":null,"slot_key":null,"substrate_batch_key":null,
+         "container_volume_liters":12.5,
          "location_key":${locationKey?.let { "\"$it\"" } ?: "null"},
          "site_key":${siteKey?.let { "\"$it\"" } ?: "null"},
          "species":{"scientific_name":"Monstera deliciosa","common_names":["Swiss cheese plant"]}}
@@ -113,9 +124,17 @@ class NetworkPlantsClientTest {
         responses["/api/v1/t/demo/plant-instances"] = "[${plants.joinToString(",")}]"
     }
 
+    /**
+     * `area_m2` is a bare JSON number here, which is how the backend sends it — the field is a
+     * Python `float` upstream. An earlier version of this fixture quoted it, and that hid a
+     * real defect rather than testing around it: the generated decimal adapter reads only the
+     * quoted spelling, so against a live instance every location lookup failed and the column
+     * went silently empty, because `locationNames` swallows its failures by design. Quoting it
+     * again would restore the blind spot.
+     */
     private fun givenLocations(vararg entries: Pair<String, String>) {
         responses["/api/v1/t/demo/locations"] = entries.joinToString(",", "[", "]") { (key, name) ->
-            """{"key":"$key","name":"$name","site_key":"site-1","area_m2":"1.0","dimensions":[],
+            """{"key":"$key","name":"$name","site_key":"site-1","area_m2":1.0,"dimensions":[],
                 "irrigation_system":"manual","light_type":"natural","orientation":null}"""
         }
     }

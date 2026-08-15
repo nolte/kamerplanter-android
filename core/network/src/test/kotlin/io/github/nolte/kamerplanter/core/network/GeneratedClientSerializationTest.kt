@@ -3,10 +3,15 @@ package io.github.nolte.kamerplanter.core.network
 import io.github.nolte.kamerplanter.core.network.generated.models.CareDashboardEntryResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.CycleType
 import io.github.nolte.kamerplanter.core.network.generated.models.ErrorResponse
+import io.github.nolte.kamerplanter.core.network.generated.models.LocationCreate
+import io.github.nolte.kamerplanter.core.network.generated.models.LocationResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.ReminderType
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -43,7 +48,7 @@ class GeneratedClientSerializationTest {
               "slot_key": null,
               "species_key": "monstera-deliciosa",
               "substrate_batch_key": null,
-              "container_volume_liters": "12.50",
+              "container_volume_liters": 12.50,
               "created_at": "2026-03-14T09:15:00Z",
               "cultivation_cycle_type": "perennial"
             }
@@ -57,6 +62,127 @@ class GeneratedClientSerializationTest {
         assertEquals(CycleType.perennial, decoded.cultivationCycleType)
         assertNull(decoded.removedOn)
     }
+
+    /**
+     * The spelling above is the one that matters, and it is not the one the generator built
+     * for. Its `BigDecimalAdapter` calls `decodeString()`, so it accepts `"12.50"` and only
+     * that — while the backend types these fields as Python `float` and FastAPI writes them
+     * as bare JSON numbers. Every `number` in the schema is affected: twenty generated models
+     * carry one, including `LocationResponse.area_m2`, which is required.
+     *
+     * The failure is total rather than partial — kotlinx fails the document, not the field —
+     * so one decimal costs the whole response. Both spellings are pinned here: the number
+     * because it is what the backend sends, the string because dropping support for it would
+     * be a silent break the moment an endpoint answers with one.
+     */
+    @Test
+    fun `decodes a decimal whether the backend quotes it or not`() {
+        fun areaOf(spelling: String) = json.decodeFromString<LocationResponse>(
+            """
+            {
+              "key": "loc-1",
+              "name": "Living room",
+              "site_key": "site-1",
+              "area_m2": $spelling,
+              "dimensions": [],
+              "irrigation_system": "manual",
+              "light_type": "natural",
+              "orientation": null
+            }
+            """.trimIndent(),
+        ).areaM2
+
+        assertEquals(BigDecimal("12.50"), areaOf("12.50"))
+        assertEquals(BigDecimal("12.50"), areaOf("\"12.50\""))
+    }
+
+    /**
+     * The other direction, for the request bodies that carry a decimal.
+     *
+     * FastAPI's `float` fields accept a numeric string too, so the unquoted spelling is not
+     * load-bearing today — but a JSON number is what the schema declares, and a client that
+     * sends strings where the schema says number is one backend validation setting away from
+     * being rejected.
+     *
+     * Exactness is the half that *is* load-bearing. Writing through a plain numeric primitive
+     * parses the literal back into a `Double` on the way out, so a value this client read
+     * exactly and sent straight back would go out quietly rounded.
+     */
+    @Test
+    fun `encodes a decimal as a bare JSON number`() {
+        assertTrue(encodedArea("12.50"), encodedArea("12.50").contains("\"area_m2\":12.50,"))
+    }
+
+    /** Past a Double's ~17 significant digits, where a numeric round trip would round it away. */
+    @Test
+    fun `encodes a decimal past a double's precision without rounding it`() {
+        val precise = "1.234567890123456789012345"
+
+        assertTrue(encodedArea(precise), encodedArea(precise).contains("\"area_m2\":$precise,"))
+    }
+
+    /**
+     * A magnitude no `Double` can hold, written as an exponent rather than spelled out.
+     *
+     * Both halves matter. An earlier version of this PR wrote through a numeric primitive,
+     * which parses the literal back into a `Double` — `Infinity` here, and a thrown encoder, so
+     * a value an instance sent could not be sent back. And spelling the value out in full turns
+     * a six-character token into a four-hundred-digit one; for a large enough exponent that is
+     * an `OutOfMemoryError` rather than a failed request.
+     */
+    @Test
+    fun `encodes a magnitude beyond a double as a short exponent`() {
+        val encoded = encodedArea("1E+400")
+
+        // The first assertion is what pins the unquoted exponent form; the second reads the
+        // token back to show the document still parses as JSON around it.
+        assertTrue(encoded, encoded.contains("\"area_m2\":1E+400,"))
+        assertEquals("1E+400", json.parseToJsonElement(encoded).areaText())
+    }
+
+    /**
+     * An explicitly null decimal.
+     *
+     * `container_volume_liters` is `float | None` upstream, so JSON `null` is one of the two
+     * spellings an instance can legitimately send for it — and the only one no test covered:
+     * the fixture above has always carried a value, and `defaults the optional fields an older
+     * backend omits` covers the field being absent.
+     *
+     * This pins the outcome, not the route: kotlinx short-circuits a nullable element before
+     * consulting the serializer, so [DecimalWireFormat] is never asked — which no test can
+     * demonstrate from the outside, and which this one therefore does not claim to. What it is
+     * worth is R-COMPAT: `JsonNull` *is* a `JsonPrimitive` whose content reads `"null"`, so a
+     * future change that routed nullable elements through the serializer would turn every
+     * plant without a container volume into a failed response, and this is what would say so.
+     */
+    @Test
+    fun `an explicitly null decimal decodes to null`() {
+        val decoded = json.decodeFromString<PlantResponse>(
+            """
+            {
+              "cultivar_key": null,
+              "instance_id": "1f0b2c",
+              "key": "plant-7",
+              "plant_name": "Monstera",
+              "planted_on": "2026-03-14",
+              "removed_on": null,
+              "slot_key": null,
+              "species_key": "monstera-deliciosa",
+              "substrate_batch_key": null,
+              "container_volume_liters": null
+            }
+            """.trimIndent(),
+        )
+
+        assertNull(decoded.containerVolumeLiters)
+    }
+
+    private fun encodedArea(area: String) = json.encodeToString(
+        LocationCreate(areaM2 = BigDecimal(area), name = "Living room", siteKey = "site-1"),
+    )
+
+    private fun JsonElement.areaText(): String =
+        jsonObject.getValue("area_m2").jsonPrimitive.content
 
     @Test
     fun `decodes a contextual enum that carries no adapter of its own`() {

@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.core.network
 
+import android.util.Log
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
@@ -183,7 +184,7 @@ class NetworkPlantsClient(
                             .listLocationsApiV1TTenantSlugLocationsGet(tenantSlug = tenant, siteKey = site)
                             .bodyOrThrow()
                             .associate { it.key to it.name }
-                    }.getOrElse { emptyMap() }
+                    }.getOrElse { failure -> warn("locations for site $site", failure) }
                 }
             }
             .awaitAll()
@@ -209,7 +210,7 @@ class NetworkPlantsClient(
                 .bodyOrThrow()
                 .mapNotNull { entry -> entry.asCareAction() }
                 .toMap()
-        }.getOrElse { emptyMap() }
+        }.getOrElse { failure -> warn("the care dashboard", failure) }
 
     /**
      * The care dashboard as raw JSON.
@@ -260,6 +261,44 @@ class NetworkPlantsClient(
 
         /** Statuses a retry cannot fix, because they are about the credential. */
         val CREDENTIAL_REFUSED = setOf(401, 403)
+
+        const val LOG_TAG = "PlantsClient"
+
+        /**
+         * Records an enrichment call that failed, and yields the empty result the list carries
+         * on without.
+         *
+         * Swallowing these is deliberate — a row without a location name is still a usable row
+         * — but swallowing them *silently* is what let a total failure of `GET /locations` pass
+         * for "these plants have no location" through a whole release. The blast radius is
+         * wide: the care dashboard is one tenant-wide call, and the locations call is per site,
+         * so a single failure costs every row that sits in that site. Nothing else in the app
+         * would say so.
+         *
+         * The log call is guarded because of where it sits. This runs in the `getOrElse`
+         * block — *outside* the `runCatchingCancellable` that makes an enrichment failure
+         * survivable — so anything thrown here escapes to `loadPlants`, whose own catch
+         * degrades the whole list to `Unavailable`. A logger that threw would then do precisely
+         * what the failure it was reporting was forbidden from doing.
+         *
+         * The only thrower actually observed is the JVM unit test's `android.jar` stub, not
+         * anything on a device: removing this guard turns ten of this class's seventeen tests
+         * red, all of them with a `ClassCastException` on the degraded outcome rather than on
+         * the logging. So the guard buys a testable module without a global
+         * `isReturnDefaultValues`, and the structural point above is why it is worth keeping
+         * rather than working around.
+         */
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
+        fun <K, V> warn(what: String, failure: Throwable): Map<K, V> {
+            try {
+                Log.w(LOG_TAG, "$what could not be loaded; rows render without it", failure)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (reportingFailed: Throwable) {
+                // Nowhere left to report it — reporting is what just failed.
+            }
+            return emptyMap()
+        }
 
         fun <T> Response<T>.bodyOrThrow(): T {
             if (!isSuccessful) throw HttpFailure(code())
