@@ -44,12 +44,19 @@ object JpegDownscale {
      */
     fun toUploadable(jpeg: ByteArray, maxBytes: Int, rotationDegrees: Int = 0): ByteArray? {
         val decoded = decode(jpeg) ?: return null
-        val scaled = decoded.scaledToFit(MAX_EDGE_PX).rotated(rotationDegrees)
+        // Each stage releases the one before it. The decode can be ~48 MB for a sensor whose
+        // width sits just under twice the cap, and holding all three at once on a low-RAM
+        // device is the difference between a photo and an OutOfMemoryError. `recycle` on a
+        // bitmap that was returned unchanged would destroy the one still in use, so each is
+        // only freed when the next stage actually produced something else.
+        val scaled = decoded.scaledToFit(MAX_EDGE_PX).also { if (it !== decoded) decoded.recycle() }
+        val upright = scaled.rotated(rotationDegrees).also { if (it !== scaled) scaled.recycle() }
 
         var quality = INITIAL_QUALITY
         while (true) {
-            val encoded = scaled.encode(quality)
+            val encoded = upright.encode(quality)
             if (encoded.size <= maxBytes || quality <= MINIMUM_QUALITY) {
+                upright.recycle()
                 return encoded.takeIf { it.size <= maxBytes }
             }
             quality -= QUALITY_STEP
@@ -110,7 +117,7 @@ object JpegDownscale {
  * A power of two because `BitmapFactory` rounds anything else *down* to one: asking for 3 gets
  * 2, which decodes twice the intended size.
  */
-internal fun sampleSizeFor(sourceEdge: Int, target: Int): Int {
+fun sampleSizeFor(sourceEdge: Int, target: Int): Int {
     if (sourceEdge <= target) return 1
     var sample = 1
     while (sourceEdge / (sample * 2) >= target) sample *= 2

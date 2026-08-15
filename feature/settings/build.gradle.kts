@@ -52,9 +52,10 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
 
     implementation(platform(libs.compose.bom))
+    // ContextCompat, used directly by the QR scanner's executor.
+    implementation(libs.androidx.core.ktx)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
-    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.navigation.compose)

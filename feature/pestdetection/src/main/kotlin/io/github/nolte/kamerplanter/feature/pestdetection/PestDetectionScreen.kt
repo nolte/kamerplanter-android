@@ -43,6 +43,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.camera.CameraPermission
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
+import io.github.nolte.kamerplanter.core.camera.sampleSizeFor
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
@@ -483,7 +484,7 @@ private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
  */
 private fun ByteArray.decodeSubsampled(): ImageBitmap? {
     val bounds = decodeBounds() ?: return null
-    val options = BitmapFactory.Options().apply { inSampleSize = sampleSizeFor(bounds.width) }
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSizeFor(bounds.width, DISPLAY_TARGET_PX) }
     return BitmapFactory.decodeByteArray(this, 0, size, options)?.asImageBitmap()
 }
 
@@ -498,25 +499,6 @@ private fun ByteArray.decodeBounds(): ImageShape? {
     } else {
         null
     }
-}
-
-/**
- * The subsampling factor for a capture [sourceWidth] pixels wide.
- *
- * The smallest power of two that brings the width to [target] or below. A power of two
- * because `BitmapFactory` rounds anything else *down* to one — the arithmetic factor for a
- * 3840-wide frame is 3, which the decoder silently reads as 2, so it decodes at 1920 px and
- * ~14 MB of ARGB_8888 instead of the ~4 MB asked for.
- *
- * Smallest, not merely sufficient: doubling once more halves the resolution again, and a
- * 2160-wide capture would come back at 540 px — a visibly soft picture underneath boxes the
- * user is looking at closely, which is the opposite of what this screen is for.
- */
-internal fun sampleSizeFor(sourceWidth: Int, target: Int = DISPLAY_TARGET_PX): Int {
-    if (sourceWidth <= target) return 1
-    var sample = 2
-    while (sourceWidth / sample > target) sample *= 2
-    return sample
 }
 
 @Composable
@@ -576,5 +558,12 @@ private const val BOX_STROKE_DP = 3
 private const val MODE_DIRECT = "direct"
 private const val MODE_SYMPTOM = "symptom"
 
-/** Roughly the widest the capture is ever drawn, in pixels — the decode need not beat it. */
-internal const val DISPLAY_TARGET_PX = 1080
+/**
+ * Roughly the widest the capture is ever drawn.
+ *
+ * The shared `sampleSizeFor` aims *at* this rather than under it, and that matters here: it
+ * only halves, so the smallest factor landing below the target usually lands far below — a
+ * 2160-wide capture would come back at 540 px, a visibly soft picture underneath boxes the
+ * user is looking at closely, which is the opposite of what this screen is for.
+ */
+private const val DISPLAY_TARGET_PX = 1080

@@ -13,7 +13,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +42,13 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    // Not requested on first show: this screen has a method chooser to offer before the
-    // camera means anything, unlike a viewfinder that is useless without it.
-    val permission = rememberCameraPermission(requestOnFirstShow = false)
+    // Asked only once the scanner is what is on screen — a method chooser comes first here,
+    // unlike a viewfinder that is useless without the camera. Left to the shared helper rather
+    // than to an effect of this screen's own, which would ask again on every rotation because
+    // it keeps no memory of having asked.
+    val permission = rememberCameraPermission(
+        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
+    )
 
     SettingsContent(
         state = state,
@@ -247,8 +250,6 @@ private fun ScanningBody(
     permission: PermissionActions,
 ) {
     if (!hasCameraPermission) {
-        // Asked once on arrival, and only where asking still shows something.
-        LaunchedEffect(Unit) { if (permission.canAsk) permission.onRequest() }
         CameraPermissionBody(
             canAsk = permission.canAsk,
             onRequest = permission.onRequest,

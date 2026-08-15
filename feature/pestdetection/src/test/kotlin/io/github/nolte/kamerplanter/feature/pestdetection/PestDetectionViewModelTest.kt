@@ -547,6 +547,10 @@ class PestDetectionViewModelTest {
             PestDetectionState.Ready(source = CaptureSource.MICROSCOPE, isUploading = true),
             model.state.value,
         )
+        // Both, not just the state: the screen reads this one to decide whether USB monitoring
+        // runs, so letting it change while the state refuses pops a USB dialogue over a
+        // capture that is already on its way.
+        assertEquals(CaptureSource.MICROSCOPE, model.chosenSource.value)
     }
 
     private fun detection() = Detection(

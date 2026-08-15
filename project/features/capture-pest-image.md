@@ -55,7 +55,7 @@ detail without leaving the user staring at a frozen screen.
 ## Acceptance criteria
 
 - [x] **acceptance-1** The user chooses between phone camera and USB microscope before capturing.
-- [x] **acceptance-2** The microscope option is offered only while a UVC device is attached.
+- [ ] **acceptance-2** The microscope option is offered only while a UVC device is attached.
 - [x] **acceptance-3** A capture from the phone camera produces an image that enters the same detection pipeline as a microscope capture.
 - [ ] **acceptance-4** A microscope still is captured at the largest mode the device offers, and the live preview returns afterwards.
 - [ ] **acceptance-5** When the microscope seam reports the device unavailable, the detection capture action stops being offered rather than remaining live.

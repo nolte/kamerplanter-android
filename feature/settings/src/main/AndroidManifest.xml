@@ -1,13 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The QR pairing scanner uses the device camera (CameraX + ML Kit). This is the
-         platform camera, unrelated to the USB/UVC microscope permission in
-         :feature:microscope. -->
-    <uses-permission android:name="android.permission.CAMERA" />
-
-    <uses-feature
-        android:name="android.hardware.camera.any"
-        android:required="false" />
-
 </manifest>

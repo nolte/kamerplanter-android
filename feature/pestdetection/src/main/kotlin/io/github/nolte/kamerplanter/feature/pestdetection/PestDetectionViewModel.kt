@@ -97,18 +97,20 @@ class PestDetectionViewModel @Inject constructor(
 
     /** Chooses where the next frame comes from. A no-op once one is being uploaded. */
     fun chooseSource(source: CaptureSource?) {
-        // Before the update, not inside it: `update` re-runs its lambda on a lost
-        // compare-and-set, and a side effect there would run twice.
+        // Read, guard, then write both — rather than a side effect inside `update`, whose
+        // lambda re-runs on a lost compare-and-set. Moving the assignment out of that lambda
+        // also moved it out of the guard once, and the two must not drift: the screen decides
+        // whether USB monitoring runs from `chosenSource`, so a change accepted there but
+        // refused in the state pops a USB dialogue over a phone capture that is mid-upload.
+        val current = _state.value
+        if (current !is PestDetectionState.Ready || current.isUploading) return
         _chosenSource.value = source
-        _state.update { current ->
-            if (current is PestDetectionState.Ready && !current.isUploading) {
-                // Cleared alongside the source: keeping a stale "the phone is bound" across a
-                // switch would offer the shutter for a camera that is not the chosen one.
-                current.copy(source = source, phoneReady = source == CaptureSource.PHONE && shutter != null)
-            } else {
-                current
-            }
-        }
+        // Cleared alongside the source: keeping a stale "the phone is bound" across a switch
+        // would offer the shutter for a camera that is not the chosen one.
+        _state.value = current.copy(
+            source = source,
+            phoneReady = source == CaptureSource.PHONE && shutter != null,
+        )
     }
 
     /** Starts USB monitoring; the screen calls this while it is visible. */
