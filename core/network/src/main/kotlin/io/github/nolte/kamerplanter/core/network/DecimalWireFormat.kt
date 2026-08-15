@@ -75,8 +75,10 @@ internal object DecimalWireFormat : KSerializer<BigDecimal> {
      *
      * The cost is a wire-format change for very small values: Java switches `toString` to
      * exponent form below `1e-6`, so an instance that sent `0.0000001` gets `1E-7` back. Same
-     * number, valid JSON, and accepted by pydantic on both its parsing paths — verified rather
-     * than assumed. Areas, volumes and confidences all sit well above that threshold.
+     * number, and an exponent is ordinary JSON that any conforming parser accepts — but nothing
+     * in this repository can demonstrate what the backend makes of it, so that is a reading of
+     * the grammar rather than a measurement. Areas, volumes and confidences all sit well above
+     * the threshold and are unaffected either way.
      */
     @OptIn(ExperimentalSerializationApi::class)
     override fun serialize(encoder: Encoder, value: BigDecimal) {
@@ -90,9 +92,10 @@ internal object DecimalWireFormat : KSerializer<BigDecimal> {
      *
      * Refusing loudly rather than falling back through `decodeDouble`/`encodeDouble`: that
      * fallback would compile, look coherent against the descriptor, and quietly round every
-     * value past a `Double` — reintroducing exactly the defect this class was written to fix,
-     * in the one place no test would be watching. No non-JSON format is on this module's
-     * classpath today, so this is unreachable; it is here so that adding one fails visibly.
+     * value past a `Double` — reintroducing exactly the defect this class was written to fix.
+     * No non-JSON format is on this module's classpath, so nothing reaches this in production;
+     * `DecimalWireFormatTest` drives it through a stand-in encoder and decoder so that adding
+     * one fails visibly rather than silently.
      */
     private fun jsonOnly() = SerializationException(
         "DecimalWireFormat encodes raw JSON tokens and cannot be used with another format",

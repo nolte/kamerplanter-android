@@ -124,33 +124,38 @@ class GeneratedClientSerializationTest {
     /**
      * A magnitude no `Double` can hold, written as an exponent rather than spelled out.
      *
-     * Both halves matter. The old encoder threw outright on this — it parsed the literal into a
-     * `Double` and got `Infinity` — so a value an instance sent could not be sent back. And
-     * spelling it out in full would turn a nine-byte token into a four-hundred-digit one, which
-     * for a large enough exponent is an `OutOfMemoryError` rather than a failed request.
+     * Both halves matter. An earlier version of this PR wrote through a numeric primitive,
+     * which parses the literal back into a `Double` — `Infinity` here, and a thrown encoder, so
+     * a value an instance sent could not be sent back. And spelling the value out in full turns
+     * a six-character token into a four-hundred-digit one; for a large enough exponent that is
+     * an `OutOfMemoryError` rather than a failed request.
      */
     @Test
     fun `encodes a magnitude beyond a double as a short exponent`() {
         val encoded = encodedArea("1E+400")
 
+        // The first assertion is what pins the unquoted exponent form; the second reads the
+        // token back to show the document still parses as JSON around it.
         assertTrue(encoded, encoded.contains("\"area_m2\":1E+400,"))
-        // Still a JSON number, not a string and not a broken document — asserted on the
-        // re-parsed token so the exponent form itself is pinned, not merely the value.
         assertEquals("1E+400", json.parseToJsonElement(encoded).areaText())
     }
 
     /**
-     * The nullable half of the same field.
+     * An explicitly null decimal.
      *
-     * `container_volume_liters` is `float | None` upstream, so an unset one arrives as JSON
-     * `null` — and `JsonNull` *is* a `JsonPrimitive`, whose `content` reads `"null"`. It never
-     * reaches [DecimalWireFormat] today because kotlinx short-circuits a nullable element
-     * before consulting the serializer, but nothing in this module says so, and the field
-     * became load-bearing the moment this PR started exercising it.
+     * `container_volume_liters` is `float | None` upstream, so the field arrives as JSON `null`
+     * for most plants — the ordinary case rather than an edge one, and the one this PR's own
+     * fixture stopped covering when it gave the field a value. The sibling case, an older
+     * backend omitting the field entirely, is covered by `defaults the optional fields an older
+     * backend omits`.
+     *
+     * This pins the outcome, not the route: kotlinx short-circuits a nullable element before
+     * consulting the serializer, so [DecimalWireFormat] is never asked — which no test can
+     * demonstrate from the outside, and which this one therefore does not claim to.
      */
     @Test
-    fun `a null decimal stays null rather than reaching the decimal serializer`() {
-        fun volumeOf(field: String) = json.decodeFromString<PlantResponse>(
+    fun `an explicitly null decimal decodes to null`() {
+        val decoded = json.decodeFromString<PlantResponse>(
             """
             {
               "cultivar_key": null,
@@ -161,13 +166,13 @@ class GeneratedClientSerializationTest {
               "removed_on": null,
               "slot_key": null,
               "species_key": "monstera-deliciosa",
-              "substrate_batch_key": null$field
+              "substrate_batch_key": null,
+              "container_volume_liters": null
             }
             """.trimIndent(),
-        ).containerVolumeLiters
+        )
 
-        assertNull("an explicit null", volumeOf(",\n  \"container_volume_liters\": null"))
-        assertNull("an older backend omitting the field", volumeOf(""))
+        assertNull(decoded.containerVolumeLiters)
     }
 
     private fun encodedArea(area: String) = json.encodeToString(

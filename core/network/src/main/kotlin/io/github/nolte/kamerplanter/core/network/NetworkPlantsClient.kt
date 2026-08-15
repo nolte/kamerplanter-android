@@ -270,9 +270,10 @@ class NetworkPlantsClient(
          *
          * Swallowing these is deliberate — a row without a location name is still a usable row
          * — but swallowing them *silently* is what let a total failure of `GET /locations` pass
-         * for "these plants have no location" through a whole release. Both calls here are
-         * tenant-wide: when one fails, every row on screen is affected, and nothing else in the
-         * app would say so.
+         * for "these plants have no location" through a whole release. The blast radius is
+         * wide: the care dashboard is one tenant-wide call, and the locations call is per site,
+         * so a single failure costs every row that sits in that site. Nothing else in the app
+         * would say so.
          *
          * The log call is guarded because of where it sits. This runs in the `getOrElse`
          * block — *outside* the `runCatchingCancellable` that makes an enrichment failure

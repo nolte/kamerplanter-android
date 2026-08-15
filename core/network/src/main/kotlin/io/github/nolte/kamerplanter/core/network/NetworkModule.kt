@@ -23,9 +23,11 @@ object NetworkModule {
      *
      * This builder — not the generated `Serializer.kotlinxSerializationJson` — is what the
      * app injects, so the app owns its parsing policy rather than inheriting whatever the
-     * generator's template happens to set. Only the generator's [SerializersModule]
-     * [Serializer] is adopted: the DTOs annotate temporal and decimal fields `@Contextual`,
-     * and without those adapters every response carrying a date fails to deserialize.
+     * generator's template happens to set. The generator's [SerializersModule] [Serializer] is
+     * adopted for its temporal adapters — the DTOs annotate those fields `@Contextual`, and
+     * without them every response carrying a date fails to deserialize — but **not** for its
+     * decimal one, which is replaced below because it cannot read what the backend actually
+     * sends. Dropping that override restores a defect that costs whole responses, not fields.
      *
      * `ignoreUnknownKeys` is the setting actually carrying R-COMPAT-1 today.
      * `coerceInputValues` is declared because R-COMPAT-1 names it, but it changes nothing
