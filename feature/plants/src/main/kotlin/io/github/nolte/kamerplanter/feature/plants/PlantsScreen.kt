@@ -216,8 +216,15 @@ private fun PlantThumbnail(plant: PlantSummary, imageLoader: ImageLoader?) {
  */
 @Composable
 private fun CareBadge(action: CareAction) {
-    val label = stringResource(action.labelRes())
-    val alert = stringResource(R.string.plants_care_description, label)
+    val labelRes = action.labelRes()
+    val label = stringResource(labelRes)
+    // The generic label already says "needs attention", so prefixing it again would have a
+    // screen reader announce it twice. Only a specific kind gets the prefix.
+    val alert = if (labelRes == R.string.plants_care_other) {
+        label
+    } else {
+        stringResource(R.string.plants_care_description, label)
+    }
     AssistChip(
         onClick = {},
         enabled = false,

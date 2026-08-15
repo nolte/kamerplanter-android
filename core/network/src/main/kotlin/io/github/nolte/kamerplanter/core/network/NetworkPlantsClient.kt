@@ -39,11 +39,24 @@ import kotlin.coroutines.cancellation.CancellationException
  * sockets. Everything is joined in memory afterwards.
  */
 @Singleton
-class NetworkPlantsClient @Inject constructor(
+class NetworkPlantsClient(
     private val apis: InstanceApiFactory,
     private val connections: ConnectionStore,
     private val credentials: CredentialStore,
+    /**
+     * How long the list waits for cover photos before rendering without them. A parameter so
+     * a test can drive both sides of it; Dagger does not read Kotlin default arguments, so
+     * the injected constructor supplies it instead.
+     */
+    private val thumbnailBudgetMillis: Long,
 ) : PlantsClient {
+
+    @Inject
+    constructor(
+        apis: InstanceApiFactory,
+        connections: ConnectionStore,
+        credentials: CredentialStore,
+    ) : this(apis, connections, credentials, THUMBNAIL_BUDGET_MILLIS)
 
     override suspend fun loadPlants(): PlantListOutcome = runCatchingCancellable {
         val connection = connections.connection.first()
@@ -110,12 +123,23 @@ class NetworkPlantsClient @Inject constructor(
 
         val locations = locationNames.await()
         val care = careActions.await()
+
         // Photos are enrichment like the other two, but unlike them they are per-plant: two
-        // hundred of them at six at a time is thirty-odd serialized waves, and awaiting them
-        // all would hold the entire list behind the slowest one. Bounded by the same budget
-        // the whole load gets, after which the rows render with placeholders.
-        val covers = withTimeoutOrNull(THUMBNAIL_BUDGET_MILLIS) { thumbnails.awaitAll().toMap() }
-            ?: emptyMap()
+        // hundred of them at six at a time is thirty-odd serialized waves, and awaiting all
+        // of them holds the whole list behind the slowest.
+        //
+        // The timeout has to be followed by an explicit cancel, and the two together are the
+        // whole point. `withTimeoutOrNull` alone abandons the *waiting* but not the jobs —
+        // they are children of this `coroutineScope`, which then waits for them anyway on
+        // the way out. That version cost the same wall-clock and threw away every thumbnail
+        // that had already arrived: strictly worse than not having a budget at all.
+        withTimeoutOrNull(thumbnailBudgetMillis) { thumbnails.awaitAll() }
+        val covers = thumbnails
+            // Whatever arrived inside the budget is kept; the rest becomes a placeholder.
+            .filter { it.isCompleted && !it.isCancelled }
+            .mapNotNull { runCatchingCancellable { it.getCompleted() }.getOrNull() }
+            .toMap()
+        thumbnails.forEach { it.cancel() }
 
         PlantListOutcome.Loaded(
             plants
@@ -226,9 +250,8 @@ class NetworkPlantsClient @Inject constructor(
         const val FETCH_CONCURRENCY = 6
 
         /**
-         * How long the list waits for cover photos before rendering without them. A row with
-         * a placeholder is a usable row; a spinner that lasts until the last of two hundred
-         * photo requests answers is not.
+         * The production budget. A row with a placeholder is a usable row; a spinner that
+         * lasts until the last of two hundred photo requests answers is not.
          */
         const val THUMBNAIL_BUDGET_MILLIS = 4_000L
 

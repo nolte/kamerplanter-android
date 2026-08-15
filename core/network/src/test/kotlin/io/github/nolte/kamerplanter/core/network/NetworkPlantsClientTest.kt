@@ -25,9 +25,13 @@ import org.junit.Test
  */
 class NetworkPlantsClientTest {
 
+    /** Long enough that sitting it out is unmistakable, short enough not to stall the suite. */
+    private val SLOW_PHOTO_MILLIS = 3_000L
+
     private lateinit var server: MockWebServer
     private val responses = mutableMapOf<String, String>()
     private val statuses = mutableMapOf<String, Int>()
+    private val delays = mutableMapOf<String, Long>()
     private val requestedPaths = mutableListOf<String>()
 
     @Before
@@ -43,6 +47,9 @@ class NetworkPlantsClientTest {
                     .setResponseCode(status)
                     .setHeader("Content-Type", "application/json")
                     .setBody(body)
+                    .apply {
+                        delays[path]?.let { setBodyDelay(it, java.util.concurrent.TimeUnit.MILLISECONDS) }
+                    }
             }
         }
         server.start()
@@ -64,18 +71,23 @@ class NetworkPlantsClientTest {
         )
     }
 
-    private fun client(credential: Credential = Credential.ApiKey("kp_sk_x")) =
-        NetworkPlantsClient(
-            apis = plantsApiFactory(),
-            connections = FakeConnectionStore(
-                Connection.ApiKey(
-                    baseUrl = server.url("/").toString(),
-                    tenantSlug = "demo",
-                    keyHint = "…k_x",
-                ),
+    private fun client(
+        credential: Credential = Credential.ApiKey("kp_sk_x"),
+        // Generous by default so the virtual clock in runTest cannot trip the budget while a
+        // test is asserting something else entirely.
+        thumbnailBudgetMillis: Long = 60_000L,
+    ) = NetworkPlantsClient(
+        apis = plantsApiFactory(),
+        connections = FakeConnectionStore(
+            Connection.ApiKey(
+                baseUrl = server.url("/").toString(),
+                tenantSlug = "demo",
+                keyHint = "…k_x",
             ),
-            credentials = InMemoryCredentialStore(credential),
-        )
+        ),
+        credentials = InMemoryCredentialStore(credential),
+        thumbnailBudgetMillis = thumbnailBudgetMillis,
+    )
 
     private fun plant(
         key: String,
@@ -189,6 +201,39 @@ class NetworkPlantsClientTest {
 
         assertTrue(url.orEmpty(), url.orEmpty().endsWith("/thumbs/cover.jpg"))
         assertTrue(url.orEmpty(), url.orEmpty().startsWith("http"))
+    }
+
+    /**
+     * The budget has to produce a list, not merely stop waiting for one. An earlier version
+     * timed out the `awaitAll` while the requests stayed children of the enclosing scope, so
+     * the load took just as long *and* lost the thumbnails that had already arrived.
+     *
+     * Asserted on elapsed wall-clock, because that is the difference: `withTimeoutOrNull`
+     * runs on runTest's virtual clock and returns at once, while the socket delay is real.
+     * Without the cancel, the enclosing scope waits out the full delay on the way out.
+     */
+    @Test
+    fun `a slow photo endpoint costs its thumbnail, not the list`() = runTest {
+        givenPlants(plant("p1"))
+        givenLocations()
+        // A photo that would arrive — but only long after the budget is spent.
+        responses["/api/v1/t/demo/plant-instances/p1/photos"] = """
+            {"plant_instance_key":"p1","photos":[
+              {"attachment_id":"a1","byte_size":1,"is_cover":true,"mime_type":"image/jpeg",
+               "uri":"/y","thumbnail_uris":{"small":"/thumbs/late.jpg","medium":"m","large":"l"}}]}
+        """.trimIndent()
+        delays["/api/v1/t/demo/plant-instances/p1/photos"] = SLOW_PHOTO_MILLIS
+
+        val startedAt = System.nanoTime()
+        val rows = (client(thumbnailBudgetMillis = 50L).loadPlants() as PlantListOutcome.Loaded).plants
+        val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
+
+        assertEquals("the list still arrives", 1, rows.size)
+        assertNull("without the thumbnail that did not make it", rows.single().thumbnailUrl)
+        assertTrue(
+            "the load must not sit out the slow request; took ${elapsedMillis}ms",
+            elapsedMillis < SLOW_PHOTO_MILLIS / 2,
+        )
     }
 
     /** Most plants have no photo — that is a row without a picture, not a failed load. */
