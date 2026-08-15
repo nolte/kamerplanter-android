@@ -47,8 +47,21 @@ sealed interface PestDetectionState {
         val isGranting: Boolean = false,
     ) : PestDetectionState
 
-    /** Ready to capture. [isUploading] covers the frame being taken and sent. */
-    data class Ready(val isUploading: Boolean = false) : PestDetectionState
+    /**
+     * Ready to capture, once a source is chosen.
+     *
+     * [source] is `null` until the user picks one, which is what the picker renders. Both feed
+     * the same upload — the choice decides only where the bytes come from — but they suit
+     * opposite subjects: the phone frames a whole leaf at arm's length for a damage pattern,
+     * the microscope resolves the animal itself, and only the user can say which they are
+     * looking at.
+     *
+     * [isUploading] covers the frame being taken and sent.
+     */
+    data class Ready(
+        val source: CaptureSource? = null,
+        val isUploading: Boolean = false,
+    ) : PestDetectionState
 
     /**
      * A detection came back.
@@ -77,4 +90,14 @@ sealed interface PestDetectionState {
      */
     data class Failed(@StringRes val message: Int, val canRetry: Boolean = true) :
         PestDetectionState
+}
+
+/** Where a frame comes from. */
+enum class CaptureSource {
+
+    /** The device's own camera — the whole leaf, at arm's length. */
+    PHONE,
+
+    /** The attached USB microscope — the animal itself, at magnification. */
+    MICROSCOPE,
 }

@@ -6,6 +6,7 @@
     <string name="microscope_usb_permission_denied">USB access was declined — this can also happen when the screen locks while the dialog is open.</string>
     <string name="microscope_camera_permission">Android requires the camera permission before it will grant access to a USB camera. The microscope cannot be opened without it.</string>
     <string name="microscope_grant_permission">Grant permission</string>
+    <string name="microscope_open_settings">Open app settings</string>
     <string name="microscope_no_usb_host">This device does not support USB host mode (OTG).</string>
     <string name="microscope_error">Microscope error: %1$s</string>
     <string name="microscope_retry">Try again</string>

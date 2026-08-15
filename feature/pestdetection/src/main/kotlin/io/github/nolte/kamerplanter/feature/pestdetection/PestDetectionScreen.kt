@@ -1,11 +1,6 @@
 package io.github.nolte.kamerplanter.feature.pestdetection
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -28,12 +23,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
@@ -42,22 +34,18 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nolte.kamerplanter.core.camera.CameraPermission
+import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
-import io.github.nolte.kamerplanter.feature.microscope.UnavailableReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -92,7 +80,11 @@ fun PestDetectionScreen(
     // spends a permission dialogue on something they cannot use.
     val wantsCamera = permission.isGranted &&
         (state is PestDetectionState.Ready || state is PestDetectionState.Result)
-    if (wantsCamera) {
+    // USB monitoring is only worth starting for the source that uses it. Asking someone who
+    // picked the phone camera for access to a USB device would be a dialogue about nothing.
+    val wantsMicroscope = wantsCamera && (state as? PestDetectionState.Ready)?.source !=
+        CaptureSource.PHONE
+    if (wantsMicroscope) {
         DisposableEffect(Unit) {
             viewModel.start()
             onDispose { viewModel.stop() }
@@ -105,7 +97,7 @@ fun PestDetectionScreen(
             // Only where a shutter can actually fire: a device has to be streaming, and the
             // instance has to have said it will look at the frame.
             val ready = state as? PestDetectionState.Ready
-            if (ready != null && wantsCamera && camera is MicroscopeState.Streaming) {
+            if (ready != null && wantsCamera && ready.canFire(camera)) {
                 ExtendedFloatingActionButton(onClick = { viewModel.capture(language) }) {
                     Text(
                         stringResource(
@@ -128,21 +120,17 @@ fun PestDetectionScreen(
                     onGrantConsent = viewModel::grantConsent,
                     onRetry = viewModel::checkInstance,
                     onCaptureAgain = viewModel::captureAgain,
-                    createPreviewView = viewModel::createPreviewView,
-                    onRetryCamera = viewModel::retryCamera,
+                    capture = CaptureActions(
+                        createPreviewView = viewModel::createPreviewView,
+                        onRetryCamera = viewModel::retryCamera,
+                        onChooseSource = viewModel::chooseSource,
+                        onPhoneShutterReady = { viewModel.phoneShutter = it },
+                    ),
                 ),
                 modifier = content,
             )
         } else {
-            Explanation(
-                title = stringResource(R.string.pest_title),
-                body = stringResource(R.string.pest_camera_permission),
-                action = ExplanationAction(
-                    stringResource(R.string.pest_grant_permission),
-                    permission.request,
-                ),
-                modifier = content,
-            )
+            MissingCameraPermission(permission, content)
         }
     }
 }
@@ -153,39 +141,8 @@ private class PestDetectionActions(
     val onGrantConsent: () -> Unit,
     val onRetry: () -> Unit,
     val onCaptureAgain: () -> Unit,
-    val createPreviewView: (Context) -> android.view.View,
-    val onRetryCamera: () -> Unit,
+    val capture: CaptureActions,
 )
-
-private class CameraPermission(val isGranted: Boolean, val request: () -> Unit)
-
-/**
- * The CAMERA grant, kept current.
- *
- * Re-read on resume rather than sampled once: granting from system Settings does not restart
- * the process, so a value read at first composition would keep showing the rationale to
- * someone who has already said yes.
- */
-@Composable
-private fun rememberCameraPermission(): CameraPermission {
-    val context = LocalContext.current
-    var isGranted by remember { mutableStateOf(context.hasCameraPermission()) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        isGranted = context.hasCameraPermission()
-    }
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> isGranted = granted }
-
-    LaunchedEffect(isGranted) {
-        if (!isGranted) launcher.launch(Manifest.permission.CAMERA)
-    }
-    return CameraPermission(isGranted) { launcher.launch(Manifest.permission.CAMERA) }
-}
-
-private fun Context.hasCameraPermission(): Boolean =
-    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-        PackageManager.PERMISSION_GRANTED
 
 @Composable
 private fun PestDetectionContent(
@@ -244,12 +201,8 @@ private fun PestDetectionContent(
         is PestDetectionState.ConsentRequired ->
             ConsentPrompt(state, actions.onGrantConsent, modifier)
 
-        is PestDetectionState.Ready -> Viewfinder(
-            camera = camera,
-            createPreviewView = actions.createPreviewView,
-            onRetryCamera = actions.onRetryCamera,
-            modifier = modifier,
-        )
+        is PestDetectionState.Ready ->
+            CaptureStep(state, camera, actions.capture, modifier)
 
         is PestDetectionState.Result -> DetectionResult(
             frame = state.frame,
@@ -303,6 +256,28 @@ private fun ConsentPrompt(
     )
 }
 
+/**
+ * Asks for the camera grant, and offers the only route back once it is refused for good.
+ *
+ * After "Don't ask again" the system stops prompting, so a request button there is a control
+ * that visibly does nothing — and this screen would be a dead end with no way out but the back
+ * gesture.
+ */
+@Composable
+private fun MissingCameraPermission(permission: CameraPermission, modifier: Modifier = Modifier) {
+    Explanation(
+        title = stringResource(R.string.pest_title),
+        body = stringResource(R.string.pest_camera_permission),
+        action = ExplanationAction(
+            stringResource(
+                if (permission.canAsk) R.string.pest_grant_permission else R.string.pest_open_settings,
+            ),
+            if (permission.canAsk) permission.request else permission.openSettings,
+        ),
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun SettingsPrompt(
     @StringRes title: Int,
@@ -319,56 +294,6 @@ private fun SettingsPrompt(
         ),
         modifier = modifier,
     )
-}
-
-@Composable
-private fun Viewfinder(
-    camera: MicroscopeState,
-    createPreviewView: (Context) -> android.view.View,
-    onRetryCamera: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier = modifier) {
-        AndroidView(factory = createPreviewView, modifier = Modifier.fillMaxSize())
-        // Says what is true rather than always "no device": the stream passes through
-        // Connecting on every handover, and through AwaitingPermission while the user is
-        // looking at the USB dialogue. Telling them to plug in a microscope they have already
-        // plugged in is the failure this camera's own teardown path takes care to avoid.
-        val waiting = when (camera) {
-            is MicroscopeState.Unavailable -> when (camera.reason) {
-                UnavailableReason.NO_USB_HOST_SUPPORT -> R.string.pest_no_usb_host
-                // Its own message: telling someone who declined the USB dialogue to attach the
-                // microscope they already attached is the failure this whole block exists to
-                // stop, and it was still in the `else` branch.
-                UnavailableReason.PERMISSION_DENIED -> R.string.pest_usb_permission_denied
-                UnavailableReason.NO_DEVICE_ATTACHED -> R.string.pest_no_device
-            }
-            MicroscopeState.AwaitingPermission -> R.string.pest_awaiting_usb_permission
-            MicroscopeState.Connecting -> R.string.pest_connecting
-            is MicroscopeState.Error -> R.string.pest_camera_error
-            MicroscopeState.Streaming -> null
-        }
-        if (waiting != null) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(24.dp),
-            ) {
-                Text(text = stringResource(waiting), textAlign = TextAlign.Center)
-                // A declined USB grant and a failed stream are both dead ends otherwise:
-                // nothing leaves either state on its own, so without this the only way on is
-                // to navigate away and back. The waiting states need no button — they resolve
-                // themselves.
-                if (camera.isDeadEnd()) {
-                    Button(onClick = onRetryCamera) {
-                        Text(stringResource(R.string.pest_failed_retry))
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -645,11 +570,6 @@ private class ExplanationAction(val label: String, val onClick: (() -> Unit)?)
 
 private const val PERCENT = 100
 private const val BOX_STROKE_DP = 3
-
-/** States nothing leaves on its own — the ones that need a button rather than patience. */
-private fun MicroscopeState.isDeadEnd(): Boolean =
-    this is MicroscopeState.Error ||
-        (this is MicroscopeState.Unavailable && reason == UnavailableReason.PERMISSION_DENIED)
 
 private const val MODE_DIRECT = "direct"
 private const val MODE_SYMPTOM = "symptom"

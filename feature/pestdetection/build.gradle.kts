@@ -39,6 +39,10 @@ dependencies {
     // engine. The engine itself (libuvc) stays inside :feature:microscope, which is what the
     // isolation rule in ADR 0001 asks for: this module consumes frames through the interface
     // and never names the library.
+    // The device camera — the second image source (#10) — and the CAMERA runtime permission
+    // both screens need.
+    implementation(project(":core:camera"))
+
     implementation(project(":feature:microscope"))
 
     // Declared rather than inherited: both are used directly here — the permission launcher

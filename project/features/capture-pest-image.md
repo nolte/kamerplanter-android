@@ -54,19 +54,19 @@ detail without leaving the user staring at a frozen screen.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** The user chooses between phone camera and USB microscope before capturing.
-- [ ] **acceptance-2** The microscope option is offered only while a UVC device is attached.
-- [ ] **acceptance-3** A capture from the phone camera produces an image that enters the same detection pipeline as a microscope capture.
+- [x] **acceptance-1** The user chooses between phone camera and USB microscope before capturing.
+- [x] **acceptance-2** The microscope option is offered only while a UVC device is attached.
+- [x] **acceptance-3** A capture from the phone camera produces an image that enters the same detection pipeline as a microscope capture.
 - [ ] **acceptance-4** A microscope still is captured at the largest mode the device offers, and the live preview returns afterwards.
 - [ ] **acceptance-5** When the microscope seam reports the device unavailable, the detection capture action stops being offered rather than remaining live.
 
 ## Test hooks
 
-- **acceptance-1** — source picker not implemented yet — pending
-- **acceptance-2** — source picker not implemented yet — pending
-- **acceptance-3** — phone-camera source not implemented yet — pending
+- **acceptance-1** — `PestDetectionViewModelTest` — a ready instance rests on a source choice, and `capture()` before one is made takes no frame and uploads nothing
+- **acceptance-2** — the picker offers the microscope only while a device is attached, and disabled rather than hidden so its absence reads as "not plugged in"; screen-level, no assertion yet — pending
+- **acceptance-3** — `PestDetectionViewModelTest` — the chosen source is the one asked for a frame, and both end in the same `detect` call
 - **acceptance-4** — delivered by `MicroscopeCamera.captureFrame` (issue #1) and consumed here unchanged — pending
-- **acceptance-5** — the capture action is gated on `MicroscopeState.Streaming`; no assertion yet — pending
+- **acceptance-5** — the shutter is gated on `Ready.canFire`, which requires a streaming device for the microscope source; screen-level, no assertion yet — pending
 
 **Deliberately criterion-free requirements.** R11 (the shared camera module) and R12 (the
 ADR 0001 isolation rule) carry no acceptance criterion and therefore no hook — a hook keyed

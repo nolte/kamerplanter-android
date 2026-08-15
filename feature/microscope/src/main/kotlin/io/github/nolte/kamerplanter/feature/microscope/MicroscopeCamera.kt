@@ -59,6 +59,19 @@ interface MicroscopeCamera {
     fun stop()
 
     /**
+     * Drops this caller's hold and takes it again, reaching the hardware when it was the only
+     * holder.
+     *
+     * The way out of the two states nothing leaves on its own: a USB grant the user declined is
+     * not asked for again, and a stream that failed to open is not retried. Everything else —
+     * a device being attached, a dialogue being answered — arrives as an event.
+     */
+    fun restart() {
+        stop()
+        start()
+    }
+
+    /**
      * Grabs a single frame as a JPEG, **preferring the largest mode the device offers for the
      * negotiated format**, and restores the preview mode afterwards.
      *

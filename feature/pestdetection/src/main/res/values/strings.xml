@@ -43,6 +43,7 @@
     <string name="pest_camera_error">The microscope stream could not be opened.</string>
     <string name="pest_camera_permission">Pest detection needs the camera permission before Android will let the app talk to the microscope.</string>
     <string name="pest_grant_permission">Grant permission</string>
+    <string name="pest_open_settings">Open app settings</string>
 
     <!-- Result -->
     <string name="pest_result_title">What your instance recognized</string>
@@ -69,6 +70,16 @@
     <string name="pest_failed_retry">Try again</string>
     <string name="pest_failed_unreachable">Your instance could not be reached. Check that it is running and try again.</string>
     <string name="pest_failed_capture">The microscope did not deliver a frame. Check the cable and try again.</string>
+    <string name="pest_failed_phone_capture">The photo could not be taken, or it stayed too large to upload even after being scaled down.</string>
+
+    <!-- Source picker. Both cameras feed the same detection; they suit opposite subjects. -->
+    <string name="pest_source_title">What are you photographing?</string>
+    <string name="pest_source_phone">Phone camera</string>
+    <string name="pest_source_phone_hint">A whole leaf at arm\'s length — best for a damage pattern.</string>
+    <string name="pest_source_microscope">USB microscope</string>
+    <string name="pest_source_microscope_hint">The animal itself, magnified — best for a pest you can barely see.</string>
+    <string name="pest_source_microscope_missing">Attach a USB microscope to use this.</string>
+    <string name="pest_source_change">Choose a different camera</string>
     <string name="pest_failed_too_large">The photo is larger than the app will upload. Try again — the microscope retunes for each shot, so the next frame is usually smaller.</string>
     <string name="pest_failed_proxy_limit">The photo was refused before it reached your instance — usually the request-size limit of the web server in front of it. Raising that limit is a change on the server.</string>
     <!-- 422 covers two causes upstream — over the instance's configured size limit, and

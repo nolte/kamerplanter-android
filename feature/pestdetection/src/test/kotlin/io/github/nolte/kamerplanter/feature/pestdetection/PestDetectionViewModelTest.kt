@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.feature.pestdetection
 
 import android.content.Context
 import android.view.View
+import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
@@ -205,6 +206,7 @@ class PestDetectionViewModelTest {
         detections.outcome = DetectionOutcome.Completed(detection())
         val model = viewModel()
         model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
 
         model.capture("de")
         dispatcher.scheduler.advanceUntilIdle()
@@ -223,6 +225,7 @@ class PestDetectionViewModelTest {
         camera.failCapture = true
         val model = viewModel()
         model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
 
         model.capture("en")
         dispatcher.scheduler.advanceUntilIdle()
@@ -238,6 +241,7 @@ class PestDetectionViewModelTest {
         detections.outcome = DetectionOutcome.Completed(detection())
         val model = viewModel()
         model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
 
         model.capture("en")
         model.capture("en")
@@ -264,6 +268,7 @@ class PestDetectionViewModelTest {
             detections.outcome = DetectionOutcome.Refused(reason)
             val model = viewModel()
             model.state.settled()
+            model.chooseSource(CaptureSource.MICROSCOPE)
 
             model.capture("en")
             dispatcher.scheduler.advanceUntilIdle()
@@ -281,6 +286,7 @@ class PestDetectionViewModelTest {
             detections.outcome = DetectionOutcome.Refused(reason)
             val model = viewModel()
             model.state.settled()
+            model.chooseSource(CaptureSource.MICROSCOPE)
 
             model.capture("en")
             dispatcher.scheduler.advanceUntilIdle()
@@ -301,6 +307,7 @@ class PestDetectionViewModelTest {
         val model = viewModel()
         model.state.settled()
 
+        model.chooseSource(CaptureSource.MICROSCOPE)
         detections.readiness = DetectionReadiness.ConsentRequired("pest_detection_cloud")
         model.capture("en")
         dispatcher.scheduler.advanceUntilIdle()
@@ -317,12 +324,16 @@ class PestDetectionViewModelTest {
         detections.outcome = DetectionOutcome.Completed(detection())
         val model = viewModel()
         model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
         model.capture("en")
         dispatcher.scheduler.advanceUntilIdle()
 
         model.captureAgain()
 
-        assertEquals(PestDetectionState.Ready(), model.state.value)
+        // The source survives: someone who just photographed one leaf through the microscope
+        // is about to photograph another, and sending them back to the picker each time would
+        // be a step they did not ask for.
+        assertEquals(PestDetectionState.Ready(source = CaptureSource.MICROSCOPE), model.state.value)
     }
 
     /**
@@ -348,12 +359,107 @@ class PestDetectionViewModelTest {
             detections.outcome = DetectionOutcome.Refused(reason)
             val model = viewModel()
             model.state.settled()
+            model.chooseSource(CaptureSource.MICROSCOPE)
 
             model.capture("en")
             dispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("$reason", expected, (model.state.value as PestDetectionState.Failed).message)
         }
+    }
+
+    // ── Source choice (#10, phone camera) ────────────────────────────────────────────
+
+    /**
+     * The picker is a step, not a default. Both cameras feed the same detection, but they suit
+     * opposite subjects — a whole leaf carries the damage pattern, the animal itself is usually
+     * too small for a phone to resolve — and only the user knows which they are looking at.
+     */
+    @Test
+    fun `a ready instance asks which camera before anything is captured`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+
+        assertEquals(PestDetectionState.Ready(source = null), model.state.settled())
+
+        model.capture("en")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("no source, no shutter", 0, camera.captures)
+        assertTrue(detections.uploads.isEmpty())
+    }
+
+    /** The phone path never touches the microscope, and vice versa. */
+    @Test
+    fun `the chosen source is the one that is asked for a frame`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        detections.outcome = DetectionOutcome.Completed(detection())
+        val model = viewModel()
+        model.state.settled()
+        model.phoneShutter = FakeShutter(byteArrayOf(9, 9))
+
+        model.chooseSource(CaptureSource.PHONE)
+        model.capture("en")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("the microscope was not asked", 0, camera.captures)
+        val result = model.state.value as PestDetectionState.Result
+        assertTrue(result.frame.contentEquals(byteArrayOf(9, 9)))
+    }
+
+    /**
+     * A photo the phone cannot bring under the limit fails before the upload.
+     *
+     * The downscale is the phone path's own problem — a modern sensor produces several
+     * megabytes where the microscope produces a few hundred kilobytes — and spending the
+     * upload to be told a size the app could measure itself is the thing to avoid.
+     */
+    @Test
+    fun `a phone photo that cannot be shrunk enough is not uploaded`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+        model.state.settled()
+        model.phoneShutter = FakeShutter(null)
+
+        model.chooseSource(CaptureSource.PHONE)
+        model.capture("en")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(model.state.value is PestDetectionState.Failed)
+        assertTrue("nothing was uploaded", detections.uploads.isEmpty())
+    }
+
+    /** Choosing the phone with no shutter bound yet fails rather than hanging on nothing. */
+    @Test
+    fun `capturing before the phone camera is bound fails`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+        model.state.settled()
+
+        model.chooseSource(CaptureSource.PHONE)
+        model.capture("en")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(model.state.value is PestDetectionState.Failed)
+        assertTrue(detections.uploads.isEmpty())
+    }
+
+    /** Going back to the picker mid-flow must not be possible while a frame is uploading. */
+    @Test
+    fun `the source cannot be changed while an upload is in flight`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        detections.outcome = DetectionOutcome.Completed(detection())
+        val model = viewModel()
+        model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
+        model.capture("en")
+
+        model.chooseSource(null)
+
+        assertEquals(
+            PestDetectionState.Ready(source = CaptureSource.MICROSCOPE, isUploading = true),
+            model.state.value,
+        )
     }
 
     private fun detection() = Detection(
@@ -401,6 +507,11 @@ class PestDetectionViewModelTest {
             uploads += language
             return outcome
         }
+    }
+
+    /** A phone shutter that hands back [jpeg], or `null` for a capture that could not be used. */
+    private class FakeShutter(private val jpeg: ByteArray?) : PhoneCameraShutter {
+        override suspend fun capture(maxBytes: Int): ByteArray? = jpeg
     }
 
     private class FakeCamera : MicroscopeCamera {

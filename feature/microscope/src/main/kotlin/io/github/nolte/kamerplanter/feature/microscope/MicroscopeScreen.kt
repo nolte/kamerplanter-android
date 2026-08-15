@@ -1,10 +1,6 @@
 package io.github.nolte.kamerplanter.feature.microscope
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,25 +17,19 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 
 /**
  * Live preview + single-frame capture for the USB microscope (issue #1).
@@ -62,23 +52,8 @@ fun MicroscopeScreen(
     viewModel: MicroscopeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
-    // Re-read on resume: granting from system Settings does not restart the process, so a
-    // value sampled once would keep showing the rationale afterwards.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        hasCameraPermission = context.hasCameraPermission()
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasCameraPermission = granted }
-
-    LaunchedEffect(hasCameraPermission) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-    if (hasCameraPermission) {
+    val permission = rememberCameraPermission()
+    if (permission.isGranted) {
         DisposableEffect(Unit) {
             viewModel.start()
             onDispose { viewModel.stop() }
@@ -102,7 +77,7 @@ fun MicroscopeScreen(
             }
         },
     ) { innerPadding ->
-        if (hasCameraPermission) {
+        if (permission.isGranted) {
             MicroscopeContent(
                 uiState = uiState,
                 onRetry = viewModel::retry,
@@ -112,10 +87,18 @@ fun MicroscopeScreen(
                     .padding(innerPadding),
             )
         } else {
+            // Once the grant is refused for good the system stops prompting, so the button
+            // has to lead somewhere that still works.
             ActionableMessage(
                 text = stringResource(R.string.microscope_camera_permission),
-                actionLabel = stringResource(R.string.microscope_grant_permission),
-                onAction = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                actionLabel = stringResource(
+                    if (permission.canAsk) {
+                        R.string.microscope_grant_permission
+                    } else {
+                        R.string.microscope_open_settings
+                    },
+                ),
+                onAction = if (permission.canAsk) permission.request else permission.openSettings,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
@@ -123,10 +106,6 @@ fun MicroscopeScreen(
         }
     }
 }
-
-private fun android.content.Context.hasCameraPermission(): Boolean =
-    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-        PackageManager.PERMISSION_GRANTED
 
 @Composable
 private fun MicroscopeContent(

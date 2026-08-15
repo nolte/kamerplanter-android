@@ -29,6 +29,11 @@ android {
 }
 
 dependencies {
+    // The CAMERA runtime permission. Needed here not for a device camera but because AOSP
+    // refuses to show the USB permission dialogue for a video-class device to an app without
+    // it — see MicroscopeScreen.
+    implementation(project(":core:camera"))
+
     // The UVC engine lives here — and only here (isolation rule: ADR 0001, "Isolation
     // rule for the UVC dependency"). The rest of the app talks to MicroscopeCamera.
     implementation(libs.libuvc)

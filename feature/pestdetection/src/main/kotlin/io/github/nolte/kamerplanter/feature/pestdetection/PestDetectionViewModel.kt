@@ -5,6 +5,7 @@ import android.view.View
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
@@ -15,6 +16,7 @@ import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -49,6 +51,27 @@ class PestDetectionViewModel @Inject constructor(
         checkInstance()
     }
 
+    /**
+     * The phone camera's shutter, handed over by the composition that binds it.
+     *
+     * Held here rather than driven from the screen so both sources have one entry point:
+     * [capture] decides which to use, and the caller does not have to know that one of them
+     * only exists while a particular composable is on screen.
+     */
+    @Volatile
+    var phoneShutter: PhoneCameraShutter? = null
+
+    /** Chooses where the next frame comes from. A no-op once one is being uploaded. */
+    fun chooseSource(source: CaptureSource?) {
+        _state.update { current ->
+            if (current is PestDetectionState.Ready && !current.isUploading) {
+                current.copy(source = source)
+            } else {
+                current
+            }
+        }
+    }
+
     /** Starts USB monitoring; the screen calls this while it is visible. */
     fun start() = camera.start()
 
@@ -63,10 +86,7 @@ class PestDetectionViewModel @Inject constructor(
      * not asked again, and a stream that failed to open is not retried. Everything else —
      * attaching a device, answering the dialogue — arrives as an event.
      */
-    fun retryCamera() {
-        camera.stop()
-        camera.start()
-    }
+    fun retryCamera() = camera.restart()
 
     /** Asks the instance whether it can run a detection, and what stands in the way if not. */
     fun checkInstance() {
@@ -117,16 +137,24 @@ class PestDetectionViewModel @Inject constructor(
      */
     fun capture(language: String) {
         val ready = _state.value as? PestDetectionState.Ready ?: return
-        if (ready.isUploading) return
+        if (ready.isUploading || ready.source == null) return
+        lastSource = ready.source
         _state.value = ready.copy(isUploading = true)
         viewModelScope.launch {
-            val frame = camera.captureFrame().getOrElse {
-                _state.value = PestDetectionState.Failed(R.string.pest_failed_capture)
+            val jpeg = when (ready.source) {
+                CaptureSource.MICROSCOPE -> camera.captureFrame().getOrNull()?.jpeg
+                // The phone's own downscale: a modern sensor produces several megabytes where
+                // the microscope produces a few hundred kilobytes, and a photo the instance
+                // would refuse is not worth the upload it takes to find that out.
+                CaptureSource.PHONE -> phoneShutter?.capture(MAX_UPLOAD_BYTES)
+            }
+            if (jpeg == null) {
+                _state.value = PestDetectionState.Failed(ready.source.captureFailure())
                 return@launch
             }
-            when (val outcome = detections.detect(frame.jpeg, plantKey = null, language = language)) {
+            when (val outcome = detections.detect(jpeg, plantKey = null, language = language)) {
                 is DetectionOutcome.Completed ->
-                    _state.value = PestDetectionState.Result(frame.jpeg, outcome.detection)
+                    _state.value = PestDetectionState.Result(jpeg, outcome.detection)
                 DetectionOutcome.Unauthorized -> _state.value = PestDetectionState.Unauthorized
                 is DetectionOutcome.Unavailable ->
                     _state.value = PestDetectionState.Failed(R.string.pest_failed_unreachable)
@@ -144,9 +172,27 @@ class PestDetectionViewModel @Inject constructor(
         }
     }
 
-    /** Back to the viewfinder from a result, ready for the next frame. */
+    /**
+     * Back to the viewfinder from a result, ready for the next frame.
+     *
+     * Keeps the source: someone who just photographed one leaf through the microscope is
+     * almost certainly about to photograph another, and sending them back to the picker each
+     * time would be a step they did not ask for.
+     */
     fun captureAgain() {
-        _state.value = PestDetectionState.Ready()
+        _state.value = PestDetectionState.Ready(source = lastSource)
+    }
+
+    /** Remembered across a result so [captureAgain] can return to the same viewfinder. */
+    @Volatile
+    private var lastSource: CaptureSource? = null
+
+    private companion object {
+        /**
+         * What the app will upload, mirroring the instance's own default limit. The phone path
+         * re-encodes down to this; the microscope's frames are already well inside it.
+         */
+        const val MAX_UPLOAD_BYTES = 8 * 1024 * 1024
     }
 
     private fun RefusedReason.asFailure(): PestDetectionState.Failed = when (this) {
@@ -170,4 +216,32 @@ class PestDetectionViewModel @Inject constructor(
         // added without deciding what it means here.
         RefusedReason.CONSENT_MISSING -> PestDetectionState.Failed(R.string.pest_failed_consent)
     }
+}
+
+/** Which capture failed, in the words that name the camera the user chose. */
+private fun CaptureSource.captureFailure() = when (this) {
+    CaptureSource.MICROSCOPE -> R.string.pest_failed_capture
+    CaptureSource.PHONE -> R.string.pest_failed_phone_capture
+}
+
+private fun RefusedReason.asFailure(): PestDetectionState.Failed = when (this) {
+    // Both of these are dead ends rather than retries: the same frame refused for its type
+    // will be refused again, and a credential that may not run detections does not gain the
+    // permission by being asked twice.
+    RefusedReason.UNSUPPORTED_TYPE ->
+        PestDetectionState.Failed(R.string.pest_failed_unsupported_type, canRetry = false)
+    RefusedReason.NOT_PERMITTED ->
+        PestDetectionState.Failed(R.string.pest_failed_not_permitted, canRetry = false)
+    // No retry: a proxy's body cap is a fixed number, and every capture is over it. The
+    // message names what has to change and who can change it.
+    RefusedReason.REFUSED_BY_PROXY ->
+        PestDetectionState.Failed(R.string.pest_failed_proxy_limit, canRetry = false)
+    // Retryable, because the next frame is a different frame: the microscope retunes per
+    // capture, so another shot can come back smaller or decodable where this one did not.
+    RefusedReason.TOO_LARGE -> PestDetectionState.Failed(R.string.pest_failed_too_large)
+    RefusedReason.NOT_PROCESSABLE ->
+        PestDetectionState.Failed(R.string.pest_failed_not_processable)
+    // Handled before this function is reached; kept exhaustive so a new reason cannot be
+    // added without deciding what it means here.
+    RefusedReason.CONSENT_MISSING -> PestDetectionState.Failed(R.string.pest_failed_consent)
 }

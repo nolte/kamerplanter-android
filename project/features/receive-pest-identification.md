@@ -54,7 +54,7 @@ disclaimer are readable to the person holding the phone.
 ## Acceptance criteria
 
 - [ ] **acceptance-1** An image captured through the USB microscope at the device's largest offered mode is identified by the connected instance, and at least one finding is listed on the phone.
-- [ ] **acceptance-2** An image captured with the phone camera is identified the same way.
+- [x] **acceptance-2** An image captured with the phone camera is identified the same way.
 - [ ] **acceptance-3** A capture started from a plant is identified against that plant; a standalone capture is not bound to one.
 - [ ] **acceptance-4** Findings and the disclaimer come back in the language the app's interface speaks, not the raw device locale.
 - [ ] **acceptance-5** When the instance rejects the image, the message names the formats it accepts.
@@ -62,7 +62,7 @@ disclaimer are readable to the person holding the phone.
 ## Test hooks
 
 - **acceptance-1** — `NetworkPestDetectionClientTest` covers the upload and the response mapping; the end-to-end capture against a live instance is still outstanding — pending
-- **acceptance-2** — phone-camera source not implemented yet — pending
+- **acceptance-2** — `PestDetectionViewModelTest` — a phone capture reaches the same upload as a microscope one, and one that cannot be brought under the limit fails before spending it
 - **acceptance-3** — `NetworkPestDetectionClientTest` pins that a plant key routes to the plant-bound endpoint and its absence to the standalone one; the app only reaches the standalone path so far — pending
 - **acceptance-4** — `PestDetectionViewModelTest` pins the language reaching the client, and `NetworkPestDetectionClientTest` that it arrives as an unquoted form field; the screen takes it from the configuration that resolved its own strings — pending
 - **acceptance-5** — the unsupported-media-type message names JPEG and PNG; no assertion yet — pending
