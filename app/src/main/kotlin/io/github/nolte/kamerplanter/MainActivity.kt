@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,10 +17,12 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -27,22 +30,64 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.nolte.kamerplanter.core.connection.DiscoveryLink
+import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
+import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeScreen
 import io.github.nolte.kamerplanter.feature.pestdetection.PestDetectionScreen
 import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    /**
+     * Where a `/connect` link is left for the Settings screen to pick up.
+     *
+     * The activity does not know what a connection flow is, and the screen may not exist yet:
+     * a link scanned with the system camera starts the app cold. Handing it over through a
+     * held value covers both that and the warm case below.
+     */
+    @Inject
+    lateinit var pendingDiscovery: PendingDiscovery
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Only on a fresh start: on a recreation — a rotation, say — the same intent is
+        // delivered again, and re-offering it would restart a flow the user may have left.
+        if (savedInstanceState == null) {
+            offerDiscoveryLink(intent)
+        }
         setContent {
             KamerplanterTheme {
-                KamerplanterApp()
+                KamerplanterApp(discoveries = pendingDiscovery.link)
             }
         }
+    }
+
+    /** Reached because the activity is `singleTop`: a link arriving while the app is open. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        offerDiscoveryLink(intent)
+    }
+
+    /**
+     * Publishes an incoming link, and silently ignores anything else.
+     *
+     * A link this app cannot read — an unknown payload version, a foreign URL that happens to
+     * carry `/connect` — is dropped here rather than shown as an error. The user asked to open
+     * a web address; landing in the app on a screen complaining about it would be a worse
+     * answer than the app simply not claiming it.
+     */
+    private fun offerDiscoveryLink(intent: Intent?) {
+        val raw = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        DiscoveryLinkParser.parse(raw)?.let(pendingDiscovery::offer)
     }
 }
 
@@ -61,8 +106,15 @@ enum class TopLevelDestination(
 }
 
 @Composable
-fun KamerplanterApp() {
+fun KamerplanterApp(discoveries: StateFlow<DiscoveryLink?> = MutableStateFlow(null)) {
     val navController = rememberNavController()
+    // A scanned `/connect` link has to land where it can be acted on. Settings owns the
+    // connection flow, and the link is only *read* there — this navigates, it does not consume,
+    // so whichever of the two gets there first cannot leave the other with nothing.
+    val waiting by discoveries.collectAsStateWithLifecycle()
+    LaunchedEffect(waiting) {
+        if (waiting != null) navController.navigateToTab(TopLevelDestination.SETTINGS)
+    }
     Scaffold(
         bottomBar = { KamerplanterNavigationBar(navController) },
     ) { innerPadding ->

@@ -16,4 +16,13 @@
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_camera_unavailable">The camera could not be opened. Make sure no other app is using it and try again.</string>
     <string name="settings_tenant_choice_pending">This instance offers several tenants. Choosing between them is not built yet — nothing has been stored.</string>
+
+    <!-- Instance discovered through a /connect link (#13). The link is credential-free:
+         it names an instance and nothing else, so this is an offer, not a sign-in. -->
+    <string name="settings_discovered_title">Instance found</string>
+    <string name="settings_discovered_new">Scan the pairing code of this instance to connect.</string>
+    <string name="settings_discovered_same">You are already connected to this instance.</string>
+    <string name="settings_discovered_replaces">You are connected to a different instance. Continuing replaces that connection.</string>
+    <string name="settings_discovered_continue">Connect to this instance</string>
+    <string name="settings_discovered_dismiss">Not now</string>
 </resources>

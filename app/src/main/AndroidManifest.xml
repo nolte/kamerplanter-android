@@ -21,12 +21,39 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Kamerplanter">
+        <!-- singleTop so a /connect link arriving while the app is already open reaches
+             onNewIntent instead of stacking a second copy of the app on top of itself. -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- The app-recognition contract the backend documents: scanning
+                 https://<instance>/connect?v=1 with the system camera opens this app rather
+                 than dead-ending in a browser (#13).
+
+                 A wildcard host, and therefore an UNVERIFIED deep link. Auto-verified App
+                 Links bind through assetlinks.json to domains named here, and kamerplanter is
+                 self-hosted — every instance has its own domain, unknown when this manifest is
+                 written. So Android shows a chooser instead, or opens the app directly once
+                 the user makes it the default.
+
+                 The link is credential-free by design. The pairing QR carries a one-time code
+                 and stays opaque JSON that only the in-app scanner reads: as a publicly
+                 openable URL its credential could be routed to whichever app the user picks
+                 from that chooser. Only the credential-free link may be recognisable. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="*"
+                    android:pathPrefix="/connect" />
             </intent-filter>
         </activity>
     </application>

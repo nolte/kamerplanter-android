@@ -51,13 +51,20 @@ sealed interface ConnectionState {
             override val method: ConnectionMethod = ConnectionMethod.QR_PAIRING
         }
 
-        /** Waiting for a base URL and a `kp_sk_…` key (R9). */
-        data object ApiKeyEntry : Collecting {
+        /**
+         * Waiting for a base URL and a `kp_sk_…` key (R9).
+         *
+         * [prefilledBaseUrl] is set when the user arrived from a `/connect` link, which
+         * carries the instance's address and nothing else (#13). Neither entry surface exists
+         * yet, so nothing renders it today — but the address is what the link is *for*, and
+         * dropping it here would mean re-typing something the app already knows.
+         */
+        data class ApiKeyEntry(val prefilledBaseUrl: String? = null) : Collecting {
             override val method: ConnectionMethod = ConnectionMethod.API_KEY
         }
 
-        /** Waiting for the base URL of a light-mode instance (R10). */
-        data object LightModeEntry : Collecting {
+        /** Waiting for the base URL of a light-mode instance (R10); see [ApiKeyEntry]. */
+        data class LightModeEntry(val prefilledBaseUrl: String? = null) : Collecting {
             override val method: ConnectionMethod = ConnectionMethod.LIGHT_MODE
         }
     }
@@ -94,6 +101,21 @@ sealed interface ConnectionState {
     data class Connected(val connection: Connection) : ConnectionState
 
     /**
+     * A `/connect` link named an instance, and the user has not decided what to do about it
+     * yet (#13).
+     *
+     * A resting state, not a step in an attempt: the link carries no credential and calls no
+     * endpoint, so nothing has been proven and nothing is in flight. It exists because
+     * arriving from a scanned link straight into a camera viewfinder would be an odd answer to
+     * "open this instance" — and because [relation] is the one thing the user needs told
+     * before anything happens.
+     */
+    data class Discovered(
+        val baseUrl: String,
+        val relation: DiscoveredInstance,
+    ) : ConnectionState
+
+    /**
      * The attempt failed and nothing was stored (R14). [method] is carried so a retry
      * returns to the collection step the user came from; [reason] is a diagnostic, not a
      * UI string.
@@ -104,9 +126,31 @@ sealed interface ConnectionState {
     ) : ConnectionState
 }
 
+/**
+ * How a discovered instance stands to the one already connected.
+ *
+ * The distinction is the whole reason a link does not simply start a connection attempt: a
+ * user who scans the code on their own instance while already connected to it wants to be told
+ * so, not walked through pairing again — and one whose phone is connected somewhere else is
+ * about to replace a working connection and should know that before, not after.
+ */
+enum class DiscoveredInstance {
+
+    /** Nothing is connected; the link is simply an offer. */
+    NEW,
+
+    /** Already connected to this very instance — the link asks for something already true. */
+    ALREADY_CONNECTED,
+
+    /** Connected to a different instance, which continuing would replace. */
+    REPLACES_ANOTHER,
+}
+
 /** The collection step a method starts in — the state machine's only entry per method (R29). */
-internal fun ConnectionMethod.collectionState(): ConnectionState.Collecting = when (this) {
+internal fun ConnectionMethod.collectionState(
+    prefilledBaseUrl: String? = null,
+): ConnectionState.Collecting = when (this) {
     ConnectionMethod.QR_PAIRING -> ConnectionState.Collecting.ScanningQr
-    ConnectionMethod.API_KEY -> ConnectionState.Collecting.ApiKeyEntry
-    ConnectionMethod.LIGHT_MODE -> ConnectionState.Collecting.LightModeEntry
+    ConnectionMethod.API_KEY -> ConnectionState.Collecting.ApiKeyEntry(prefilledBaseUrl)
+    ConnectionMethod.LIGHT_MODE -> ConnectionState.Collecting.LightModeEntry(prefilledBaseUrl)
 }

@@ -99,9 +99,14 @@ private fun SettingsContent(
             // Only the QR method has a surface today, so the disconnected body offers it
             // directly instead of a method chooser.
             ConnectionState.Disconnected,
-            ConnectionState.Collecting.ApiKeyEntry,
-            ConnectionState.Collecting.LightModeEntry,
+            is ConnectionState.Collecting.ApiKeyEntry,
+            is ConnectionState.Collecting.LightModeEntry,
             -> NotConnectedBody(onConnect = { actions.onConnect(ConnectionMethod.QR_PAIRING) })
+            is ConnectionState.Discovered -> DiscoveredBody(
+                state = state,
+                onContinue = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
+                onDismiss = actions.onCancel,
+            )
             ConnectionState.Collecting.ScanningQr -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
                 onQrDetected = actions.onQrDetected,
@@ -127,6 +132,62 @@ private fun SettingsContent(
                 onDisconnect = actions.onDisconnect,
             )
             is ConnectionState.Failed -> FailedBody(onRetry = { actions.onConnect(state.method) })
+        }
+    }
+}
+
+/**
+ * An instance arrived from a `/connect` link, and the user decides what to do about it.
+ *
+ * The link is credential-free — it names an instance and calls nothing — so this is an offer,
+ * not a step in an attempt. What it must say before anything else is how the instance stands to
+ * the one already connected: continuing from here replaces a working connection, and finding
+ * that out afterwards is the wrong order.
+ *
+ * Only the pairing method is offered because only it has a surface today; the address the link
+ * carried travels with the choice regardless, ready for the other two.
+ */
+@Composable
+private fun DiscoveredBody(
+    state: ConnectionState.Discovered,
+    onContinue: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_discovered_title),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        // The address verbatim: it is the one thing the user can check against the poster or
+        // screen they scanned, and paraphrasing it would remove the only means of noticing that
+        // a link pointed somewhere unexpected.
+        Text(text = state.baseUrl, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        Text(
+            text = stringResource(
+                when (state.relation) {
+                    DiscoveredInstance.NEW -> R.string.settings_discovered_new
+                    DiscoveredInstance.ALREADY_CONNECTED -> R.string.settings_discovered_same
+                    DiscoveredInstance.REPLACES_ANOTHER -> R.string.settings_discovered_replaces
+                },
+            ),
+            textAlign = TextAlign.Center,
+        )
+        // Nothing to do on an instance already connected — the link asked for something that is
+        // already true, so the only sensible button is the one that dismisses it.
+        if (state.relation != DiscoveredInstance.ALREADY_CONNECTED) {
+            Button(onClick = onContinue) {
+                Text(stringResource(R.string.settings_discovered_continue))
+            }
+        }
+        TextButton(onClick = onDismiss) {
+            Text(stringResource(R.string.settings_discovered_dismiss))
         }
     }
 }
