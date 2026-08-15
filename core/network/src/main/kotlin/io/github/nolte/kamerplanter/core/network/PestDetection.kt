@@ -141,6 +141,17 @@ enum class RefusedReason {
     /** Past the instance's upload limit — caught locally where possible, else HTTP 422. */
     TOO_LARGE,
 
+    /**
+     * Something in front of the instance refused the body before it arrived (HTTP 413).
+     *
+     * Kept apart from [TOO_LARGE] because the advice differs and one of them is a trap: a
+     * frame over the *instance's* limit may well be smaller next time, since the microscope
+     * retunes per capture — but a reverse proxy's body cap is a fixed number, usually nginx's
+     * 1 MB default, which is under every microscope capture. Offering "try again, the next one
+     * is usually smaller" there is an invitation to a loop that cannot end.
+     */
+    REFUSED_BY_PROXY,
+
     /** The image was not decodable, or the instance rejected it for a reason it did not name. */
     NOT_PROCESSABLE,
 
@@ -178,6 +189,9 @@ data class ConsentTerms(
 sealed interface ConsentOutcome {
     data object Granted : ConsentOutcome
     data object Unauthorized : ConsentOutcome
+
+    /** The credential authenticated but may not record this consent; re-pairing cannot help. */
+    data object NotPermitted : ConsentOutcome
     data class Failed(val reason: String) : ConsentOutcome
 }
 

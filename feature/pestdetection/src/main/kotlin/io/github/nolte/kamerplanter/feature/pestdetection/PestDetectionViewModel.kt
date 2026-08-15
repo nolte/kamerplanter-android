@@ -89,6 +89,7 @@ class PestDetectionViewModel @Inject constructor(
             when (detections.grantConsent(pending.purpose)) {
                 ConsentOutcome.Granted -> checkInstance()
                 ConsentOutcome.Unauthorized -> _state.value = PestDetectionState.Unauthorized
+                ConsentOutcome.NotPermitted -> _state.value = PestDetectionState.NotPermitted
                 is ConsentOutcome.Failed ->
                     _state.value = PestDetectionState.Failed(R.string.pest_failed_consent)
             }
@@ -146,6 +147,10 @@ class PestDetectionViewModel @Inject constructor(
         // Retryable, because the next frame is a different frame: the microscope retunes per
         // capture, so another shot can come back smaller or decodable where this one did not.
         RefusedReason.TOO_LARGE -> PestDetectionState.Failed(R.string.pest_failed_too_large)
+        // No retry: a proxy's body cap is a fixed number, and every capture is over it. The
+        // message names what has to change and who can change it.
+        RefusedReason.REFUSED_BY_PROXY ->
+            PestDetectionState.Failed(R.string.pest_failed_proxy_limit, canRetry = false)
         RefusedReason.NOT_PROCESSABLE ->
             PestDetectionState.Failed(R.string.pest_failed_not_processable)
         // Handled before this function is reached; kept exhaustive so a new reason cannot be

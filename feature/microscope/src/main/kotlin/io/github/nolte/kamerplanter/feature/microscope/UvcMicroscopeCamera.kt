@@ -150,7 +150,6 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     override fun createPreviewView(context: Context): View =
         TextureView(context).apply {
-            val thisView = this
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
                     // Logged on both edges, device included: the surface round trip is
@@ -158,6 +157,16 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     // device is exactly the silent failure worth naming.
                     val device = watcher.currentDevice()
                     Log.i(TAG, "preview surface available at ${width}x$height, device=${device?.deviceName}")
+                    // A second screen's view arriving while a stream still renders into the
+                    // previous one: the handover happens here, explicitly, rather than being
+                    // left to the order in which the outgoing view is destroyed. openStream
+                    // refuses while a session is published, so without this the arriving view
+                    // never gets a stream and shows a black preview over a Streaming state.
+                    val live = session.get()
+                    if (live != null && live.surface !== surface) {
+                        Log.i(TAG, "handing the stream over to a newer preview surface")
+                        closeStream()
+                    }
                     device?.let(watcher::claim)
                 }
 
@@ -166,14 +175,16 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
                     Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
-                    // Only the view the stream is actually rendering into may tear it down.
-                    // A second screen creates its own view and becomes the current one, and
-                    // the outgoing screen's view is destroyed *after* that — so without this
-                    // check the departing view would close the stream the arriving one just
-                    // opened, and closeStream tears down whatever is live regardless of which
-                    // surface asked. Returning true here lets the platform reclaim a surface
-                    // nothing is writing into.
-                    if (previewView !== thisView) return true
+                    // Only the surface the stream actually renders into may tear it down, and
+                    // that is a question about the session, not about which view is newest:
+                    // two screens can each hold a view, and closeStream tears down whatever is
+                    // live regardless of which surface asked. A departing view that closed the
+                    // stream an arriving one had just opened is what this prevents.
+                    //
+                    // Nothing is writing into any other surface, so the platform may reclaim
+                    // those — including when no session exists at all, which is the safe
+                    // default here rather than the dangerous one.
+                    if (session.get()?.surface !== surface) return true
                     // The view itself survives this — the window merely stopped — so the
                     // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native

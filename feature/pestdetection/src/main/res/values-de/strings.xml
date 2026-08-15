@@ -48,6 +48,7 @@
     <string name="pest_failed_unreachable">Deine Instanz war nicht erreichbar. Prüfe, ob sie läuft, und versuch es nochmal.</string>
     <string name="pest_failed_capture">Das Mikroskop hat kein Bild geliefert. Prüfe das Kabel und versuch es nochmal.</string>
     <string name="pest_failed_too_large">Das Foto ist zu groß für deine Instanz. Versuch es nochmal — das nächste Bild ist meist kleiner.</string>
+    <string name="pest_failed_proxy_limit">Das Foto wurde abgewiesen, bevor es deine Instanz erreicht hat — meist die Größenbegrenzung des vorgeschalteten Webservers. Die anzuheben ist eine Änderung am Server.</string>
     <string name="pest_failed_not_processable">Deine Instanz konnte das Foto nicht lesen. Versuch es nochmal.</string>
     <string name="pest_failed_unsupported_type">Deine Instanz nimmt nur JPEG- und PNG-Fotos an, und dieses ist keins von beiden.</string>
     <string name="pest_failed_not_permitted">Dein Konto darf in diesem Mandanten keine Schädlingserkennung ausführen.</string>

@@ -81,8 +81,11 @@ class NetworkPestDetectionClient @Inject constructor(
         ConsentOutcome.Granted
     }.getOrElse { failure ->
         when {
-            failure is HttpFailure && failure.status in setOf(UNAUTHORIZED, FORBIDDEN) ->
-                ConsentOutcome.Unauthorized
+            failure is HttpFailure && failure.status == UNAUTHORIZED -> ConsentOutcome.Unauthorized
+            // Same distinction readiness() makes: a credential that authenticates but may not
+            // record a consent gains nothing from re-pairing, and "connect again" would send
+            // its owner round a loop back to this 403.
+            failure is HttpFailure && failure.status == FORBIDDEN -> ConsentOutcome.NotPermitted
             failure is HttpFailure -> ConsentOutcome.Failed("the instance answered HTTP ${failure.status}")
             else -> ConsentOutcome.Failed(failure::class.simpleName.orEmpty())
         }
@@ -240,12 +243,12 @@ class NetworkPestDetectionClient @Inject constructor(
         fun Throwable.asDetectionFailure(): DetectionOutcome = when {
             this !is HttpFailure -> DetectionOutcome.Unavailable(this::class.simpleName.orEmpty())
             status == UNSUPPORTED_MEDIA_TYPE -> DetectionOutcome.Refused(RefusedReason.UNSUPPORTED_TYPE)
-            // Not the instance's own limit but the reverse proxy in front of it: nginx
-            // defaults to a 1 MB body, which is under every microscope capture, and the local
-            // 8 MB guard never fires for it. Reported as "unreachable" this reads as "your
-            // server is down" when the answer was "too large" — the one failure here a user
-            // can actually act on.
-            status == PAYLOAD_TOO_LARGE -> DetectionOutcome.Refused(RefusedReason.TOO_LARGE)
+            // Not the instance's own limit but whatever sits in front of it: nginx defaults
+            // to a 1 MB body, which is under every microscope capture, and the local 8 MB
+            // guard never fires for it. Reported as "unreachable" this read as "your server is
+            // down" when the answer was "too large" — and it is the one failure here whose fix
+            // is in the operator's hands.
+            status == PAYLOAD_TOO_LARGE -> DetectionOutcome.Refused(RefusedReason.REFUSED_BY_PROXY)
             status == UNPROCESSABLE -> DetectionOutcome.Refused(RefusedReason.NOT_PROCESSABLE)
             status == FORBIDDEN && errorCode == CONSENT_REQUIRED_CODE ->
                 DetectionOutcome.Refused(RefusedReason.CONSENT_MISSING)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -419,14 +420,17 @@ private fun FindingCard(finding: Finding) {
  */
 @Composable
 private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
-    // Decoded off the main thread. Two BitmapFactory passes over a multi-megabyte JPEG during
-    // composition is a visible hitch at the exact moment the flow pays off, and this runs
-    // when the result arrives rather than on a scroll — so it is the one frame the user is
-    // certain to be looking at.
+    // The bounds pass is cheap — inJustDecodeBounds reads the header and allocates no pixels —
+    // so it stays here and gives the layout the aspect ratio up front. Without that the
+    // picture appears late and shoves the findings, the disclaimer and the button down the
+    // screen just as the user starts reading them.
+    val shape = remember(frame) { frame.decodeBounds() } ?: return
+    // The pixels are decoded off the main thread: two BitmapFactory passes over a
+    // multi-megabyte JPEG during composition is a visible hitch at the exact moment this flow
+    // pays off, and it is the one frame the user is certain to be looking at.
     val bitmap by produceState<ImageBitmap?>(initialValue = null, frame) {
         value = withContext(Dispatchers.Default) { frame.decodeSubsampled() }
     }
-    val drawn = bitmap ?: return
     val pestColor = MaterialTheme.colorScheme.error
     val beneficialColor = MaterialTheme.colorScheme.tertiary
     val description = stringResource(R.string.pest_photo_description)
@@ -434,10 +438,12 @@ private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(shape.width.toFloat() / shape.height)
             // One image as far as a screen reader is concerned: the overlay carries no text,
             // and the findings below it say everything the boxes show.
             .clearAndSetSemantics { contentDescription = description },
     ) {
+        val drawn = bitmap ?: return@Box
         Image(
             bitmap = drawn,
             contentDescription = null,
@@ -467,26 +473,41 @@ private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
  * candidate on a low-RAM device, and jank everywhere else.
  */
 private fun ByteArray.decodeSubsampled(): ImageBitmap? {
+    val bounds = decodeBounds() ?: return null
+    val options = BitmapFactory.Options().apply { inSampleSize = sampleSizeFor(bounds.width) }
+    return BitmapFactory.decodeByteArray(this, 0, size, options)?.asImageBitmap()
+}
+
+/** Pixel dimensions of a capture, read from its header without decoding it. */
+private class ImageShape(val width: Int, val height: Int)
+
+private fun ByteArray.decodeBounds(): ImageShape? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(this, 0, size, bounds)
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sampleSizeFor(bounds.outWidth)
+    return if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+        ImageShape(bounds.outWidth, bounds.outHeight)
+    } else {
+        null
     }
-    return BitmapFactory.decodeByteArray(this, 0, size, options)?.asImageBitmap()
 }
 
 /**
  * The subsampling factor for a capture [sourceWidth] pixels wide.
  *
- * Rounded **up** to a power of two, because `BitmapFactory` rounds anything else *down* to
- * one: the arithmetic factor for a 3840-wide frame is 3, which the decoder silently reads as
- * 2, landing at 1920 px and ~14 MB of ARGB_8888 rather than the ~4.5 MB this is asking for.
+ * The smallest power of two that brings the width to [target] or below. A power of two
+ * because `BitmapFactory` rounds anything else *down* to one — the arithmetic factor for a
+ * 3840-wide frame is 3, which the decoder silently reads as 2, so it decodes at 1920 px and
+ * ~14 MB of ARGB_8888 instead of the ~4 MB asked for.
+ *
+ * Smallest, not merely sufficient: doubling once more halves the resolution again, and a
+ * 2160-wide capture would come back at 540 px — a visibly soft picture underneath boxes the
+ * user is looking at closely, which is the opposite of what this screen is for.
  */
 internal fun sampleSizeFor(sourceWidth: Int, target: Int = DISPLAY_TARGET_PX): Int {
     if (sourceWidth <= target) return 1
-    var sample = 1
-    while (sourceWidth / (sample * 2) >= target) sample *= 2
-    return sample * 2
+    var sample = 2
+    while (sourceWidth / sample > target) sample *= 2
+    return sample
 }
 
 @Composable

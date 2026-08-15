@@ -24,6 +24,13 @@ class SampleSizeTest {
         assertEquals(4, sampleSizeFor(3840))
     }
 
+    /** One past the target still needs a halving; one below must not get one. */
+    @Test
+    fun `the boundary either side of the target`() {
+        assertEquals(1, sampleSizeFor(DISPLAY_TARGET_PX))
+        assertEquals(2, sampleSizeFor(DISPLAY_TARGET_PX + 1))
+    }
+
     @Test
     fun `every result is a power of two`() {
         (1..4000 step 7).forEach { width ->
@@ -32,12 +39,28 @@ class SampleSizeTest {
         }
     }
 
-    /** Rounding up is what keeps the decoded width at or under the target it was asked for. */
+    /**
+     * An exact multiple of the target must not be halved once more.
+     *
+     * This is the boundary the loop condition gets wrong when it uses `>=`: 2160 / 2 is
+     * exactly 1080, which is already at the target, so a further halving decodes at 540 px.
+     * The upper-bound assertion below cannot see that — both answers satisfy it.
+     */
     @Test
-    fun `the decoded width never exceeds the target`() {
+    fun `an exact multiple of the target is not subsampled twice`() {
+        assertEquals(2, sampleSizeFor(2160))
+        assertEquals(4, sampleSizeFor(4320))
+    }
+
+    /** Both bounds together: at or under the target, and never further than necessary. */
+    @Test
+    fun `the decoded width lands in the half-open band below the target`() {
         (1..4000 step 7).forEach { width ->
             val decoded = width / sampleSizeFor(width)
             assert(decoded <= DISPLAY_TARGET_PX) { "$width decoded to $decoded, past $DISPLAY_TARGET_PX" }
+            assert(decoded > DISPLAY_TARGET_PX / 2 || width <= DISPLAY_TARGET_PX) {
+                "$width decoded to $decoded — subsampled one step further than needed"
+            }
         }
     }
 }

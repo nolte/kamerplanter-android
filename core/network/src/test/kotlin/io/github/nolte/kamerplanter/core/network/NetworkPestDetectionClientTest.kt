@@ -400,13 +400,27 @@ class NetworkPestDetectionClientTest {
      * that is answering correctly.
      */
     @Test
-    fun `a proxy rejecting the body size is reported as too large`() = runTest {
+    fun `a proxy rejecting the body size is told apart from the instance's own limit`() = runTest {
         statuses[detectPath] = 413
 
         assertEquals(
-            DetectionOutcome.Refused(RefusedReason.TOO_LARGE),
+            DetectionOutcome.Refused(RefusedReason.REFUSED_BY_PROXY),
             client().detect(jpeg(), plantKey = null, language = "en"),
         )
+    }
+
+    /**
+     * The consent write can be refused on its own.
+     *
+     * `readiness()` already separates a 403 from a 401; this method used to fold them back
+     * together, so a credential that authenticates but may not record a consent was told to
+     * re-pair — which returns it to the same 403.
+     */
+    @Test
+    fun `a consent the credential may not record is not a refused credential`() = runTest {
+        statuses[consentsPath] = 403
+
+        assertEquals(ConsentOutcome.NotPermitted, client().grantConsent("pest_detection_cloud"))
     }
 
     @Test
