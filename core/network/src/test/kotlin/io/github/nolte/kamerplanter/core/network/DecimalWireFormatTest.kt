@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.core.network
 
+import io.github.nolte.kamerplanter.core.network.generated.models.LocationResponse
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -13,17 +14,19 @@ import org.junit.Test
 import java.math.BigDecimal
 
 /**
- * Pins the one promise [DecimalWireFormat] makes that no other test can reach.
+ * The three things [DecimalWireFormat] refuses, none of which any other test reaches.
  *
- * The serializer works by reading and writing raw JSON tokens, which is the only way to keep a
- * decimal exact — and that makes it useless to any other format. It says so by throwing. Two
- * earlier versions instead fell back to `decodeString`/`decodeDouble`, and both looked
- * plausible while quietly doing the wrong thing; the double-based one would have rounded every
- * value past a `Double`, reintroducing the very defect this class exists to fix.
+ * Two of them are values an instance could send where a decimal belongs — a string that is not
+ * a number, and a composite. Coercing either to `0` would be the worst available answer: a
+ * zero area, volume or confidence reads as a measurement.
  *
- * No non-JSON format is on this module's classpath, so nothing else exercises that branch. A
- * minimal encoder and decoder stand in for one, which is what makes the promise testable at
- * all rather than merely asserted in a comment.
+ * The third is being used by a format that is not JSON. The serializer works by reading and
+ * writing raw JSON tokens, which is the only way to keep a decimal exact, and that makes it
+ * useless elsewhere; two earlier versions instead fell back to `decodeString`/`decodeDouble`,
+ * both plausible-looking and both quietly wrong — the double-based one would have rounded every
+ * value past a `Double`, reintroducing the defect this class exists to fix. No non-JSON format
+ * is on this module's classpath, so a minimal encoder and decoder stand in for one, which is
+ * what makes that promise testable rather than merely asserted in a comment.
  */
 class DecimalWireFormatTest {
 
@@ -48,16 +51,21 @@ class DecimalWireFormatTest {
     }
 
     /**
-     * A value the instance sends that is not a decimal at all.
+     * A value the instance sends where a decimal belongs.
      *
-     * Refused rather than coerced. A silent `0` here would be the worst available answer: an
-     * area, a volume or a confidence of zero reads as a real measurement, and nothing
-     * downstream could tell it apart from one.
+     * Refused rather than coerced. A silent `0` would be the worst available answer: an area, a
+     * volume or a confidence of zero reads as a real measurement, and nothing downstream could
+     * tell it apart from one.
+     *
+     * Driven through a generated DTO rather than through the serializer directly, so the
+     * registration is part of what is under test: handing `decodeFromString` an explicit
+     * serializer bypasses the contextual lookup entirely, and a test that did so would keep
+     * passing if [DecimalWireFormat] stopped being the serializer this app actually uses.
      */
     @Test
-    fun `refuses a JSON value that is not a decimal`() {
+    fun `refuses a value that is not a decimal`() {
         val thrown = assertThrows(SerializationException::class.java) {
-            json.decodeFromString(DecimalWireFormat, "\"n/a\"")
+            json.decodeFromString<LocationResponse>(location("\"n/a\""))
         }
 
         assertMessageContains(thrown, "'n/a' is not a decimal")
@@ -65,20 +73,38 @@ class DecimalWireFormatTest {
 
     /** Likewise for a shape that is not a scalar at all. */
     @Test
-    fun `refuses a composite JSON value`() {
+    fun `refuses a composite value where a decimal belongs`() {
         val thrown = assertThrows(SerializationException::class.java) {
-            json.decodeFromString(DecimalWireFormat, "{\"value\": 12.5}")
+            json.decodeFromString<LocationResponse>(location("{\"value\": 12.5}"))
         }
 
         assertMessageContains(thrown, "got a composite value")
     }
 
+    private fun location(area: String) = """
+        {
+          "key": "loc-1",
+          "name": "Living room",
+          "site_key": "site-1",
+          "area_m2": $area,
+          "dimensions": [],
+          "irrigation_system": "manual",
+          "light_type": "natural",
+          "orientation": null
+        }
+    """.trimIndent()
+
     /**
-     * Asserted on the message rather than only on the type, and that is load-bearing here: the
-     * stand-in encoder and decoder below throw `SerializationException` of their own for
-     * anything they are asked to handle, so `assertThrows` alone passes even when the
-     * serializer stops refusing — measured, not assumed. The message is what tells "the
-     * serializer declined" apart from "the stand-in declined".
+     * Asserted on the message rather than only on the type, for two different reasons.
+     *
+     * For the format tests, the type proves nothing at all: the stand-ins below throw
+     * `SerializationException` of their own for any value they are asked to handle, so
+     * `assertThrows` passes even with the fallbacks restored — measured, not assumed. For the
+     * value tests, a `SerializationException` is what kotlinx raises for a dozen unrelated
+     * reasons on a malformed document, so the type would not distinguish this serializer
+     * refusing from the parser giving up somewhere else in the same object.
+     *
+     * Either way the message is the assertion; deleting it leaves four tests that cannot fail.
      */
     private fun assertMessageContains(thrown: SerializationException, expected: String) {
         val message = thrown.message.orEmpty()
@@ -99,7 +125,7 @@ class DecimalWireFormatTest {
         override val serializersModule: SerializersModule = EmptySerializersModule()
     }
 
-    /** Likewise, and never consulted: the refusal comes before any read. */
+    /** Likewise, and never consulted — its `error(…)` would report an unrelated failure. */
     @OptIn(ExperimentalSerializationApi::class)
     private class NotJsonDecoder : AbstractDecoder() {
         override val serializersModule: SerializersModule = EmptySerializersModule()

@@ -93,6 +93,16 @@ class NetworkPlantsClientTest {
         thumbnailBudgetMillis = thumbnailBudgetMillis,
     )
 
+    /**
+     * A plant as `GET /plant-instances` returns it.
+     *
+     * `container_volume_liters` carries a bare number deliberately, and that one line is doing
+     * most of the work in this class. The field is the fatal one — it sits on the response
+     * whose failure sinks the whole list — and the generated decimal adapter cannot read an
+     * unquoted number. Measured: with the app's decimal serializer removed, thirteen tests here
+     * go red with this line and one without it. Dropping it, or quoting the value, restores a
+     * blind spot that already shipped once.
+     */
     private fun plant(
         key: String,
         name: String? = "Monstera",

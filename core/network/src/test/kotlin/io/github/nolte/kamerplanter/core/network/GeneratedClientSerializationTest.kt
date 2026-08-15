@@ -143,15 +143,17 @@ class GeneratedClientSerializationTest {
     /**
      * An explicitly null decimal.
      *
-     * `container_volume_liters` is `float | None` upstream, so the field arrives as JSON `null`
-     * for most plants — the ordinary case rather than an edge one, and the one this PR's own
-     * fixture stopped covering when it gave the field a value. The sibling case, an older
-     * backend omitting the field entirely, is covered by `defaults the optional fields an older
-     * backend omits`.
+     * `container_volume_liters` is `float | None` upstream, so JSON `null` is one of the two
+     * spellings an instance can legitimately send for it — and the only one no test covered:
+     * the fixture above has always carried a value, and `defaults the optional fields an older
+     * backend omits` covers the field being absent.
      *
      * This pins the outcome, not the route: kotlinx short-circuits a nullable element before
      * consulting the serializer, so [DecimalWireFormat] is never asked — which no test can
-     * demonstrate from the outside, and which this one therefore does not claim to.
+     * demonstrate from the outside, and which this one therefore does not claim to. What it is
+     * worth is R-COMPAT: `JsonNull` *is* a `JsonPrimitive` whose content reads `"null"`, so a
+     * future change that routed nullable elements through the serializer would turn every
+     * plant without a container volume into a failed response, and this is what would say so.
      */
     @Test
     fun `an explicitly null decimal decodes to null`() {
