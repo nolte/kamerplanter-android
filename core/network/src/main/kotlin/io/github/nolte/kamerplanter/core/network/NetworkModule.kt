@@ -24,11 +24,14 @@ object NetworkModule {
      * This builder — not the generated `Serializer.kotlinxSerializationJson` — is what the
      * app injects, so the app owns its parsing policy rather than inheriting whatever the
      * generator's template happens to set. The generator's [SerializersModule] [Serializer] is
-     * adopted wholesale — the DTOs annotate temporal, decimal and several other fields
-     * `@Contextual`, and without those adapters every response carrying a date fails to
-     * deserialize — with exactly one entry replaced below: its decimal adapter cannot read what
-     * the backend sends. Dropping that override restores a defect that costs whole responses
-     * rather than single fields.
+     * adopted wholesale, with exactly one entry replaced below: its decimal adapter cannot read
+     * what the backend sends, and dropping that override restores a defect that costs whole
+     * responses rather than single fields.
+     *
+     * What the adopted module is actually load-bearing for is the temporal adapters — discard
+     * it entirely and three tests fail, all of them on a `LocalDate` or an `OffsetDateTime`.
+     * The `@Contextual` enums do *not* depend on it, which the test below named `decodes a
+     * contextual enum that carries no adapter of its own` is there to say.
      *
      * `ignoreUnknownKeys` is the setting actually carrying R-COMPAT-1 today.
      * `coerceInputValues` is declared because R-COMPAT-1 names it, but it changes nothing

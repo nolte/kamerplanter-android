@@ -95,16 +95,20 @@ class DecimalWireFormatTest {
     """.trimIndent()
 
     /**
-     * Asserted on the message rather than only on the type, for two different reasons.
+     * Asserted on the message rather than only on the type — measured per test, because it
+     * carries a different amount of weight in each.
      *
-     * For the format tests, the type proves nothing at all: the stand-ins below throw
-     * `SerializationException` of their own for any value they are asked to handle, so
-     * `assertThrows` passes even with the fallbacks restored — measured, not assumed. For the
-     * value tests, a `SerializationException` is what kotlinx raises for a dozen unrelated
-     * reasons on a malformed document, so the type would not distinguish this serializer
-     * refusing from the parser giving up somewhere else in the same object.
+     * For the two **format** tests it is the whole assertion: the stand-ins below throw
+     * `SerializationException` of their own for any value they are handed, so `assertThrows`
+     * passes even with the old fallbacks restored. Neutralise this helper and those two tests
+     * cannot fail at all.
      *
-     * Either way the message is the assertion; deleting it leaves four tests that cannot fail.
+     * For the two **value** tests it is narrower than it looks. Against a serializer that
+     * coerced instead of refusing, `assertThrows` alone would catch it — nothing is thrown.
+     * What the message adds is the case where *another* decimal serializer refuses on the same
+     * field: drop the registration and the composite value still raises a
+     * `SerializationException`, from the generated adapter, on `$.area_m2`. Only the wording
+     * separates "this serializer declined" from "some other one did".
      */
     private fun assertMessageContains(thrown: SerializationException, expected: String) {
         val message = thrown.message.orEmpty()
