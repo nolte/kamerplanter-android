@@ -52,7 +52,16 @@ class PlantListViewModel @Inject constructor(
             connections.connection
                 // Only a *change* of instance matters. DataStore re-emits on every write, and
                 // an unrelated write would otherwise restart the load and blank the list.
-                .distinctUntilChanged { old, new -> old.addresses() == new.addresses() }
+                //
+                // Keyed on the address *and* on whether the screen is currently stuck: after
+                // a refused credential, re-pairing with the same instance and tenant produces
+                // an identical address, so keying on the address alone would suppress the
+                // emission and leave the list reporting a rejected credential forever. The
+                // only way out would be killing the process — the tab's ViewModel survives
+                // navigation, and that state offers no retry by design.
+                .distinctUntilChanged { old, new ->
+                    old.addresses() == new.addresses() && !credentialWasRejected()
+                }
                 .collect { connection ->
                     loading?.cancel()
                     if (connection == null) {
@@ -63,6 +72,9 @@ class PlantListViewModel @Inject constructor(
                 }
         }
     }
+
+    private fun credentialWasRejected(): Boolean =
+        (_state.value as? PlantListState.Failed)?.credentialRejected == true
 
     /** Re-runs the load; the screen offers this after a failure. */
     fun retry() {

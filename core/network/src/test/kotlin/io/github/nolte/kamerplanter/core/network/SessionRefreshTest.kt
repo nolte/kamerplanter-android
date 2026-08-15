@@ -4,12 +4,11 @@ import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.FakeConnectionStore
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
 import io.github.nolte.kamerplanter.core.network.generated.apis.TenantsApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -364,17 +363,3 @@ private val STALE_SESSION = Credential.Session(
 /** The credential lookup the factory takes; blocking is what the interceptor does too. */
 private fun runCatchingBlocking(store: CredentialStore): Credential =
     kotlinx.coroutines.runBlocking { store.load() }
-
-private class FakeConnectionStore(initial: Connection?) : ConnectionStore {
-    private val flow = MutableStateFlow(initial)
-    override val connection: Flow<Connection?> = flow
-    val current: Connection? get() = flow.value
-
-    override suspend fun save(connection: Connection) {
-        flow.value = connection
-    }
-
-    override suspend fun clear() {
-        flow.value = null
-    }
-}

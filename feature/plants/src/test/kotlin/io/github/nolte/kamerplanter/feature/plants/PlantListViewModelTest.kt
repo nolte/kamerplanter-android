@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.feature.plants
 
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
+import io.github.nolte.kamerplanter.core.connection.FakeConnectionStore
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
 import io.github.nolte.kamerplanter.core.network.PlantListOutcome
@@ -10,8 +11,6 @@ import io.github.nolte.kamerplanter.core.network.PlantsClient
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -42,7 +41,7 @@ class PlantListViewModelTest {
         plants = client,
         // Not exercised by these tests — they assert state transitions, not image loading —
         // but the ViewModel hands it to the screen, so it has to be real.
-        imageClient = AuthenticatedImageClient(OkHttpClient(), InMemoryCredentialStore()),
+        imageClient = AuthenticatedImageClient(OkHttpClient(), InMemoryCredentialStore(), store),
         connections = store,
     )
 
@@ -141,6 +140,29 @@ class PlantListViewModelTest {
     }
 
     /**
+     * The dead end. After a refused credential the screen offers only "Go to Settings" — a
+     * retry cannot fix it — so the way back is re-pairing. Re-pairing the *same* instance and
+     * tenant produces an identical address, and the tab's ViewModel survives the navigation,
+     * so keying the reload on the address alone left the list reporting a rejected credential
+     * until the process was killed.
+     */
+    @Test
+    fun `re-pairing the same instance recovers from a rejected credential`() = runTest(dispatcher) {
+        val client = StubPlantsClient(PlantListOutcome.Unauthorized)
+        val store = FakeConnectionStore(CONNECTED)
+        val viewModel = viewModel(client = client, store = store)
+        advanceUntilIdle()
+        assertEquals(PlantListState.Failed(credentialRejected = true), viewModel.state.value)
+
+        // Same base URL, same tenant — exactly what re-pairing with the same instance writes.
+        client.outcome = PlantListOutcome.Loaded(listOf(MONSTERA))
+        store.set(CONNECTED.copy(identity = "gardener@example.org"))
+        advanceUntilIdle()
+
+        assertEquals(PlantListState.Content(listOf(MONSTERA)), viewModel.state.value)
+    }
+
+    /**
      * A slow load against the previous instance must not land after the new one and put the
      * old tenant's plants on screen.
      */
@@ -207,22 +229,5 @@ private class GatedPlantsClient : PlantsClient {
 
     fun release(call: Int, outcome: PlantListOutcome) {
         gates[call].complete(outcome)
-    }
-}
-
-private class FakeConnectionStore(initial: Connection?) : ConnectionStore {
-    private val flow = MutableStateFlow(initial)
-    override val connection: Flow<Connection?> = flow
-
-    fun set(connection: Connection?) {
-        flow.value = connection
-    }
-
-    override suspend fun save(connection: Connection) {
-        flow.value = connection
-    }
-
-    override suspend fun clear() {
-        flow.value = null
     }
 }

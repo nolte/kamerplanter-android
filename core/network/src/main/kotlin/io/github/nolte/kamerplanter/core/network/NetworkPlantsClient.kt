@@ -3,7 +3,6 @@ package io.github.nolte.kamerplanter.core.network
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
-import io.github.nolte.kamerplanter.core.network.generated.apis.CareRemindersApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.LocationsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantInstancesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
@@ -14,8 +13,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
 import retrofit2.Retrofit
+import retrofit2.http.GET
+import retrofit2.http.Path
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -53,7 +59,12 @@ class NetworkPlantsClient @Inject constructor(
         loadFor(retrofit, tenant, connection.baseUrl)
     }.getOrElse { failure ->
         when {
-            failure is HttpFailure && failure.status == HTTP_UNAUTHORIZED -> PlantListOutcome.Unauthorized
+            // 403 belongs here with 401: it means the credential authenticated but may not
+            // read this tenant — an API key whose scope no longer covers it, say. Retrying
+            // cannot fix either, so both send the user to Settings rather than to a button
+            // that will never succeed.
+            failure is HttpFailure && failure.status in CREDENTIAL_REFUSED ->
+                PlantListOutcome.Unauthorized
             failure is HttpFailure -> PlantListOutcome.Unavailable(
                 "the instance answered HTTP ${failure.status}",
             )
@@ -76,6 +87,12 @@ class NetworkPlantsClient @Inject constructor(
             // Removed instances come back from this endpoint too. A list that mixes dead
             // plants into living ones answers the wrong question, and without a filter row
             // there is nowhere to opt back in.
+            //
+            // Filtered client-side because the endpoint offers no parameter for it, which
+            // means removed plants consume page slots: a tenant with more than PAGE_SIZE of
+            // them would show an empty list indistinguishable from having no plants. Rare
+            // enough to accept for now, and it disappears the moment the endpoint grows the
+            // filters #9 wants anyway.
             .filter { it.removedOn == null }
 
         // Only the sites the plants actually sit in — resolving a tenant's full site list
@@ -93,7 +110,12 @@ class NetworkPlantsClient @Inject constructor(
 
         val locations = locationNames.await()
         val care = careActions.await()
-        val covers = thumbnails.awaitAll().toMap()
+        // Photos are enrichment like the other two, but unlike them they are per-plant: two
+        // hundred of them at six at a time is thirty-odd serialized waves, and awaiting them
+        // all would hold the entire list behind the slowest one. Bounded by the same budget
+        // the whole load gets, after which the rows render with placeholders.
+        val covers = withTimeoutOrNull(THUMBNAIL_BUDGET_MILLIS) { thumbnails.awaitAll().toMap() }
+            ?: emptyMap()
 
         PlantListOutcome.Loaded(
             plants
@@ -141,22 +163,38 @@ class NetworkPlantsClient @Inject constructor(
             .fold(emptyMap()) { all, ofSite -> all + ofSite }
     }
 
-    /** One tenant-wide call that joins onto rows by `plant_key`. */
+    /**
+     * One tenant-wide call that joins onto rows by `plant_key`.
+     *
+     * Read as raw JSON and decoded one entry at a time, rather than as the generated
+     * `List<CareDashboardEntryResponse>`. `reminder_type` is a generated enum, and this
+     * repository's own `GeneratedClientSerializationTest` pins what that means: a value this
+     * build has never heard of throws for the **whole response**, not for the one field. A
+     * server one release ahead adding a reminder kind would therefore cost every plant in
+     * the tenant its badge, silently, because the failure is swallowed here.
+     *
+     * Per entry, that same unknown kind costs exactly the plant it belongs to (R-COMPAT-3).
+     */
     private suspend fun Retrofit.careActions(tenant: String): Map<String, CareAction> =
         runCatchingCancellable {
-            create(CareRemindersApi::class.java)
-                .getCareDashboardApiV1TTenantSlugCareRemindersDashboardGet(tenantSlug = tenant)
+            create(RawCareDashboardApi::class.java)
+                .dashboard(tenantSlug = tenant)
                 .bodyOrThrow()
-                .associate {
-                    it.plantKey to CareAction(
-                        // `.value` rather than `.name`: the wire spelling is what the UI maps
-                        // to a label, and it survives an enum this build does not know.
-                        kind = it.reminderType.value,
-                        urgency = it.urgency,
-                        dueDate = it.dueDate,
-                    )
-                }
+                .mapNotNull { entry -> entry.asCareAction() }
+                .toMap()
         }.getOrElse { emptyMap() }
+
+    /**
+     * The care dashboard as raw JSON.
+     *
+     * Deliberately not the generated `CareRemindersApi`: its `List<CareDashboardEntryResponse>`
+     * is all-or-nothing, and the whole point here is to lose one entry instead of all of them.
+     */
+    private interface RawCareDashboardApi {
+
+        @GET("api/v1/t/{tenant_slug}/care-reminders/dashboard")
+        suspend fun dashboard(@Path("tenant_slug") tenantSlug: String): Response<JsonArray>
+    }
 
     /**
      * The small thumbnail of the plant's cover photo.
@@ -186,12 +224,40 @@ class NetworkPlantsClient @Inject constructor(
          */
         const val PAGE_SIZE = 200
         const val FETCH_CONCURRENCY = 6
-        const val HTTP_UNAUTHORIZED = 401
+
+        /**
+         * How long the list waits for cover photos before rendering without them. A row with
+         * a placeholder is a usable row; a spinner that lasts until the last of two hundred
+         * photo requests answers is not.
+         */
+        const val THUMBNAIL_BUDGET_MILLIS = 4_000L
+
+        /** Statuses a retry cannot fix, because they are about the credential. */
+        val CREDENTIAL_REFUSED = setOf(401, 403)
 
         fun <T> Response<T>.bodyOrThrow(): T {
             if (!isSuccessful) throw HttpFailure(code())
             return body() ?: throw HttpFailure(code())
         }
+
+        /**
+         * One dashboard entry, or `null` where it cannot be read.
+         *
+         * Hand-parsed rather than deserialized so a `reminder_type` this build does not know
+         * costs one badge instead of every badge in the tenant. `plant_key`, `reminder_type`
+         * and `urgency` are the fields a row needs; an entry missing any of them is not
+         * usable and is dropped.
+         */
+        fun JsonElement.asCareAction(): Pair<String, CareAction>? {
+            val fields = this as? JsonObject ?: return null
+            val plantKey = fields.text("plant_key") ?: return null
+            val kind = fields.text("reminder_type") ?: return null
+            val urgency = fields.text("urgency") ?: return null
+            return plantKey to CareAction(kind = kind, urgency = urgency, dueDate = fields.text("due_date"))
+        }
+
+        fun JsonObject.text(name: String): String? =
+            (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
         /** `plant_name` is nullable, and a blank one is as unusable as a missing one. */
         fun PlantResponse.displayName(): String =

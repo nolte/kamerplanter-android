@@ -36,7 +36,11 @@ dependencies {
     // DTO and no OkHttp type crosses into this module (ADR 0001, R-GEN-5) — the one exception
     // is the OkHttpClient handed to Coil below, which carries the credential to thumbnail
     // requests and never appears in this module's own API.
-    implementation(project(":core:network"))
+    //
+    // `api`, not `implementation`: PlantListState.Content carries List<PlantSummary> and the
+    // ViewModel exposes AuthenticatedImageClient, so both are part of this module's own
+    // surface and have to travel with the dependency.
+    api(project(":core:network"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)

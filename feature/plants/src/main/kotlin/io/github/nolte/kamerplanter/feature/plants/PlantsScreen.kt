@@ -217,6 +217,7 @@ private fun PlantThumbnail(plant: PlantSummary, imageLoader: ImageLoader?) {
 @Composable
 private fun CareBadge(action: CareAction) {
     val label = stringResource(action.labelRes())
+    val alert = stringResource(R.string.plants_care_description, label)
     AssistChip(
         onClick = {},
         enabled = false,
@@ -233,10 +234,12 @@ private fun CareBadge(action: CareAction) {
             disabledLabelColor = MaterialTheme.colorScheme.onErrorContainer,
             disabledLeadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer,
         ),
-        // The chip is a status indicator, not a control: one description for the whole thing
-        // reads as "Needs attention: Water" rather than as a disabled button.
+        // The chip is a status indicator, not a control, and clearAndSetSemantics also
+        // removes the icon's own semantics — so this one description has to carry what the
+        // icon and the colour convey to everyone else. "Water" alone would tell a screen
+        // reader the plant's name and then a bare verb, with nothing marking it as an alert.
         modifier = Modifier.clearAndSetSemantics {
-            contentDescription = "$label"
+            contentDescription = alert
         },
     )
 }

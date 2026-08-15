@@ -1,11 +1,9 @@
 package io.github.nolte.kamerplanter.core.network
 
 import io.github.nolte.kamerplanter.core.connection.Connection
-import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
+import io.github.nolte.kamerplanter.core.connection.FakeConnectionStore
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -53,9 +51,22 @@ class NetworkPlantsClientTest {
     @After
     fun tearDown() = server.shutdown()
 
+    /** A factory whose refresh path is inert: these tests are about the joins, not sessions. */
+    private fun plantsApiFactory(): InstanceApiFactory {
+        val http = OkHttpClient()
+        val json = NetworkModule.provideJson()
+        return InstanceApiFactory(
+            httpClient = http,
+            json = json,
+            tokenRefresh = TokenRefreshAuthenticator(
+                SessionRefresher(http, json, InMemoryCredentialStore(), FakeConnectionStore()),
+            ),
+        )
+    }
+
     private fun client(credential: Credential = Credential.ApiKey("kp_sk_x")) =
         NetworkPlantsClient(
-            apis = InstanceApiFactory(OkHttpClient(), NetworkModule.provideJson()),
+            apis = plantsApiFactory(),
             connections = FakeConnectionStore(
                 Connection.ApiKey(
                     baseUrl = server.url("/").toString(),
@@ -237,6 +248,56 @@ class NetworkPlantsClientTest {
         assertEquals(1, requestedPaths.count { it == "/api/v1/t/demo/locations" })
     }
 
+    /**
+     * The care dashboard is decoded entry by entry, so a reminder kind this build has never
+     * heard of costs the plant it belongs to and nothing else. Decoded as a whole — which is
+     * what the generated `List<CareDashboardEntryResponse>` does — the unknown enum throws
+     * for the entire response and every plant in the tenant silently loses its badge.
+     */
+    @Test
+    fun `an unknown reminder kind costs one badge, not all of them`() = runTest {
+        givenPlants(plant("p1", name = "Known"), plant("p2", name = "Novel"))
+        givenLocations()
+        givenNoPhotos("p1", "p2")
+        responses["/api/v1/t/demo/care-reminders/dashboard"] =
+            """[{"care_profile_key":"cp1","plant_key":"p1","plant_name":"Known",
+                 "reminder_type":"watering","urgency":"due"},
+                {"care_profile_key":"cp2","plant_key":"p2","plant_name":"Novel",
+                 "reminder_type":"invented_next_release","urgency":"due"}]"""
+
+        val rows = loaded().associateBy { it.displayName }
+
+        assertEquals("watering", rows.getValue("Known").careAction?.kind)
+        // The unknown kind still produces a badge — the UI maps anything it does not
+        // recognise to "needs attention" rather than dropping the row's care state.
+        assertEquals("invented_next_release", rows.getValue("Novel").careAction?.kind)
+    }
+
+    /** An entry missing the fields a row needs is dropped, not allowed to sink the rest. */
+    @Test
+    fun `a malformed dashboard entry does not take the others with it`() = runTest {
+        givenPlants(plant("p1", name = "Fine"))
+        givenLocations()
+        givenNoPhotos("p1")
+        responses["/api/v1/t/demo/care-reminders/dashboard"] =
+            """[{"nonsense":true},
+                {"care_profile_key":"cp1","plant_key":"p1","plant_name":"Fine",
+                 "reminder_type":"watering","urgency":"due"}]"""
+
+        assertEquals("watering", loaded().single().careAction?.kind)
+    }
+
+    /**
+     * 403 means the credential authenticated but may not read this tenant — an API key whose
+     * scope no longer covers it. A retry button cannot fix that; Settings can.
+     */
+    @Test
+    fun `a forbidden response routes to reconnecting rather than to a retry`() = runTest {
+        statuses["/api/v1/t/demo/plant-instances"] = 403
+
+        assertEquals(PlantListOutcome.Unauthorized, client().loadPlants())
+    }
+
     /** A refused credential has to be told apart from an unreachable instance. */
     @Test
     fun `reports a rejected credential distinctly`() = runTest {
@@ -256,23 +317,12 @@ class NetworkPlantsClientTest {
     @Test
     fun `a light-mode connection has no plants to load`() = runTest {
         val lightMode = NetworkPlantsClient(
-            apis = InstanceApiFactory(OkHttpClient(), NetworkModule.provideJson()),
+            apis = plantsApiFactory(),
             connections = FakeConnectionStore(Connection.LightMode(server.url("/").toString())),
             credentials = InMemoryCredentialStore(),
         )
 
         assertTrue(lightMode.loadPlants() is PlantListOutcome.Unavailable)
         assertTrue(requestedPaths.isEmpty())
-    }
-}
-
-private class FakeConnectionStore(initial: Connection?) : ConnectionStore {
-    private val flow = MutableStateFlow(initial)
-    override val connection: Flow<Connection?> = flow
-    override suspend fun save(connection: Connection) {
-        flow.value = connection
-    }
-    override suspend fun clear() {
-        flow.value = null
     }
 }
