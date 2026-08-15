@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="plants_loading">Deine Pflanzen werden geladen…</string>
+
+    <string name="plants_not_connected_title">Nicht verbunden</string>
+    <string name="plants_not_connected_body">Verbinde die App mit deiner kamerplanter-Instanz, um hier deine Pflanzen zu sehen.</string>
+    <string name="plants_not_connected_action">Zu den Einstellungen</string>
+
+    <string name="plants_empty_title">Noch keine Pflanzen</string>
+    <string name="plants_empty_body">Sobald du Pflanzen in deiner kamerplanter-Instanz anlegst, erscheinen sie hier.</string>
+
+    <string name="plants_failed_title">Pflanzen konnten nicht geladen werden</string>
+    <string name="plants_failed_body">Die Instanz war nicht erreichbar. Prüfe, ob sie läuft, und versuche es erneut.</string>
+    <string name="plants_failed_retry">Erneut versuchen</string>
+
+    <string name="plants_rejected_title">Verbindung nicht mehr gültig</string>
+    <string name="plants_rejected_body">Deine Instanz hat die gespeicherte Anmeldung abgelehnt. Verbinde dich erneut, um fortzufahren.</string>
+
+    <string name="plants_photo_description">Foto von %1$s</string>
+    <string name="plants_photo_missing_description">Kein Foto von %1$s</string>
+
+    <string name="plants_care_watering">Gießen</string>
+    <string name="plants_care_fertilizing">Düngen</string>
+    <string name="plants_care_repotting">Umtopfen</string>
+    <string name="plants_care_pest_check">Auf Schädlinge prüfen</string>
+    <string name="plants_care_other">Braucht Aufmerksamkeit</string>
+    <string name="plants_care_description">Braucht Aufmerksamkeit: %1$s</string>
+</resources>

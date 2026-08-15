@@ -6,10 +6,12 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkConnectionClient
+import io.github.nolte.kamerplanter.core.network.NetworkPlantsClient
+import io.github.nolte.kamerplanter.core.network.PlantsClient
 import javax.inject.Singleton
 
 /**
- * Binds the one real [ConnectionClient].
+ * Binds this module's app-facing clients to their networking implementations.
  *
  * One binding for every build variant, replacing the debug/release split in
  * `:feature:settings` (R34). That split existed only because no implementation existed: the
@@ -24,4 +26,8 @@ internal interface ConnectionClientModule {
     @Binds
     @Singleton
     fun bindConnectionClient(impl: NetworkConnectionClient): ConnectionClient
+
+    @Binds
+    @Singleton
+    fun bindPlantsClient(impl: NetworkPlantsClient): PlantsClient
 }
