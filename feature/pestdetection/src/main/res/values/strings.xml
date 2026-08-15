@@ -13,6 +13,8 @@
     <string name="pest_rejected_title">Connection no longer accepted</string>
     <string name="pest_rejected_body">Your instance refused the stored credential. Connect again to continue.</string>
 
+    <string name="pest_not_permitted_title">Not allowed for your account</string>
+
     <!-- Consent. The image leaves the instance for an external service, so this is asked
          before the camera opens, never after a photo has been taken.
 

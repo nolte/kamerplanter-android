@@ -150,6 +150,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
     override fun createPreviewView(context: Context): View =
         TextureView(context).apply {
+            val thisView = this
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
                     // Logged on both edges, device included: the surface round trip is
@@ -165,6 +166,14 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
                     Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
+                    // Only the view the stream is actually rendering into may tear it down.
+                    // A second screen creates its own view and becomes the current one, and
+                    // the outgoing screen's view is destroyed *after* that — so without this
+                    // check the departing view would close the stream the arriving one just
+                    // opened, and closeStream tears down whatever is live regardless of which
+                    // surface asked. Returning true here lets the platform reclaim a surface
+                    // nothing is writing into.
+                    if (previewView !== thisView) return true
                     // The view itself survives this — the window merely stopped — so the
                     // reference stays and onSurfaceTextureAvailable can reopen on return.
                     // false: the platform must not reclaim the surface while the native
@@ -179,7 +188,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
             previewViewRef = WeakReference(this)
         }
 
+    /** See [Holders]: two screens can hold this singleton at once, and they overlap. */
+    private val holders = Holders()
+
     override fun start() {
+        if (!holders.acquire()) return
         if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
             watcher.start()
         } else {
@@ -188,6 +201,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
     }
 
     override fun stop() {
+        if (!holders.release()) return
         closeStream()
         watcher.stop()
         // The preview view is deliberately kept. It is held weakly, so it cannot pin the

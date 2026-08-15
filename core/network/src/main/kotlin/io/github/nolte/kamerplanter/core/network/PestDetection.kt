@@ -105,6 +105,14 @@ sealed interface DetectionReadiness {
     /** The stored credential was refused — the connection needs re-establishing. */
     data object Unauthorized : DetectionReadiness
 
+    /**
+     * The credential authenticated, but may not run detections in this tenant.
+     *
+     * Separate from [Unauthorized] because the way out differs: reconnecting cannot widen a
+     * scope, so telling this user to re-pair sends them round a loop that ends where it began.
+     */
+    data object NotPermitted : DetectionReadiness
+
     /** Anything else: unreachable instance, server error, malformed answer. */
     data class Unavailable(val reason: String) : DetectionReadiness
 }

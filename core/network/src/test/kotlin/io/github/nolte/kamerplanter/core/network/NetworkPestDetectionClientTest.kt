@@ -165,6 +165,21 @@ class NetworkPestDetectionClientTest {
         assertEquals(DetectionReadiness.Unauthorized, client().readiness())
     }
 
+    /**
+     * A 403 here is not a refused credential, and this method used to say it was.
+     *
+     * An API key that authenticates but whose scope excludes pest detection answers 403. Told
+     * "your connection is no longer accepted, connect again", its owner re-pairs a connection
+     * that works perfectly — and lands back on the same 403. `detect()` already made this
+     * distinction; `readiness()` contradicted it two methods away.
+     */
+    @Test
+    fun `a credential that may not run detections is told apart from a refused one`() = runTest {
+        statuses[statusPath] = 403
+
+        assertEquals(DetectionReadiness.NotPermitted, client().readiness())
+    }
+
     @Test
     fun `without a connection there is nothing to ask`() = runTest {
         assertEquals(DetectionReadiness.NotConnected, client(connected = false).readiness())
@@ -373,6 +388,25 @@ class NetworkPestDetectionClientTest {
 
         assertEquals(DetectionOutcome.Refused(RefusedReason.NOT_PROCESSABLE), outcome)
         assertTrue(pathsHit().isEmpty())
+    }
+
+    /**
+     * The rejection a self-hoster actually meets.
+     *
+     * nginx defaults to a 1 MB request body, which is under every microscope capture, and it
+     * answers 413 before the instance sees anything — so the local 8 MB guard never fires and
+     * the instance's own limit is never consulted. Left unmapped this reads as "your instance
+     * could not be reached. Check that it is running", which sends someone to debug a server
+     * that is answering correctly.
+     */
+    @Test
+    fun `a proxy rejecting the body size is reported as too large`() = runTest {
+        statuses[detectPath] = 413
+
+        assertEquals(
+            DetectionOutcome.Refused(RefusedReason.TOO_LARGE),
+            client().detect(jpeg(), plantKey = null, language = "en"),
+        )
     }
 
     @Test

@@ -13,6 +13,8 @@
     <string name="pest_rejected_title">Verbindung nicht mehr akzeptiert</string>
     <string name="pest_rejected_body">Deine Instanz hat die gespeicherte Anmeldung abgelehnt. Verbinde dich neu, um weiterzumachen.</string>
 
+    <string name="pest_not_permitted_title">Für dein Konto nicht erlaubt</string>
+
     <string name="pest_consent_title">Foto an einen externen Dienst senden?</string>
     <string name="pest_consent_body">Deine Instanz erkennt Schädlinge über einen externen Dienst. Dein Foto verlässt dafür die Instanz. Vorher wird nichts hochgeladen.</string>
     <string name="pest_consent_action">Einverstanden, weiter</string>

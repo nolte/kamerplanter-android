@@ -71,17 +71,7 @@ class NetworkPestDetectionClient @Inject constructor(
                 },
             )
         }
-    }.getOrElse { failure ->
-        when {
-            failure is HttpFailure && failure.status in CREDENTIAL_REFUSED -> DetectionReadiness.Unauthorized
-            // A 404 here means this instance predates the endpoint. That is the same thing as
-            // "the operator does not offer it" from the user's side, and it is what an older
-            // self-hosted instance will answer — the app supports whatever the user runs.
-            failure is HttpFailure && failure.status == NOT_FOUND -> DetectionReadiness.NotOffered
-            failure is HttpFailure -> DetectionReadiness.Unavailable("the instance answered HTTP ${failure.status}")
-            else -> DetectionReadiness.Unavailable(failure::class.simpleName.orEmpty())
-        }
-    }
+    }.getOrElse { failure -> failure.asReadinessFailure() }
 
     override suspend fun grantConsent(purpose: String): ConsentOutcome = runCatchingCancellable {
         val target = target() ?: return ConsentOutcome.Failed("the app is not connected to an instance")
@@ -91,7 +81,8 @@ class NetworkPestDetectionClient @Inject constructor(
         ConsentOutcome.Granted
     }.getOrElse { failure ->
         when {
-            failure is HttpFailure && failure.status in CREDENTIAL_REFUSED -> ConsentOutcome.Unauthorized
+            failure is HttpFailure && failure.status in setOf(UNAUTHORIZED, FORBIDDEN) ->
+                ConsentOutcome.Unauthorized
             failure is HttpFailure -> ConsentOutcome.Failed("the instance answered HTTP ${failure.status}")
             else -> ConsentOutcome.Failed(failure::class.simpleName.orEmpty())
         }
@@ -181,9 +172,6 @@ class NetworkPestDetectionClient @Inject constructor(
          */
         const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-        /** Statuses a retry cannot fix, because they are about the credential. */
-        val CREDENTIAL_REFUSED = setOf(401, 403)
-
         /** The backend's `error_code` for a missing consent, on an otherwise ordinary 403. */
         const val CONSENT_REQUIRED_CODE = "CONSENT_REQUIRED"
 
@@ -234,9 +222,30 @@ class NetworkPestDetectionClient @Inject constructor(
             isBeneficial = matchedBeneficialKey != null,
         )
 
+        fun Throwable.asReadinessFailure(): DetectionReadiness = when {
+            this !is HttpFailure -> DetectionReadiness.Unavailable(this::class.simpleName.orEmpty())
+            status == UNAUTHORIZED -> DetectionReadiness.Unauthorized
+            // Not folded in with 401, the way the plant list folds them: an API key that
+            // authenticates but whose scope excludes pest detection answers 403 here, and
+            // sending its owner to re-pair a connection that works is advice they cannot act
+            // on. `detect()` already tells the two apart; this method used to contradict it.
+            status == FORBIDDEN -> DetectionReadiness.NotPermitted
+            // A 404 means this instance predates the endpoint. From the user's side that is the
+            // same as an operator not offering it, and it is what an older self-hosted instance
+            // answers — the app supports whatever the user runs.
+            status == NOT_FOUND -> DetectionReadiness.NotOffered
+            else -> DetectionReadiness.Unavailable("the instance answered HTTP $status")
+        }
+
         fun Throwable.asDetectionFailure(): DetectionOutcome = when {
             this !is HttpFailure -> DetectionOutcome.Unavailable(this::class.simpleName.orEmpty())
             status == UNSUPPORTED_MEDIA_TYPE -> DetectionOutcome.Refused(RefusedReason.UNSUPPORTED_TYPE)
+            // Not the instance's own limit but the reverse proxy in front of it: nginx
+            // defaults to a 1 MB body, which is under every microscope capture, and the local
+            // 8 MB guard never fires for it. Reported as "unreachable" this reads as "your
+            // server is down" when the answer was "too large" — the one failure here a user
+            // can actually act on.
+            status == PAYLOAD_TOO_LARGE -> DetectionOutcome.Refused(RefusedReason.TOO_LARGE)
             status == UNPROCESSABLE -> DetectionOutcome.Refused(RefusedReason.NOT_PROCESSABLE)
             status == FORBIDDEN && errorCode == CONSENT_REQUIRED_CODE ->
                 DetectionOutcome.Refused(RefusedReason.CONSENT_MISSING)
@@ -247,6 +256,7 @@ class NetworkPestDetectionClient @Inject constructor(
 
         const val UNAUTHORIZED = 401
         const val FORBIDDEN = 403
+        const val PAYLOAD_TOO_LARGE = 413
         const val UNSUPPORTED_MEDIA_TYPE = 415
         const val UNPROCESSABLE = 422
 

@@ -29,6 +29,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +55,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
@@ -201,6 +204,15 @@ private fun PestDetectionContent(
                 stringResource(R.string.pest_not_connected_action),
                 actions.onOpenSettings,
             ),
+            modifier = modifier,
+        )
+
+        // No action either: a scope is widened on the instance, not by asking again from
+        // here, and pointing at Settings would send the user to re-pair a connection that
+        // is working exactly as it should.
+        PestDetectionState.NotPermitted -> Explanation(
+            title = stringResource(R.string.pest_not_permitted_title),
+            body = stringResource(R.string.pest_failed_not_permitted),
             modifier = modifier,
         )
 
@@ -407,7 +419,14 @@ private fun FindingCard(finding: Finding) {
  */
 @Composable
 private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
-    val bitmap = remember(frame) { frame.decodeSubsampled() } ?: return
+    // Decoded off the main thread. Two BitmapFactory passes over a multi-megabyte JPEG during
+    // composition is a visible hitch at the exact moment the flow pays off, and this runs
+    // when the result arrives rather than on a scroll — so it is the one frame the user is
+    // certain to be looking at.
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, frame) {
+        value = withContext(Dispatchers.Default) { frame.decodeSubsampled() }
+    }
+    val drawn = bitmap ?: return
     val pestColor = MaterialTheme.colorScheme.error
     val beneficialColor = MaterialTheme.colorScheme.tertiary
     val description = stringResource(R.string.pest_photo_description)
@@ -420,13 +439,13 @@ private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
             .clearAndSetSemantics { contentDescription = description },
     ) {
         Image(
-            bitmap = bitmap,
+            bitmap = drawn,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxWidth(),
         )
         Canvas(modifier = Modifier.matchParentSize()) {
-            val image = Size(bitmap.width.toFloat(), bitmap.height.toFloat())
+            val image = Size(drawn.width.toFloat(), drawn.height.toFloat())
             findings.forEach { finding ->
                 val box = finding.boundingBox ?: return@forEach
                 val rect = overlayRect(box, canvas = size, image = image)
@@ -451,9 +470,23 @@ private fun ByteArray.decodeSubsampled(): ImageBitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(this, 0, size, bounds)
     val options = BitmapFactory.Options().apply {
-        inSampleSize = maxOf(1, bounds.outWidth / DISPLAY_TARGET_PX)
+        inSampleSize = sampleSizeFor(bounds.outWidth)
     }
     return BitmapFactory.decodeByteArray(this, 0, size, options)?.asImageBitmap()
+}
+
+/**
+ * The subsampling factor for a capture [sourceWidth] pixels wide.
+ *
+ * Rounded **up** to a power of two, because `BitmapFactory` rounds anything else *down* to
+ * one: the arithmetic factor for a 3840-wide frame is 3, which the decoder silently reads as
+ * 2, landing at 1920 px and ~14 MB of ARGB_8888 rather than the ~4.5 MB this is asking for.
+ */
+internal fun sampleSizeFor(sourceWidth: Int, target: Int = DISPLAY_TARGET_PX): Int {
+    if (sourceWidth <= target) return 1
+    var sample = 1
+    while (sourceWidth / (sample * 2) >= target) sample *= 2
+    return sample * 2
 }
 
 @Composable
@@ -512,4 +545,4 @@ private const val BOX_STROKE_DP = 3
 private const val MODE_DIRECT = "direct"
 
 /** Roughly the widest the capture is ever drawn, in pixels — the decode need not beat it. */
-private const val DISPLAY_TARGET_PX = 1080
+internal const val DISPLAY_TARGET_PX = 1080

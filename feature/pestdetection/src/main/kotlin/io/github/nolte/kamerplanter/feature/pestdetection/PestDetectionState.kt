@@ -26,6 +26,9 @@ sealed interface PestDetectionState {
     /** The stored credential was refused; the user has to reconnect in Settings. */
     data object Unauthorized : PestDetectionState
 
+    /** The credential works, but this tenant does not let it run detections. */
+    data object NotPermitted : PestDetectionState
+
     /**
      * The active adapter sends the image off the instance, and the user has not agreed to
      * that yet. No frame is captured in this state — the consent question comes before the
