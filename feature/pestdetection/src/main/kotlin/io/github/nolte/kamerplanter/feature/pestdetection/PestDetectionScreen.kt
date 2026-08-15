@@ -129,6 +129,7 @@ fun PestDetectionScreen(
                     onRetry = viewModel::checkInstance,
                     onCaptureAgain = viewModel::captureAgain,
                     createPreviewView = viewModel::createPreviewView,
+                    onRetryCamera = viewModel::retryCamera,
                 ),
                 modifier = content,
             )
@@ -153,6 +154,7 @@ private class PestDetectionActions(
     val onRetry: () -> Unit,
     val onCaptureAgain: () -> Unit,
     val createPreviewView: (Context) -> android.view.View,
+    val onRetryCamera: () -> Unit,
 )
 
 private class CameraPermission(val isGranted: Boolean, val request: () -> Unit)
@@ -245,6 +247,7 @@ private fun PestDetectionContent(
         is PestDetectionState.Ready -> Viewfinder(
             camera = camera,
             createPreviewView = actions.createPreviewView,
+            onRetryCamera = actions.onRetryCamera,
             modifier = modifier,
         )
 
@@ -322,6 +325,7 @@ private fun SettingsPrompt(
 private fun Viewfinder(
     camera: MicroscopeState,
     createPreviewView: (Context) -> android.view.View,
+    onRetryCamera: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
@@ -345,13 +349,24 @@ private fun Viewfinder(
             MicroscopeState.Streaming -> null
         }
         if (waiting != null) {
-            Text(
-                text = stringResource(waiting),
-                textAlign = TextAlign.Center,
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp),
-            )
+            ) {
+                Text(text = stringResource(waiting), textAlign = TextAlign.Center)
+                // A declined USB grant and a failed stream are both dead ends otherwise:
+                // nothing leaves either state on its own, so without this the only way on is
+                // to navigate away and back. The waiting states need no button — they resolve
+                // themselves.
+                if (camera.isDeadEnd()) {
+                    Button(onClick = onRetryCamera) {
+                        Text(stringResource(R.string.pest_failed_retry))
+                    }
+                }
+            }
         }
     }
 }
@@ -630,6 +645,12 @@ private class ExplanationAction(val label: String, val onClick: (() -> Unit)?)
 
 private const val PERCENT = 100
 private const val BOX_STROKE_DP = 3
+
+/** States nothing leaves on its own — the ones that need a button rather than patience. */
+private fun MicroscopeState.isDeadEnd(): Boolean =
+    this is MicroscopeState.Error ||
+        (this is MicroscopeState.Unavailable && reason == UnavailableReason.PERMISSION_DENIED)
+
 private const val MODE_DIRECT = "direct"
 private const val MODE_SYMPTOM = "symptom"
 

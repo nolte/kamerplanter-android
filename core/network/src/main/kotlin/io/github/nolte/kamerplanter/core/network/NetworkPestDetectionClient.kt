@@ -190,10 +190,10 @@ class NetworkPestDetectionClient @Inject constructor(
          */
         fun PestDetectionStatusResponse.usable(): Boolean? {
             if (!available || !featureEnabled) return false
-            // An absent map is an instance that lists no adapters — nothing is configured, and
-            // "your operator has not set this up" is exactly right. Only a *present* map that
-            // omits the adapter the same response calls active is unreadable.
-            val described = adapters ?: return false
+            // A map that is absent *or* empty is an instance listing no adapters — nothing is
+            // configured, and "your operator has not set this up" is exactly right. Only a
+            // populated map that omits the adapter the same response calls active is unreadable.
+            val described = adapters?.takeIf { it.isNotEmpty() } ?: return false
             return described[activeAdapter ?: primaryAdapter]?.configured
         }
 

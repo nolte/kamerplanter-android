@@ -56,6 +56,18 @@ class PestDetectionViewModel @Inject constructor(
 
     fun createPreviewView(context: Context): View = camera.createPreviewView(context)
 
+    /**
+     * Restarts USB monitoring after a refused grant or a failed stream.
+     *
+     * Those two states are the only ones nothing leaves on its own: a denied USB dialogue is
+     * not asked again, and a stream that failed to open is not retried. Everything else —
+     * attaching a device, answering the dialogue — arrives as an event.
+     */
+    fun retryCamera() {
+        camera.stop()
+        camera.start()
+    }
+
     /** Asks the instance whether it can run a detection, and what stands in the way if not. */
     fun checkInstance() {
         _state.value = PestDetectionState.CheckingInstance

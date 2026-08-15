@@ -154,6 +154,14 @@ class NetworkPestDetectionClientTest {
         assertEquals(DetectionReadiness.NotOffered, client().readiness())
     }
 
+    /** An empty map lists no adapters either — a serialised default, not a missing answer. */
+    @Test
+    fun `an instance with an empty adapter map is not offered`() = runTest {
+        givenStatus(adapters = "{}")
+
+        assertEquals(DetectionReadiness.NotOffered, client().readiness())
+    }
+
     /**
      * An instance that names an active adapter and then does not describe it.
      *

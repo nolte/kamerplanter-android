@@ -164,15 +164,16 @@ class StreamSurfacesTest {
     }
 
     /**
-     * Publishing consumes the opening claim.
+     * A surface that was published, closed and opened again keeps the newest claim.
      *
-     * Only visible through a *later* open on the same surface: leave `opening` set here and the
-     * stale attempt number stays with it, so the next open's abandon finds a claim it does not
-     * own — and the version of this test that closed first could not see any of that, because
-     * closing clears both slots anyway.
+     * The full cycle rather than a single call, because that is the sequence `retry()` produces
+     * and the one where a stale attempt number would matter. What it does *not* pin is
+     * `published`'s own clearing of the opening slot: that is unobservable from outside — every
+     * reader prefers `live`, and the only route to `published(X)` already has `opening` at `X`
+     * or null. Three mutations of it survive for that reason, and no test can kill them.
      */
     @Test
-    fun `publishing consumes the opening claim`() {
+    fun `a surface reopened after a full cycle keeps its newest claim`() {
         val surfaces = StreamSurfaces()
         surfaces.opening(first, 1)
         surfaces.published(first)
