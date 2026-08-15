@@ -96,22 +96,25 @@ class GeneratedClientSerializationTest {
     /**
      * The other direction, for the request bodies that carry a decimal.
      *
-     * FastAPI's `float` fields accept a numeric string too, so this is not load-bearing today
-     * — but a JSON number is what the schema declares, and a client that sends strings where
-     * the schema says number is one backend validation setting away from being rejected.
+     * FastAPI's `float` fields accept a numeric string too, so the unquoted spelling is not
+     * load-bearing today — but a JSON number is what the schema declares, and a client that
+     * sends strings where the schema says number is one backend validation setting away from
+     * being rejected.
      *
-     * The trailing zero does not survive: `12.50` goes out as `12.5`, because the encoder
-     * routes the value through the numeric descriptor. Harmless for fields the backend types
-     * as `float` — which is all of them here — and asserted rather than glossed over, so a
-     * future field where scale *does* carry meaning fails here instead of in production.
+     * Exactness is the half that *is* load-bearing. Writing through a plain numeric primitive
+     * parses the literal back into a `Double` on the way out, so a value this client read
+     * exactly and sent straight back would go out quietly rounded.
      */
     @Test
-    fun `encodes a decimal as a bare JSON number`() {
-        val encoded = json.encodeToString(
-            LocationCreate(areaM2 = BigDecimal("12.50"), name = "Living room", siteKey = "site-1"),
+    fun `encodes a decimal as a bare JSON number, exactly`() {
+        fun encode(area: String) = json.encodeToString(
+            LocationCreate(areaM2 = BigDecimal(area), name = "Living room", siteKey = "site-1"),
         )
 
-        assertTrue(encoded, encoded.contains("\"area_m2\":12.5,"))
+        assertTrue(encode("12.50"), encode("12.50").contains("\"area_m2\":12.50,"))
+        // Past a Double's ~17 significant digits: a numeric round trip would round this away.
+        val precise = "1.234567890123456789012345"
+        assertTrue(encode(precise), encode(precise).contains("\"area_m2\":$precise,"))
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.core.network
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -10,6 +11,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonUnquotedLiteral
 import java.math.BigDecimal
 
 /**
@@ -33,8 +35,8 @@ import java.math.BigDecimal
  */
 internal object DecimalWireFormat : KSerializer<BigDecimal> {
 
-    // DOUBLE rather than STRING, so anything reasoning about the descriptor — a
-    // non-JSON format, a schema dump — is told this is a number, which it is.
+    // DOUBLE rather than STRING: this is a number, and the non-JSON fallbacks below read and
+    // write it as one, so the descriptor and the behaviour say the same thing.
     override val descriptor: SerialDescriptor =
         PrimitiveSerialDescriptor("java.math.BigDecimal", PrimitiveKind.DOUBLE)
 
@@ -45,7 +47,7 @@ internal object DecimalWireFormat : KSerializer<BigDecimal> {
      * `Double` round trip, so a decimal the backend spelled exactly stays exact.
      */
     override fun deserialize(decoder: Decoder): BigDecimal {
-        val json = decoder as? JsonDecoder ?: return BigDecimal(decoder.decodeString())
+        val json = decoder as? JsonDecoder ?: return decoder.decodeDouble().toBigDecimal()
         val primitive = json.decodeJsonElement() as? JsonPrimitive
             ?: throw SerializationException("expected a decimal, got a composite value")
         return primitive.content.toBigDecimalOrNull()
@@ -53,15 +55,18 @@ internal object DecimalWireFormat : KSerializer<BigDecimal> {
     }
 
     /**
-     * Writes a bare JSON number.
+     * Writes the exact decimal as a bare JSON number.
      *
-     * Unlike reading, this does go through the numeric descriptor, so trailing zeros are
-     * dropped — `12.50` is sent as `12.5`. Every field the schema types this way is a Python
-     * `float` upstream, where scale carries no meaning; `GeneratedClientSerializationTest`
-     * pins the behaviour so a field where it *would* matter surfaces there.
+     * [JsonUnquotedLiteral] rather than `JsonPrimitive(Number)`, and the difference is not
+     * cosmetic: a plain numeric primitive is written by parsing the literal back into a
+     * `Double` first, which silently rounds anything past a Double's precision and throws
+     * outright on a magnitude Double cannot hold. Reading keeps the value exact, so writing
+     * has to as well — otherwise a value read from one endpoint and PUT back to another (a
+     * care profile's multiplier, say) goes out quietly changed.
      */
+    @OptIn(ExperimentalSerializationApi::class)
     override fun serialize(encoder: Encoder, value: BigDecimal) {
-        val json = encoder as? JsonEncoder ?: return encoder.encodeString(value.toPlainString())
-        json.encodeJsonElement(JsonPrimitive(value))
+        val json = encoder as? JsonEncoder ?: return encoder.encodeDouble(value.toDouble())
+        json.encodeJsonElement(JsonUnquotedLiteral(value.toPlainString()))
     }
 }

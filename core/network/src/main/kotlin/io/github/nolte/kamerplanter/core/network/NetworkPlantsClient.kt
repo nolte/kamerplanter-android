@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.core.network
 
+import android.util.Log
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
@@ -183,7 +184,7 @@ class NetworkPlantsClient(
                             .listLocationsApiV1TTenantSlugLocationsGet(tenantSlug = tenant, siteKey = site)
                             .bodyOrThrow()
                             .associate { it.key to it.name }
-                    }.getOrElse { emptyMap() }
+                    }.getOrElse { failure -> warn("locations for site $site", failure) }
                 }
             }
             .awaitAll()
@@ -209,7 +210,7 @@ class NetworkPlantsClient(
                 .bodyOrThrow()
                 .mapNotNull { entry -> entry.asCareAction() }
                 .toMap()
-        }.getOrElse { emptyMap() }
+        }.getOrElse { failure -> warn("the care dashboard", failure) }
 
     /**
      * The care dashboard as raw JSON.
@@ -260,6 +261,23 @@ class NetworkPlantsClient(
 
         /** Statuses a retry cannot fix, because they are about the credential. */
         val CREDENTIAL_REFUSED = setOf(401, 403)
+
+        const val LOG_TAG = "PlantsClient"
+
+        /**
+         * Records an enrichment call that failed, and yields the empty result the list carries
+         * on without.
+         *
+         * Swallowing these is deliberate — a row without a location name is still a usable row
+         * — but swallowing them *silently* is what let a total failure of `GET /locations` pass
+         * for "these plants have no location" through a whole release. Both calls here are
+         * tenant-wide: when one fails, every row on screen is affected, and nothing else in the
+         * app would say so.
+         */
+        fun <K, V> warn(what: String, failure: Throwable): Map<K, V> {
+            Log.w(LOG_TAG, "$what could not be loaded; rows render without it", failure)
+            return emptyMap()
+        }
 
         fun <T> Response<T>.bodyOrThrow(): T {
             if (!isSuccessful) throw HttpFailure(code())
