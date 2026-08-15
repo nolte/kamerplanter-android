@@ -62,11 +62,11 @@ detail without leaving the user staring at a frozen screen.
 
 ## Test hooks
 
-- **acceptance-1** — unit test over the source-picker state in the detection feature module — pending
-- **acceptance-2** — manual on the Pixel 7a, attaching and detaching the reference microscope (`1b3f:2002`) — pending
-- **acceptance-3** — unit test that both sources yield the same in-memory image type; manual capture on the Pixel 7a — pending
-- **acceptance-4** — manual on the Pixel 7a, comparing captured dimensions against the preview's; `UvcMicroscopeCamera.grabStill()` already implements this, so the hook is a regression check rather than new verification — pending
-- **acceptance-5** — unit test driving `MicroscopeState.Unavailable(NO_DEVICE_ATTACHED)` into the detection view model — pending
+- **acceptance-1** — source picker not implemented yet — pending
+- **acceptance-2** — source picker not implemented yet — pending
+- **acceptance-3** — phone-camera source not implemented yet — pending
+- **acceptance-4** — delivered by `MicroscopeCamera.captureFrame` (issue #1) and consumed here unchanged — pending
+- **acceptance-5** — the capture action is gated on `MicroscopeState.Streaming`; no assertion yet — pending
 
 **Deliberately criterion-free requirements.** R11 (the shared camera module) and R12 (the
 ADR 0001 isolation rule) carry no acceptance criterion and therefore no hook — a hook keyed

@@ -21,6 +21,13 @@ import kotlinx.coroutines.flow.StateFlow
  * Lifecycle: [createPreviewView] once per UI composition, [start] when the screen
  * becomes visible, [stop] when it leaves. Everything in between is event-driven
  * (USB attach/detach, permission grants) and reported through [state].
+ *
+ * **This is a shared singleton, and the calls are reference-counted.** More than one screen
+ * may hold it at once — Compose composes an incoming destination before disposing the
+ * outgoing one, so during a handover both do. Only the first [start] reaches the hardware and
+ * only the last [stop] releases it, which is why a screen may call [stop] and still see
+ * frames: another screen is holding it. Every [start] therefore needs exactly one [stop], and
+ * the preview surface the stream renders into is decided per surface rather than per screen.
  */
 interface MicroscopeCamera {
 
@@ -39,10 +46,16 @@ interface MicroscopeCamera {
      */
     fun createPreviewView(context: Context): View
 
-    /** Starts USB monitoring: detects attached UVC devices and requests USB permission. */
+    /**
+     * Takes a hold on the camera. The first one starts USB monitoring — detecting attached UVC
+     * devices and requesting USB permission; later ones only register interest.
+     */
     fun start()
 
-    /** Stops the stream and USB monitoring. */
+    /**
+     * Releases this caller's hold. Stops the stream and USB monitoring only when it was the
+     * last one — see the reference-counting note on the interface.
+     */
     fun stop()
 
     /**

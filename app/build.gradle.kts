@@ -57,6 +57,7 @@ android {
 dependencies {
     implementation(project(":core:network"))
     implementation(project(":feature:microscope"))
+    implementation(project(":feature:pestdetection"))
     implementation(project(":feature:plants"))
     implementation(project(":feature:settings"))
 

@@ -102,6 +102,27 @@ internal class UvcMicroscopeCamera @Inject constructor(
     /** The device an open is queued or running for; read by the `onLost` callback. */
     private val openingDevice = AtomicReference<String?>(null)
 
+    /** Which surface the stream belongs to; see [StreamSurfaces]. Guarded by [sessionLock]. */
+    private val surfaces = StreamSurfaces()
+
+    /** What the two platform callbacks do about it; see [PreviewSurfaceRouting]. */
+    private val routing = PreviewSurfaceRouting(
+        lock = sessionLock,
+        surfaces = surfaces,
+        handOver = {
+            Log.i(TAG, "handing the stream over to a newer preview surface")
+            closeStream()
+        },
+        tearDown = { closeStream(release = it as SurfaceTexture) },
+        // The teardown holding this surface is already queued on the camera thread, and that
+        // executor is single-threaded and FIFO — so this lands behind it, and the surface goes
+        // back only once the engine has actually let go of it.
+        releaseWhenIdle = { surface ->
+            cameraExecutor.execute { runCatching { (surface as SurfaceTexture).release() } }
+        },
+        claim = { watcher.currentDevice()?.let(watcher::claim) },
+    )
+
     /**
      * Invalidates an open that is already queued on the camera thread. Without it, a
      * close arriving between `execute {}` and the session being published sees nothing
@@ -152,12 +173,15 @@ internal class UvcMicroscopeCamera @Inject constructor(
         TextureView(context).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                    // Logged on both edges, device included: the surface round trip is
-                    // the whole reason this listener exists, and a reopen that finds no
-                    // device is exactly the silent failure worth naming.
-                    val device = watcher.currentDevice()
-                    Log.i(TAG, "preview surface available at ${width}x$height, device=${device?.deviceName}")
-                    device?.let(watcher::claim)
+                    // Logged on both edges, device included: the surface round trip is the
+                    // whole reason this listener exists, and a reopen that finds no device is
+                    // exactly the silent failure worth naming.
+                    Log.i(
+                        TAG,
+                        "preview surface available at ${width}x$height, " +
+                            "device=${watcher.currentDevice()?.deviceName}",
+                    )
+                    routing.available(surface)
                 }
 
                 override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) =
@@ -165,13 +189,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
                     Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
-                    // The view itself survives this — the window merely stopped — so the
-                    // reference stays and onSurfaceTextureAvailable can reopen on return.
-                    // false: the platform must not reclaim the surface while the native
-                    // preview thread may still be writing into it. closeStream releases
-                    // it once the engine has actually let go.
-                    closeStream(release = surface)
-                    return false
+                    // Three answers, not two — see [DestroyOutcome]. The one easy to miss is
+                    // the middle: a surface this camera has already begun closing must be kept
+                    // from the platform, but starting another close would tear down whatever is
+                    // live by then, which during a handover is the *arriving* screen's stream.
+                    return routing.destroyed(surface)
                 }
 
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
@@ -179,7 +201,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
             previewViewRef = WeakReference(this)
         }
 
+    /** See [Holders]: two screens can hold this singleton at once, and they overlap. */
+    private val holders = Holders()
+
     override fun start() {
+        if (!holders.acquire()) return
         if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)) {
             watcher.start()
         } else {
@@ -188,6 +214,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
     }
 
     override fun stop() {
+        if (!holders.release()) return
         closeStream()
         watcher.stop()
         // The preview view is deliberately kept. It is held weakly, so it cannot pin the
@@ -256,7 +283,9 @@ internal class UvcMicroscopeCamera @Inject constructor(
         // reservation that already belongs to this one.
         val opening = synchronized(sessionLock) {
             openingDevice.set(device.deviceName)
-            generation.incrementAndGet()
+            // The generation is what identifies this open among others on the same surface,
+            // so it is taken first and handed straight to the claim.
+            generation.incrementAndGet().also { surfaces.opening(surface, it) }
         }
         cameraExecutor.execute {
             // Released on every exit, but only by the open that still owns the slot. The
@@ -272,6 +301,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
             }
             if (session.get() != null || opening != generation.get()) {
                 releaseSlot()
+                // Both guards: the generation says whether this open is still the current one
+                // — two opens on the same view carry the same SurfaceTexture, so identity
+                // cannot tell them apart — and the identity says whether the slot is still
+                // this open's to clear. Neither alone is enough.
+                synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                 return@execute
             }
             runCatching {
@@ -288,6 +322,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     (opening == generation.get()).also { current ->
                         if (current) {
                             session.set(it)
+                            surfaces.published(surface)
                             mutableState.value = MicroscopeState.Streaming
                         }
                     }
@@ -299,10 +334,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 } else {
                     // A close overtook this open; nothing else would ever release it.
                     Log.i(TAG, "discarding a stream that was superseded while opening")
+                    synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                     it.close()
                 }
             }.onFailure {
                 releaseSlot()
+                synchronized(sessionLock) { surfaces.abandoned(surface, opening) }
                 Log.w(TAG, "opening the microscope stream failed", it)
                 // Same generation check as the success path, and under the same lock: a
                 // teardown landing between the check and the write would still put an
@@ -327,6 +364,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
         } else {
             MicroscopeState.Connecting
         }
+        var heldUntilTornDown: Any? = null
         val open = synchronized(sessionLock) {
             generation.incrementAndGet()
             openingDevice.set(null)
@@ -339,6 +377,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 MicroscopeState.Streaming, is MicroscopeState.Error -> mutableState.value = next
                 else -> Unit
             }
+            heldUntilTornDown = surfaces.closing()
             session.getAndSet(null)
         }
         // Wake a capture suspended in awaitFrame() so it fails fast instead of hanging the
@@ -347,12 +386,15 @@ internal class UvcMicroscopeCamera @Inject constructor(
         pendingFrame.getAndSet(null)?.resumeWithException(
             IllegalStateException("microscope stream closed"),
         )
-        if (open == null && release == null) {
+        // The surface stays ours until the engine has let go of it, even when this close had
+        // nothing published to tear down: an open in flight is still about to render into it.
+        if (open == null && release == null && heldUntilTornDown == null) {
             return
         }
         cameraExecutor.execute {
             runCatching { open?.close() }
             runCatching { release?.release() }
+            heldUntilTornDown?.let { synchronized(sessionLock) { surfaces.released(it) } }
         }
     }
 

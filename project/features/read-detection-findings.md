@@ -38,21 +38,21 @@ must not turn an estimate into something that reads like a diagnosis.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** A finding's marked region sits over the right part of the captured image, with coordinates read as normalized `0..1` of the full image.
+- [x] **acceptance-1** A finding's marked region sits over the right part of the captured image, with coordinates read as normalized `0..1` of the full image.
 - [ ] **acceptance-2** A finding states whether it is the animal itself or the damage pattern it left.
 - [ ] **acceptance-3** A finding matched as a beneficial carries an explicit do-not-treat note and never appears as something to act against.
-- [ ] **acceptance-4** An unconfident result renders the abstention state instead of a findings list.
-- [ ] **acceptance-5** A confident result carrying no findings renders an explicit "nothing found" state, worded distinctly from the abstention state.
+- [x] **acceptance-4** An unconfident result renders the abstention state instead of a findings list.
+- [x] **acceptance-5** A confident result carrying no findings renders an explicit "nothing found" state, worded distinctly from the abstention state.
 - [ ] **acceptance-6** The instance's disclaimer appears verbatim, with no paraphrase.
 
 ## Test hooks
 
-- **acceptance-1** — unit test over the coordinate transform from normalized `0..1` to view space, including a non-square image — pending
-- **acceptance-2** — unit test over the `mode` mapping — pending
-- **acceptance-3** — unit test asserting a `matched_beneficial_key` finding renders the do-not-treat note and exposes no act-against affordance — pending
-- **acceptance-4** — unit test with `is_confident: false` — pending
-- **acceptance-5** — unit test with `is_confident: true` and an empty `findings` array — pending
-- **acceptance-6** — unit test asserting the `disclaimer` string is rendered unmodified — pending
+- **acceptance-1** — `OverlayGeometryTest` — five cases over `overlayRect`, including letterboxed and pillarboxed fits and a subsampled bitmap
+- **acceptance-2** — screen-level `mode` mapping in place; no assertion yet — pending
+- **acceptance-3** — `NetworkPestDetectionClientTest` pins `isBeneficial` off `matched_beneficial_key` rather than the category string; the do-not-treat note itself is screen-level — pending
+- **acceptance-4** — `DetectionShapeTest` — `is_confident: false` abstains, and still abstains when findings are listed below the threshold
+- **acceptance-5** — `DetectionShapeTest` — `is_confident: true` with an empty `findings` array is a distinct `NOTHING_FOUND` outcome, worded separately from the abstention
+- **acceptance-6** — the `disclaimer` is rendered from the response with no transformation; no assertion yet — pending
 
 ## Consistency notes
 

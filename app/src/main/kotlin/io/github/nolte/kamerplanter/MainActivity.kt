@@ -28,6 +28,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeScreen
+import io.github.nolte.kamerplanter.feature.pestdetection.PestDetectionScreen
 import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
@@ -44,6 +45,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** Pest detection, pushed onto whichever tab the user started it from. */
+private const val PEST_DETECTION_ROUTE = "pest-detection"
 
 /** The final top-level destinations of the app shell (requirement R1). */
 enum class TopLevelDestination(
@@ -67,7 +71,19 @@ fun KamerplanterApp() {
             startDestination = TopLevelDestination.CAPTURE.route,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(TopLevelDestination.CAPTURE.route) { MicroscopeScreen() }
+            composable(TopLevelDestination.CAPTURE.route) {
+                MicroscopeScreen(
+                    onIdentifyPest = { navController.navigate(PEST_DETECTION_ROUTE) },
+                )
+            }
+            // Not a tab: it is an action taken on a capture rather than a place, and it is
+            // entered from the Capture tab today and from a plant tomorrow (#10). Reached by
+            // an ordinary push, so Back returns to whichever of those it came from.
+            composable(PEST_DETECTION_ROUTE) {
+                PestDetectionScreen(
+                    onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+                )
+            }
             composable(TopLevelDestination.PLANTS.route) {
                 PlantsScreen(
                     // The disconnected and credential-rejected states both point here: the

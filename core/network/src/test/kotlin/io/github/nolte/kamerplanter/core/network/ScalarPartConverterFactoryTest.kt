@@ -10,6 +10,7 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.PhasesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantDiaryApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantInstancesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.PrivacyApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.TenantsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.UsersApi
 import okhttp3.MultipartBody
@@ -54,6 +55,7 @@ class ScalarPartConverterFactoryTest {
         PlantDiaryApi::class.java,
         PlantInstancesApi::class.java,
         PlantPhotosApi::class.java,
+        PrivacyApi::class.java,
         TenantsApi::class.java,
         UsersApi::class.java,
     )

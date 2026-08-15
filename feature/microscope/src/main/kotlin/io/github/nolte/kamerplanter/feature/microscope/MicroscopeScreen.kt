@@ -51,6 +51,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  */
 @Composable
 fun MicroscopeScreen(
+    /**
+     * Leaves for the pest-detection flow (#10), which owns its own capture.
+     *
+     * A callback rather than a dependency: this module knows the microscope, not what any
+     * other feature does with it, and the navigation graph belongs to the app module.
+     */
+    onIdentifyPest: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MicroscopeViewModel = hiltViewModel(),
 ) {
@@ -86,6 +93,10 @@ fun MicroscopeScreen(
                     // On screen because the body's own rocker never reaches USB — see
                     // MicroscopeCamera.zoomBy.
                     ZoomControls(onZoomIn = viewModel::zoomIn, onZoomOut = viewModel::zoomOut)
+                    // Offered only while a stream is running, like the shutter beside it: the
+                    // detection flow opens the same camera, so a device that cannot deliver a
+                    // frame here cannot deliver one there either.
+                    IdentifyPestButton(onIdentify = onIdentifyPest)
                     CaptureButton(isCapturing = uiState.isCapturing, onCapture = viewModel::capture)
                 }
             }
@@ -188,6 +199,16 @@ private fun ZoomControls(onZoomIn: () -> Unit, onZoomOut: () -> Unit) {
         ) {
             Text(text = stringResource(R.string.microscope_zoom_out))
         }
+    }
+}
+
+@Composable
+private fun IdentifyPestButton(onIdentify: () -> Unit) {
+    ExtendedFloatingActionButton(
+        onClick = onIdentify,
+        modifier = Modifier.padding(bottom = 8.dp),
+    ) {
+        Text(text = stringResource(R.string.microscope_identify_pest))
     }
 }
 
