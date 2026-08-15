@@ -479,8 +479,11 @@ private fun AnnotatedCapture(frame: ByteArray, findings: List<Finding>) {
 /**
  * Decodes the capture at roughly display size.
  *
- * A full 4K frame is ~33 MB of ARGB_8888 held for a view a few hundred pixels wide — an OOM
- * candidate on a low-RAM device, and jank everywhere else.
+ * A full 4K frame is ~33 MB of ARGB_8888, held for as long as the result is on screen. The
+ * shared `sampleSizeFor` aims at the target rather than under it, so a 4K microscope frame
+ * decodes to 1920×1080 — about 8 MB — and a phone photo, already capped at 2048 on upload,
+ * decodes unchanged at up to ~17 MB. More than the old undershooting version held, and the
+ * point: this is the picture the bounding boxes are drawn over.
  */
 private fun ByteArray.decodeSubsampled(): ImageBitmap? {
     val bounds = decodeBounds() ?: return null
