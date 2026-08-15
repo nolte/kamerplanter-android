@@ -604,8 +604,9 @@ class SettingsViewModelTest {
      * more deliberate action, so it waits.
      */
     @Test
-    fun `a link arriving mid-verification does not interrupt it`() = runTest(dispatcher) {
-        val model = viewModel(client = GatedConnectionClient(verified(listOf(CANNED_TENANT))))
+    fun `a link arriving mid-verification waits and is offered afterwards`() = runTest(dispatcher) {
+        val client = GatedConnectionClient(verified(listOf(CANNED_TENANT)))
+        val model = viewModel(client = client)
         advanceUntilIdle()
         model.startConnecting(ConnectionMethod.QR_PAIRING)
         model.onQrDetected(validQr)
@@ -615,6 +616,19 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertTrue(model.state.value.toString(), model.state.value is ConnectionState.Verifying)
+
+        // And the other half, which is the one that goes wrong: nothing about a waiting link
+        // changes while it waits, so a collector watching only the link would never fire again
+        // — the offer would be lost until the process died. The verification is let finish
+        // rather than cancelled, because a verification in flight is deliberately not
+        // cancellable, and that is exactly the window the link has to survive.
+        client.release()
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.REPLACES_ANOTHER),
+            model.state.value,
+        )
     }
 
     /** The address the link carried travels into the method the user picks. */

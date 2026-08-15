@@ -1,9 +1,12 @@
 package io.github.nolte.kamerplanter.core.connection
 
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.receiveAsFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,8 +31,25 @@ class PendingDiscovery @Inject constructor() {
     /** The link waiting to be acted on, or `null` when there is none. */
     val link: StateFlow<DiscoveryLink?> = _link.asStateFlow()
 
+    private val _arrivals = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * One signal per link that arrives, for whoever has to *navigate* to it.
+     *
+     * Separate from [link] because the two readers are independent and one of them removes
+     * what it reads. The screen that shows the offer consumes the link; the shell only has to
+     * put that screen on top. Sharing one value between them means whichever runs first
+     * decides whether the other sees anything — and the screen's collector keeps running while
+     * the app is backgrounded, so it wins, and the user comes back to the wrong tab with the
+     * offer sitting invisibly behind it.
+     *
+     * Conflated: two links arriving before either is acted on need one navigation, not two.
+     */
+    val arrivals: Flow<Unit> = _arrivals.receiveAsFlow()
+
     fun offer(link: DiscoveryLink) {
         _link.value = link
+        _arrivals.trySend(Unit)
     }
 
     /**

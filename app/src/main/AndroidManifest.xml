@@ -50,10 +50,15 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <!-- An exact path, not a prefix. A prefix would also claim /connected,
+                     /connection and /connect/anything on every host on the internet — links
+                     the parser refuses and this app then drops silently, so tapping one in a
+                     mail would open kamerplanter on whatever screen it was last on and never
+                     reach the page. The filter claims exactly what the parser accepts. -->
                 <data
                     android:scheme="https"
                     android:host="*"
-                    android:pathPrefix="/connect" />
+                    android:path="/connect" />
             </intent-filter>
         </activity>
     </application>

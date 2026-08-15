@@ -28,6 +28,15 @@ class SameInstanceTest {
         assertFalse("https://plants.example".sameInstanceAs("https://other.example"))
     }
 
+    /**
+     * A poster that spells out `:443` names the same instance as one that does not, and saying
+     * otherwise warns someone about replacing the connection they are already on.
+     */
+    @Test
+    fun `the scheme's own default port is not a difference`() {
+        assertTrue("https://plants.example:443".sameInstanceAs("https://plants.example"))
+    }
+
     @Test
     fun `a different port is a different instance`() {
         assertFalse("https://plants.example:8443".sameInstanceAs("https://plants.example"))

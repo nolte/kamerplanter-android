@@ -18,6 +18,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
@@ -112,19 +113,25 @@ class SettingsViewModel @Inject constructor(
             // Collected only after the stored connection has been read: the relation a
             // discovered instance stands in is a comparison against that connection, and
             // deciding it against a not-yet-loaded `established` would call every link "new".
-            discoveries.link.collect { waiting ->
-                if (waiting == null) return@collect
-                // Never interrupts an attempt in flight. A link can arrive at any moment —
-                // the user switches to their camera app mid-pairing and scans the poster
-                // again — and discarding a verification for it would be the wrong answer to
-                // the more deliberate action. It waits in `discoveries` until the machine
-                // rests, and `consume` is what decides who got there first.
-                _state.update { current ->
-                    if (!current.isRestingState()) return@update current
-                    discoveries.consume()?.let { link ->
-                        ConnectionState.Discovered(link.baseUrl, relationTo(established?.baseUrl, link.baseUrl))
-                    } ?: current
-                }
+            //
+            // Both signals, not just the link. A link arriving mid-verification must not
+            // interrupt it — the user may have switched to their camera app and scanned the
+            // poster again, and the deliberate action wins — but it must still be offered once
+            // that attempt ends. Collecting the link alone would never fire again, because
+            // nothing about it changes while it waits: the offer would be lost until the
+            // process died.
+            combine(_state, discoveries.link, ::Pair).collect { (current, waiting) ->
+                if (waiting == null || !current.isRestingState()) return@collect
+                val offer = ConnectionState.Discovered(
+                    baseUrl = waiting.baseUrl,
+                    relation = relationTo(established?.baseUrl, waiting.baseUrl),
+                )
+                // Consumed only once the transition has landed. `update` re-runs its lambda on
+                // a lost compare-and-set, so consuming inside one would take the link on the
+                // first attempt and hand back nothing on the second — scanned, swallowed,
+                // never shown. This file says as much in `cancel()`. A failed CAS here leaves
+                // the link pending, and the next emission tries again.
+                if (_state.compareAndSet(current, offer)) discoveries.consume()
             }
         }
     }

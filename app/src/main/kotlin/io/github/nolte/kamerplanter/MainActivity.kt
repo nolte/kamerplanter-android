@@ -22,7 +22,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -30,7 +29,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
-import io.github.nolte.kamerplanter.core.connection.DiscoveryLink
 import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
 import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeScreen
@@ -38,8 +36,8 @@ import io.github.nolte.kamerplanter.feature.pestdetection.PestDetectionScreen
 import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -65,7 +63,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             KamerplanterTheme {
-                KamerplanterApp(discoveries = pendingDiscovery.link)
+                KamerplanterApp(discoveries = pendingDiscovery.arrivals)
             }
         }
     }
@@ -106,14 +104,16 @@ enum class TopLevelDestination(
 }
 
 @Composable
-fun KamerplanterApp(discoveries: StateFlow<DiscoveryLink?> = MutableStateFlow(null)) {
+fun KamerplanterApp(discoveries: Flow<Unit> = emptyFlow()) {
     val navController = rememberNavController()
-    // A scanned `/connect` link has to land where it can be acted on. Settings owns the
-    // connection flow, and the link is only *read* there — this navigates, it does not consume,
-    // so whichever of the two gets there first cannot leave the other with nothing.
-    val waiting by discoveries.collectAsStateWithLifecycle()
-    LaunchedEffect(waiting) {
-        if (waiting != null) navController.navigateToTab(TopLevelDestination.SETTINGS)
+    // A scanned `/connect` link has to land where it can be acted on, and Settings owns the
+    // connection flow. This listens to *arrivals* rather than to the link itself: the link is
+    // consumed by the screen that shows the offer, and its collector outlives this one — it
+    // keeps running while the app is backgrounded. Sharing the value would mean the screen took
+    // it before this ever saw it, leaving the user on whichever tab they were on with the offer
+    // invisible behind Settings.
+    LaunchedEffect(discoveries) {
+        discoveries.collect { navController.navigateToTab(TopLevelDestination.SETTINGS) }
     }
     Scaffold(
         bottomBar = { KamerplanterNavigationBar(navController) },

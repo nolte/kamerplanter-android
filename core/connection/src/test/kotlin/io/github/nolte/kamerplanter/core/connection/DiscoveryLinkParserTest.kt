@@ -31,6 +31,15 @@ class DiscoveryLinkParserTest {
         )
     }
 
+    /** The scheme's own default port is noise, and carrying it would break the comparison. */
+    @Test
+    fun `drops a port the scheme already implies`() {
+        assertEquals(
+            DiscoveryLink("https://plants.example"),
+            DiscoveryLinkParser.parse("https://plants.example:443/connect?v=1"),
+        )
+    }
+
     /**
      * kamerplanter can be hosted under a path prefix, and dropping it would send the app to the
      * wrong address on the right host. The manifest filter only matches `/connect` at the root,

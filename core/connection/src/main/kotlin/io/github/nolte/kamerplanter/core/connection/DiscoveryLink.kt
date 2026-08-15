@@ -55,8 +55,7 @@ object DiscoveryLinkParser {
         // cannot reach this today — but that is the platform contract's limit, not a reason for
         // the parser to lose the information when it does arrive.
         val prefix = segments.dropLast(1).joinToString("/")
-        val port = if (uri.port == -1) "" else ":${uri.port}"
-        val base = "https://$host$port" + if (prefix.isEmpty()) "" else "/$prefix"
+        val base = "https://$host${uri.explicitPort()}" + if (prefix.isEmpty()) "" else "/$prefix"
         return DiscoveryLink(baseUrl = base)
     }
 
@@ -86,7 +85,23 @@ private fun String.normalizedInstance(): String {
     val uri = runCatching { URI(trim()) }.getOrNull() ?: return trim().lowercase()
     val scheme = uri.scheme?.lowercase().orEmpty()
     val host = uri.host?.lowercase().orEmpty()
-    val port = if (uri.port == -1) "" else ":${uri.port}"
     val path = uri.path.orEmpty().trimEnd('/')
-    return "$scheme://$host$port$path"
+    return "$scheme://$host${uri.explicitPort()}$path"
 }
+
+/**
+ * The port, unless it is the one the scheme already implies.
+ *
+ * A poster that spells out `:443` names the same instance as one that does not, and treating
+ * them as different tells a user that continuing would replace the connection they are already
+ * on — the exact failure the comparison exists to avoid.
+ */
+private fun URI.explicitPort(): String = when (port) {
+    -1, DEFAULT_PORTS[scheme?.lowercase()] -> ""
+    else -> ":$port"
+}
+
+private const val HTTPS_PORT = 443
+private const val HTTP_PORT = 80
+
+private val DEFAULT_PORTS = mapOf("https" to HTTPS_PORT, "http" to HTTP_PORT)
