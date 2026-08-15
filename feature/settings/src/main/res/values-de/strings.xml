@@ -16,4 +16,11 @@
     <string name="settings_open_app_settings">App-Einstellungen öffnen</string>
     <string name="settings_camera_unavailable">Die Kamera konnte nicht geöffnet werden. Stelle sicher, dass keine andere App sie verwendet, und versuche es erneut.</string>
     <string name="settings_tenant_choice_pending">Diese Instanz bietet mehrere Mandanten an. Die Auswahl gibt es noch nicht — es wurde nichts gespeichert.</string>
+
+    <string name="settings_discovered_title">Instanz gefunden</string>
+    <string name="settings_discovered_new">Scanne den Kopplungscode dieser Instanz, um dich zu verbinden.</string>
+    <string name="settings_discovered_same">Du bist mit dieser Instanz bereits verbunden.</string>
+    <string name="settings_discovered_replaces">Du bist mit einer anderen Instanz verbunden. Weitermachen ersetzt diese Verbindung.</string>
+    <string name="settings_discovered_continue">Mit dieser Instanz verbinden</string>
+    <string name="settings_discovered_dismiss">Jetzt nicht</string>
 </resources>

@@ -11,11 +11,14 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionResult
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.core.connection.Tenant
+import io.github.nolte.kamerplanter.core.connection.sameInstanceAs
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
@@ -55,6 +58,7 @@ class SettingsViewModel @Inject constructor(
     private val client: ConnectionClient,
     private val store: ConnectionStore,
     private val credentials: CredentialStore,
+    private val discoveries: PendingDiscovery,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Loading)
@@ -105,6 +109,30 @@ class SettingsViewModel @Inject constructor(
             _state.update { current ->
                 if (current is ConnectionState.Loading) restingState else current
             }
+
+            // Collected only after the stored connection has been read: the relation a
+            // discovered instance stands in is a comparison against that connection, and
+            // deciding it against a not-yet-loaded `established` would call every link "new".
+            //
+            // Both signals, not just the link. A link arriving mid-verification must not
+            // interrupt it — the user may have switched to their camera app and scanned the
+            // poster again, and the deliberate action wins — but it must still be offered once
+            // that attempt ends. Collecting the link alone would never fire again, because
+            // nothing about it changes while it waits: the offer would be lost until the
+            // process died.
+            combine(_state, discoveries.link, ::Pair).collect { (current, waiting) ->
+                if (waiting == null || !current.isRestingState()) return@collect
+                val offer = ConnectionState.Discovered(
+                    baseUrl = waiting.baseUrl,
+                    relation = relationTo(established?.baseUrl, waiting.baseUrl),
+                )
+                // Consumed only once the transition has landed. `update` re-runs its lambda on
+                // a lost compare-and-set, so consuming inside one would take the link on the
+                // first attempt and hand back nothing on the second — scanned, swallowed,
+                // never shown. This file says as much in `cancel()`. A failed CAS here leaves
+                // the link pending, and the next emission tries again.
+                if (_state.compareAndSet(current, offer)) discoveries.consume(waiting)
+            }
         }
     }
 
@@ -120,6 +148,10 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionState.Verifying,
                 is ConnectionState.SelectingTenant,
                 -> current
+                // Continuing from a discovered instance is the same act, with the link's
+                // address travelling along — it is what the link was for (#13).
+                is ConnectionState.Discovered ->
+                    method.collectionState(prefilledBaseUrl = current.baseUrl)
                 else -> method.collectionState()
             }
         }
@@ -135,15 +167,15 @@ class SettingsViewModel @Inject constructor(
      * [cancel] that lands first makes this a no-op instead of being overwritten.
      */
     fun onQrDetected(raw: String) {
-        if (_state.value != ConnectionState.Collecting.ScanningQr) return
+        val scanning = _state.value as? ConnectionState.Collecting.ScanningQr ?: return
         val request = QrPayloadParser.parse(raw) ?: return
-        verify(ConnectionState.Collecting.ScanningQr, request)
+        verify(scanning, request)
     }
 
     /** The device camera could not be bound; leave scanning for a recoverable error state. */
     fun onScannerError() {
         _state.update {
-            if (it == ConnectionState.Collecting.ScanningQr) ConnectionState.CameraUnavailable else it
+            if (it is ConnectionState.Collecting.ScanningQr) ConnectionState.CameraUnavailable else it
         }
     }
 
@@ -192,6 +224,9 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionState.SelectingTenant,
                 is ConnectionState.Failed,
                 ConnectionState.CameraUnavailable,
+                // Dismissing a discovered instance is leaving without connecting, which is
+                // what this already means. Nothing was in flight, so nothing is discarded.
+                is ConnectionState.Discovered,
                 -> restingState
                 else -> current
             }
@@ -372,3 +407,32 @@ private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
 
 /** Diagnostic, never a UI string — and never one that could echo the secret it failed on. */
 private const val STORAGE_FAILURE_REASON = "the connection could not be stored"
+
+/**
+ * Where the machine may be interrupted by something the user did outside it.
+ *
+ * A link can arrive at any moment — the user switches to their camera app mid-pairing and
+ * scans the poster again — and discarding a verification for it would be the wrong answer to
+ * the more deliberate action.
+ */
+private fun ConnectionState.isRestingState(): Boolean = when (this) {
+    ConnectionState.Loading,
+    is ConnectionState.Verifying,
+    is ConnectionState.SelectingTenant,
+    -> false
+    else -> true
+}
+
+/**
+ * How a [discovered] instance stands to the one already [connected].
+ *
+ * The distinction is the whole reason a link does not simply start a connection attempt:
+ * scanning the code on the instance you are already connected to should say so rather than
+ * walk you through pairing again, and scanning a different one is about to replace a working
+ * connection — which the user should learn before, not after.
+ */
+private fun relationTo(connected: String?, discovered: String): DiscoveredInstance = when {
+    connected == null -> DiscoveredInstance.NEW
+    connected.sameInstanceAs(discovered) -> DiscoveredInstance.ALREADY_CONNECTED
+    else -> DiscoveredInstance.REPLACES_ANOTHER
+}

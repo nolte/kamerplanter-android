@@ -8,7 +8,9 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionResult
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.DiscoveryLink
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
+import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -52,11 +54,13 @@ class SettingsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private val discoveries = PendingDiscovery()
+
     private fun viewModel(
         client: ConnectionClient = CannedConnectionClient(),
         store: ConnectionStore = FakeConnectionStore(),
         credentials: CredentialStore = InMemoryCredentialStore(),
-    ) = SettingsViewModel(client, store, credentials)
+    ) = SettingsViewModel(client, store, credentials, discoveries)
 
     @Test
     fun `starts connected when a connection is already persisted`() = runTest(dispatcher) {
@@ -116,7 +120,7 @@ class SettingsViewModelTest {
 
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -124,10 +128,10 @@ class SettingsViewModelTest {
         val viewModel = viewModel()
 
         viewModel.startConnecting(ConnectionMethod.API_KEY)
-        assertEquals(ConnectionState.Collecting.ApiKeyEntry, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ApiKeyEntry(), viewModel.state.value)
 
         viewModel.startConnecting(ConnectionMethod.LIGHT_MODE)
-        assertEquals(ConnectionState.Collecting.LightModeEntry, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.LightModeEntry(), viewModel.state.value)
     }
 
     @Test
@@ -166,7 +170,7 @@ class SettingsViewModelTest {
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected("just some scanned text")
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -234,7 +238,7 @@ class SettingsViewModelTest {
         viewModel.submit(ConnectionRequest.ApiKey(baseUrl = "https://x", key = "kp_sk_1"))
         advanceUntilIdle()
 
-        assertEquals(ConnectionState.Collecting.LightModeEntry, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.LightModeEntry(), viewModel.state.value)
     }
 
     @Test
@@ -335,7 +339,7 @@ class SettingsViewModelTest {
         viewModel.onScannerError()
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -368,7 +372,7 @@ class SettingsViewModelTest {
 
         viewModel.startConnecting(failed.method)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     // --- the secret half (R17, R19, R25) ---
@@ -532,6 +536,143 @@ class SettingsViewModelTest {
         tenants = tenants,
         credential = SESSION,
     )
+
+    // ── /connect deep link (#13) ────────────────────────────────────────────────────
+
+    private val discovered = DiscoveryLink("https://plants.example")
+
+    private fun connectedTo(baseUrl: String) = viewModel(
+        store = FakeConnectionStore(Connection.QrPairing(baseUrl = baseUrl, tenantSlug = "demo")),
+        credentials = InMemoryCredentialStore(Credential.Session("at", "rt", 0L)),
+    )
+
+    /** Nothing is connected, so the link is simply an offer. */
+    @Test
+    fun `a discovered instance with nothing connected is new`() = runTest(dispatcher) {
+        discoveries.offer(discovered)
+
+        val model = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.NEW),
+            model.state.value,
+        )
+    }
+
+    /**
+     * Scanning the code on the instance you are already connected to should say so rather than
+     * walk you through pairing again — and a trailing slash must not make it look like a
+     * different instance.
+     */
+    @Test
+    fun `a discovered instance already connected says so`() = runTest(dispatcher) {
+        val model = connectedTo("https://plants.example/")
+        advanceUntilIdle()
+
+        discoveries.offer(discovered)
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.ALREADY_CONNECTED),
+            model.state.value,
+        )
+    }
+
+    /** Continuing from here replaces a working connection, which the user learns before. */
+    @Test
+    fun `a discovered instance elsewhere warns that it replaces the connection`() =
+        runTest(dispatcher) {
+            val model = connectedTo("https://other.example")
+            advanceUntilIdle()
+
+            discoveries.offer(discovered)
+            advanceUntilIdle()
+
+            assertEquals(
+                ConnectionState.Discovered(
+                    "https://plants.example",
+                    DiscoveredInstance.REPLACES_ANOTHER,
+                ),
+                model.state.value,
+            )
+        }
+
+    /**
+     * A link can arrive at any moment — the user switches to their camera app mid-pairing and
+     * scans the poster again. Discarding a verification for it would be the wrong answer to the
+     * more deliberate action, so it waits.
+     */
+    @Test
+    fun `a link arriving mid-verification waits and is offered afterwards`() = runTest(dispatcher) {
+        val client = GatedConnectionClient(verified(listOf(CANNED_TENANT)))
+        val model = viewModel(client = client)
+        advanceUntilIdle()
+        model.startConnecting(ConnectionMethod.QR_PAIRING)
+        model.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        discoveries.offer(discovered)
+        advanceUntilIdle()
+
+        assertTrue(model.state.value.toString(), model.state.value is ConnectionState.Verifying)
+
+        // And the other half, which is the one that goes wrong: nothing about a waiting link
+        // changes while it waits, so a collector watching only the link would never fire again
+        // — the offer would be lost until the process died. The verification is let finish
+        // rather than cancelled, because a verification in flight is deliberately not
+        // cancellable, and that is exactly the window the link has to survive.
+        client.release()
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.REPLACES_ANOTHER),
+            model.state.value,
+        )
+    }
+
+    /** The address the link carried travels into the method the user picks. */
+    @Test
+    fun `continuing from a discovered instance carries its address along`() = runTest(dispatcher) {
+        discoveries.offer(discovered)
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.startConnecting(ConnectionMethod.API_KEY)
+
+        assertEquals(
+            ConnectionState.Collecting.ApiKeyEntry("https://plants.example"),
+            model.state.value,
+        )
+    }
+
+    /** Dismissing returns to whatever the machine was resting on, having started nothing. */
+    @Test
+    fun `dismissing a discovered instance leaves nothing behind`() = runTest(dispatcher) {
+        discoveries.offer(discovered)
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.cancel()
+
+        assertEquals(ConnectionState.Disconnected, model.state.value)
+    }
+
+    /** Consumed on arrival, so leaving Settings and returning does not restart the offer. */
+    @Test
+    fun `a link is acted on once`() = runTest(dispatcher) {
+        discoveries.offer(discovered)
+        val first = viewModel()
+        advanceUntilIdle()
+        // Asserted, not assumed: without it a collector that offered the link to nobody would
+        // satisfy the second half by doing nothing at all.
+        assertTrue(first.state.value.toString(), first.state.value is ConnectionState.Discovered)
+
+        val second = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, second.state.value)
+    }
 }
 
 // --- the canned instance these tests connect to ---
