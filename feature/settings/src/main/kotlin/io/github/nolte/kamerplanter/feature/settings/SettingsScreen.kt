@@ -107,7 +107,7 @@ private fun SettingsContent(
                 onContinue = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
                 onDismiss = actions.onCancel,
             )
-            ConnectionState.Collecting.ScanningQr -> ScanningBody(
+            is ConnectionState.Collecting.ScanningQr -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
                 onQrDetected = actions.onQrDetected,
                 onScannerError = actions.onScannerError,

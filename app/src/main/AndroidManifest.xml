@@ -54,7 +54,13 @@
                      /connection and /connect/anything on every host on the internet — links
                      the parser refuses and this app then drops silently, so tapping one in a
                      mail would open kamerplanter on whatever screen it was last on and never
-                     reach the page. The filter claims exactly what the parser accepts. -->
+                     reach the page.
+
+                     The two still do not match exactly, and cannot: an intent filter matches
+                     no query string, so every https://*/connect is claimed regardless of its
+                     `v`, and the parser is what refuses a version this build cannot read. The
+                     narrowing is one-sided on purpose — it removes the claims that are never
+                     ours, and leaves the ones only the parser can judge. -->
                 <data
                     android:scheme="https"
                     android:host="*"

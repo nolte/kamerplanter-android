@@ -16,6 +16,9 @@ import io.github.nolte.kamerplanter.core.connection.Tenant
  * Loading ─▶ Disconnected ─(startConnecting)─▶ Collecting.ScanningQr   ─┐
  *                ▲                             Collecting.ApiKeyEntry  ─┤
  *                │                             Collecting.LightModeEntry┤
+ *
+ * A `/connect` link (#13) enters from the side: Discovered rests beside Disconnected and
+ * Connected, and leaves through the same startConnecting and cancel as everything else.
  *                │                                                      ▼
  *                │                                                  Verifying
  *                │                                                      │
@@ -46,8 +49,16 @@ sealed interface ConnectionState {
 
         val method: ConnectionMethod
 
-        /** Camera is live; waiting for a pairing QR code (R7). */
-        data object ScanningQr : Collecting {
+        /**
+         * Camera is live; waiting for a pairing QR code (R7).
+         *
+         * [prefilledBaseUrl] is the instance a `/connect` link named, when the user got here
+         * from one. The pairing payload carries its own URL and that is what the attempt uses,
+         * so this is not a prefill in the sense the other two methods mean — it is kept because
+         * dropping it would leave the screen unable to say that the code just scanned belongs
+         * to a *different* instance from the one the link promised.
+         */
+        data class ScanningQr(val prefilledBaseUrl: String? = null) : Collecting {
             override val method: ConnectionMethod = ConnectionMethod.QR_PAIRING
         }
 
@@ -150,7 +161,7 @@ enum class DiscoveredInstance {
 internal fun ConnectionMethod.collectionState(
     prefilledBaseUrl: String? = null,
 ): ConnectionState.Collecting = when (this) {
-    ConnectionMethod.QR_PAIRING -> ConnectionState.Collecting.ScanningQr
+    ConnectionMethod.QR_PAIRING -> ConnectionState.Collecting.ScanningQr(prefilledBaseUrl)
     ConnectionMethod.API_KEY -> ConnectionState.Collecting.ApiKeyEntry(prefilledBaseUrl)
     ConnectionMethod.LIGHT_MODE -> ConnectionState.Collecting.LightModeEntry(prefilledBaseUrl)
 }

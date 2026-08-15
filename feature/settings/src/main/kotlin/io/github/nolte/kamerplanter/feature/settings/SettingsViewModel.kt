@@ -131,7 +131,7 @@ class SettingsViewModel @Inject constructor(
                 // first attempt and hand back nothing on the second — scanned, swallowed,
                 // never shown. This file says as much in `cancel()`. A failed CAS here leaves
                 // the link pending, and the next emission tries again.
-                if (_state.compareAndSet(current, offer)) discoveries.consume()
+                if (_state.compareAndSet(current, offer)) discoveries.consume(waiting)
             }
         }
     }
@@ -167,15 +167,15 @@ class SettingsViewModel @Inject constructor(
      * [cancel] that lands first makes this a no-op instead of being overwritten.
      */
     fun onQrDetected(raw: String) {
-        if (_state.value != ConnectionState.Collecting.ScanningQr) return
+        val scanning = _state.value as? ConnectionState.Collecting.ScanningQr ?: return
         val request = QrPayloadParser.parse(raw) ?: return
-        verify(ConnectionState.Collecting.ScanningQr, request)
+        verify(scanning, request)
     }
 
     /** The device camera could not be bound; leave scanning for a recoverable error state. */
     fun onScannerError() {
         _state.update {
-            if (it == ConnectionState.Collecting.ScanningQr) ConnectionState.CameraUnavailable else it
+            if (it is ConnectionState.Collecting.ScanningQr) ConnectionState.CameraUnavailable else it
         }
     }
 

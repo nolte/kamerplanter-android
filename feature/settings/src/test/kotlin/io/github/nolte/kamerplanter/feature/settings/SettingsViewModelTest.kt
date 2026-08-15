@@ -120,7 +120,7 @@ class SettingsViewModelTest {
 
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -170,7 +170,7 @@ class SettingsViewModelTest {
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
         viewModel.onQrDetected("just some scanned text")
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -339,7 +339,7 @@ class SettingsViewModelTest {
         viewModel.onScannerError()
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     @Test
@@ -372,7 +372,7 @@ class SettingsViewModelTest {
 
         viewModel.startConnecting(failed.method)
 
-        assertEquals(ConnectionState.Collecting.ScanningQr, viewModel.state.value)
+        assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
     }
 
     // --- the secret half (R17, R19, R25) ---
@@ -662,8 +662,11 @@ class SettingsViewModelTest {
     @Test
     fun `a link is acted on once`() = runTest(dispatcher) {
         discoveries.offer(discovered)
-        viewModel()
+        val first = viewModel()
         advanceUntilIdle()
+        // Asserted, not assumed: without it a collector that offered the link to nobody would
+        // satisfy the second half by doing nothing at all.
+        assertTrue(first.state.value.toString(), first.state.value is ConnectionState.Discovered)
 
         val second = viewModel()
         advanceUntilIdle()

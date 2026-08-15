@@ -5,7 +5,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.receiveAsFlow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,6 +43,10 @@ class PendingDiscovery @Inject constructor() {
      * offer sitting invisibly behind it.
      *
      * Conflated: two links arriving before either is acted on need one navigation, not two.
+     *
+     * **Exactly one collector.** This is a channel, so a second one does not receive a copy —
+     * it takes turns, and each arrival reaches only whichever got there first. The app shell
+     * is that collector; anything else that wants to know a link arrived should observe [link].
      */
     val arrivals: Flow<Unit> = _arrivals.receiveAsFlow()
 
@@ -53,10 +56,12 @@ class PendingDiscovery @Inject constructor() {
     }
 
     /**
-     * Takes the waiting link, leaving nothing behind.
+     * Clears [taken], reporting whether it was still the one waiting.
      *
-     * Clearing on read is what stops the same link being acted on twice — leaving Settings and
-     * returning would otherwise restart a flow the user already dismissed.
+     * Clearing is what stops a link being acted on twice — leaving Settings and returning would
+     * otherwise restart a flow the user already dismissed. Scoped to the link the caller
+     * actually acted on, so a newer one that arrived in between is left for the next round
+     * rather than thrown away unseen.
      */
-    fun consume(): DiscoveryLink? = _link.getAndUpdate { null }
+    fun consume(taken: DiscoveryLink): Boolean = _link.compareAndSet(taken, null)
 }
