@@ -273,9 +273,24 @@ class NetworkPlantsClient(
          * for "these plants have no location" through a whole release. Both calls here are
          * tenant-wide: when one fails, every row on screen is affected, and nothing else in the
          * app would say so.
+         *
+         * The log call is itself guarded, and that is not belt-and-braces. This runs in the
+         * `getOrElse` block — *outside* the `runCatchingCancellable` that makes an enrichment
+         * failure survivable — so anything thrown here escapes to `loadPlants`, whose own catch
+         * degrades the whole list to `Unavailable`. A logger that threw would then do precisely
+         * what the failure it was reporting was forbidden from doing. Not hypothetical: an
+         * unmocked `android.util.Log` throws, which is what a JVM unit test sees, and removing
+         * this guard turns twelve of them red.
          */
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
         fun <K, V> warn(what: String, failure: Throwable): Map<K, V> {
-            Log.w(LOG_TAG, "$what could not be loaded; rows render without it", failure)
+            try {
+                Log.w(LOG_TAG, "$what could not be loaded; rows render without it", failure)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (reportingFailed: Throwable) {
+                // Nowhere left to report it — reporting is what just failed.
+            }
             return emptyMap()
         }
 

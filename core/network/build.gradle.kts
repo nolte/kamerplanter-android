@@ -38,16 +38,6 @@ android {
         }
     }
 
-    testOptions {
-        // So the swallowed-enrichment warnings below can be `android.util.Log` calls at all:
-        // without this, an unmocked `Log.w` throws and any test that walks a failure path dies
-        // on the logging rather than on what it was testing. The trade-off is that every other
-        // unmocked android call returns a default instead of failing loudly — acceptable here
-        // because this module's only android surface *is* logging; a module that grows more
-        // should reconsider rather than inherit this.
-        unitTests.isReturnDefaultValues = true
-    }
-
     // The generated client is checked in but kept out of src/main deliberately: detekt's
     // default source set is src/{main,test}/{java,kotlin}, so a separate root keeps
     // machine-written code out of a gate that only judges hand-written code — without

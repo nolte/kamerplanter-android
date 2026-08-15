@@ -9,6 +9,9 @@ import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.ReminderType
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -106,16 +109,44 @@ class GeneratedClientSerializationTest {
      * exactly and sent straight back would go out quietly rounded.
      */
     @Test
-    fun `encodes a decimal as a bare JSON number, exactly`() {
-        fun encode(area: String) = json.encodeToString(
-            LocationCreate(areaM2 = BigDecimal(area), name = "Living room", siteKey = "site-1"),
-        )
-
-        assertTrue(encode("12.50"), encode("12.50").contains("\"area_m2\":12.50,"))
-        // Past a Double's ~17 significant digits: a numeric round trip would round this away.
-        val precise = "1.234567890123456789012345"
-        assertTrue(encode(precise), encode(precise).contains("\"area_m2\":$precise,"))
+    fun `encodes a decimal as a bare JSON number`() {
+        assertTrue(encodedArea("12.50"), encodedArea("12.50").contains("\"area_m2\":12.50,"))
     }
+
+    /** Past a Double's ~17 significant digits, where a numeric round trip would round it away. */
+    @Test
+    fun `encodes a decimal past a double's precision without rounding it`() {
+        val precise = "1.234567890123456789012345"
+
+        assertTrue(encodedArea(precise), encodedArea(precise).contains("\"area_m2\":$precise,"))
+    }
+
+    /**
+     * A magnitude no `Double` can hold, written as an exponent rather than spelled out.
+     *
+     * Both halves matter. The old encoder threw outright on this — it parsed the literal into a
+     * `Double` and got `Infinity` — so a value an instance sent could not be sent back. And
+     * spelling it out in full would turn a nine-byte token into a four-hundred-digit one, which
+     * for a large enough exponent is an `OutOfMemoryError` rather than a failed request.
+     */
+    @Test
+    fun `encodes a magnitude beyond a double as a short exponent`() {
+        val encoded = encodedArea("1E+400")
+
+        assertTrue(encoded, encoded.contains("\"area_m2\":1E+400,"))
+        // Still a JSON number, not a string and not a broken document.
+        assertEquals(
+            BigDecimal("1E+400").compareTo(BigDecimal(json.parseToJsonElement(encoded).areaText())),
+            0,
+        )
+    }
+
+    private fun encodedArea(area: String) = json.encodeToString(
+        LocationCreate(areaM2 = BigDecimal(area), name = "Living room", siteKey = "site-1"),
+    )
+
+    private fun JsonElement.areaText(): String =
+        jsonObject.getValue("area_m2").jsonPrimitive.content
 
     @Test
     fun `decodes a contextual enum that carries no adapter of its own`() {
