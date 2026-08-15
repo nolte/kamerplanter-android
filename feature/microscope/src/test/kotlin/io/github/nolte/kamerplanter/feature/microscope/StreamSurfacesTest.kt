@@ -81,7 +81,7 @@ class StreamSurfacesTest {
         surfaces.opening(first)
         surfaces.published(first)
         surfaces.opening(second)
-        surfaces.abandoned(second)
+        surfaces.abandoned(second, stillCurrent = true)
 
         assertEquals(DestroyOutcome.RECLAIM, surfaces.onDestroyed(second))
         assertEquals(
@@ -97,7 +97,7 @@ class StreamSurfacesTest {
         val surfaces = StreamSurfaces()
         surfaces.opening(first)
         surfaces.opening(second)
-        surfaces.abandoned(first)
+        surfaces.abandoned(first, stillCurrent = true)
 
         assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(second))
     }
@@ -163,19 +163,56 @@ class StreamSurfacesTest {
         assertEquals(DestroyOutcome.RECLAIM, surfaces.onDestroyed(second))
     }
 
-    /** Publishing has to clear the opening slot, or a later abandon would find it stale. */
+    /**
+     * Publishing consumes the opening claim, so a later abandon finds nothing to clear.
+     *
+     * Asserted through `handoverFrom`, because `onDestroyed` cannot see the difference —
+     * `live` alone already answers it. Leaving `opening` set would make the *next* open on the
+     * same surface look like it was already in flight.
+     */
     @Test
     fun `publishing consumes the opening claim`() {
         val surfaces = StreamSurfaces()
         surfaces.opening(first)
         surfaces.published(first)
-        surfaces.abandoned(first)
+        surfaces.closing()
 
-        assertEquals(
-            "a stale abandon must not release a live session",
-            DestroyOutcome.TEAR_DOWN,
-            surfaces.onDestroyed(first),
-        )
+        assertNull("nothing may be left claiming the stream", surfaces.handoverFrom(second))
+    }
+
+    /**
+     * A surface can be in both slots at once, and which one wins decides correctly.
+     *
+     * `retry()` is stop plus start: the close puts the surface into `closing`, and the restart
+     * immediately claims the same surface for a new open — the same `SurfaceTexture`, because
+     * the view never went away. Answering "its teardown is running" there would refuse to tear
+     * down an open that is very much live.
+     */
+    @Test
+    fun `a surface reopened while its teardown runs belongs to the new open`() {
+        val surfaces = StreamSurfaces()
+        surfaces.opening(first)
+        surfaces.published(first)
+        surfaces.closing()
+        surfaces.opening(first)
+
+        assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
+    }
+
+    /**
+     * Two opens on one view carry the *same* surface, so identity cannot tell them apart — the
+     * generation can, and without it a superseded open erases its successor's claim. For the
+     * several hundred milliseconds that successor needs, nothing would be claimed at all.
+     */
+    @Test
+    fun `a superseded open does not erase its successor's claim on the same surface`() {
+        val surfaces = StreamSurfaces()
+        surfaces.opening(first)
+        surfaces.opening(first)
+
+        surfaces.abandoned(first, stillCurrent = false)
+
+        assertEquals(DestroyOutcome.TEAR_DOWN, surfaces.onDestroyed(first))
     }
 
     @Test

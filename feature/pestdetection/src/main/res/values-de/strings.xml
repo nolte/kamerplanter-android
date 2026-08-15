@@ -24,6 +24,10 @@
     <string name="pest_capture">Bestimmen</string>
     <string name="pest_capturing">Wird bestimmt…</string>
     <string name="pest_no_device">Schließe ein USB-Mikroskop an, um einen Schädling zu bestimmen.</string>
+    <string name="pest_no_usb_host">Dieses Gerät unterstützt keinen USB-Host-Modus (OTG); ein Mikroskop lässt sich nicht anschließen.</string>
+    <string name="pest_awaiting_usb_permission">Warte auf die USB-Berechtigung…</string>
+    <string name="pest_connecting">Mikroskop-Stream wird geöffnet…</string>
+    <string name="pest_camera_error">Der Mikroskop-Stream konnte nicht geöffnet werden.</string>
     <string name="pest_camera_permission">Für die Schädlingserkennung braucht die App die Kamera-Berechtigung — sonst lässt Android sie nicht mit dem Mikroskop sprechen.</string>
     <string name="pest_grant_permission">Berechtigung erteilen</string>
 

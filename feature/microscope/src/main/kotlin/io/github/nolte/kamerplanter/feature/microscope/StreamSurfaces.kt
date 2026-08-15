@@ -46,9 +46,18 @@ internal class StreamSurfaces {
         live = surface
     }
 
-    /** The open for [surface] was superseded or failed; nothing was published. */
-    fun abandoned(surface: Any) {
-        if (opening === surface) opening = null
+    /**
+     * The open for [surface] was superseded or failed; nothing was published.
+     *
+     * [stillCurrent] is the caller's generation check, and it is not optional: two consecutive
+     * opens on the same preview view name the *same* `SurfaceTexture`, so identity alone cannot
+     * tell an obsolete open from the one that replaced it. Without it, a superseded open erases
+     * its successor's claim, and for the several hundred milliseconds that successor needs, no
+     * surface is claimed at all — so destroying it answers "reclaim", the platform takes it,
+     * and the open publishes onto a surface that no longer exists.
+     */
+    fun abandoned(surface: Any, stillCurrent: Boolean) {
+        if (stillCurrent && opening === surface) opening = null
     }
 
     /**

@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
+import io.github.nolte.kamerplanter.feature.microscope.UnavailableReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -85,7 +86,12 @@ fun PestDetectionScreen(
     val language = LocalConfiguration.current.locales[0].language
     val permission = rememberCameraPermission()
 
-    if (permission.isGranted) {
+    // Only while a capture could actually follow. USB monitoring asks the user for device
+    // access, and asking on a screen that is about to say "your instance does not offer this"
+    // spends a permission dialogue on something they cannot use.
+    val wantsCamera = permission.isGranted &&
+        (state is PestDetectionState.Ready || state is PestDetectionState.Result)
+    if (wantsCamera) {
         DisposableEffect(Unit) {
             viewModel.start()
             onDispose { viewModel.stop() }
@@ -98,7 +104,7 @@ fun PestDetectionScreen(
             // Only where a shutter can actually fire: a device has to be streaming, and the
             // instance has to have said it will look at the frame.
             val ready = state as? PestDetectionState.Ready
-            if (ready != null && permission.isGranted && camera is MicroscopeState.Streaming) {
+            if (ready != null && wantsCamera && camera is MicroscopeState.Streaming) {
                 ExtendedFloatingActionButton(onClick = { viewModel.capture(language) }) {
                     Text(
                         stringResource(
@@ -241,13 +247,16 @@ private fun PestDetectionContent(
             modifier = modifier,
         )
 
+        // Even a failure a retry cannot fix gets a way out: without one these screens have no
+        // control at all, and the only exit is the system back gesture.
         is PestDetectionState.Failed -> Explanation(
             title = stringResource(R.string.pest_failed_title),
             body = stringResource(state.message),
-            action = ExplanationAction(
-                stringResource(R.string.pest_failed_retry),
-                actions.onRetry,
-            ).takeIf { state.canRetry },
+            action = if (state.canRetry) {
+                ExplanationAction(stringResource(R.string.pest_failed_retry), actions.onRetry)
+            } else {
+                ExplanationAction(stringResource(R.string.pest_result_again), actions.onCaptureAgain)
+            },
             modifier = modifier,
         )
     }
@@ -288,9 +297,23 @@ private fun Viewfinder(
 ) {
     Box(modifier = modifier) {
         AndroidView(factory = createPreviewView, modifier = Modifier.fillMaxSize())
-        if (camera !is MicroscopeState.Streaming) {
+        // Says what is true rather than always "no device": the stream passes through
+        // Connecting on every handover, and through AwaitingPermission while the user is
+        // looking at the USB dialogue. Telling them to plug in a microscope they have already
+        // plugged in is the failure this camera's own teardown path takes care to avoid.
+        val waiting = when (camera) {
+            is MicroscopeState.Unavailable -> when (camera.reason) {
+                UnavailableReason.NO_USB_HOST_SUPPORT -> R.string.pest_no_usb_host
+                else -> R.string.pest_no_device
+            }
+            MicroscopeState.AwaitingPermission -> R.string.pest_awaiting_usb_permission
+            MicroscopeState.Connecting -> R.string.pest_connecting
+            is MicroscopeState.Error -> R.string.pest_camera_error
+            MicroscopeState.Streaming -> null
+        }
+        if (waiting != null) {
             Text(
-                text = stringResource(R.string.pest_no_device),
+                text = stringResource(waiting),
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -398,14 +421,18 @@ private fun FindingCard(finding: Finding) {
                     )
                 }
             }
-            Text(
-                text = stringResource(
-                    // Only these two modes carry a meaning the user can act on. Anything else
-                    // the backend names is left unlabelled rather than guessed at (R-COMPAT-3).
-                    if (finding.mode == MODE_DIRECT) R.string.pest_mode_direct else R.string.pest_mode_symptom,
-                ),
-                style = MaterialTheme.typography.bodySmall,
-            )
+            // Only these two modes carry a meaning the user can act on, and anything else the
+            // backend names is left unlabelled rather than guessed at (R-COMPAT-3). Calling an
+            // unknown mode a damage pattern would make a nutrient deficiency read as pest
+            // damage — a wrong label is worse here than none.
+            val mode = when (finding.mode) {
+                MODE_DIRECT -> R.string.pest_mode_direct
+                MODE_SYMPTOM -> R.string.pest_mode_symptom
+                else -> null
+            }
+            if (mode != null) {
+                Text(text = stringResource(mode), style = MaterialTheme.typography.bodySmall)
+            }
             if (finding.isBeneficial) {
                 Text(
                     text = stringResource(R.string.pest_beneficial_note),
@@ -571,6 +598,7 @@ private class ExplanationAction(val label: String, val onClick: (() -> Unit)?)
 private const val PERCENT = 100
 private const val BOX_STROKE_DP = 3
 private const val MODE_DIRECT = "direct"
+private const val MODE_SYMPTOM = "symptom"
 
 /** Roughly the widest the capture is ever drawn, in pixels — the decode need not beat it. */
 internal const val DISPLAY_TARGET_PX = 1080

@@ -33,6 +33,10 @@
     <string name="pest_capture">Identify</string>
     <string name="pest_capturing">Identifying…</string>
     <string name="pest_no_device">Attach a USB microscope to identify a pest.</string>
+    <string name="pest_no_usb_host">This device does not support USB host mode (OTG), so a microscope cannot be attached.</string>
+    <string name="pest_awaiting_usb_permission">Waiting for USB permission…</string>
+    <string name="pest_connecting">Opening the microscope stream…</string>
+    <string name="pest_camera_error">The microscope stream could not be opened.</string>
     <string name="pest_camera_permission">Pest detection needs the camera permission before Android will let the app talk to the microscope.</string>
     <string name="pest_grant_permission">Grant permission</string>
 

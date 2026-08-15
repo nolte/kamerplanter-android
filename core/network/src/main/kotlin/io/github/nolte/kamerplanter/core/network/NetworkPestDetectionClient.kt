@@ -47,14 +47,16 @@ class NetworkPestDetectionClient @Inject constructor(
             .pestDetectionStatusApiV1TTenantSlugPestsStatusGet(tenantSlug = target.tenant)
             .bodyOrThrow()
 
-        val consent = status.consentPurpose()
-            ?: return@runCatchingCancellable if (status.usable()) {
-                DetectionReadiness.Ready
-            } else {
-                DetectionReadiness.NotOffered
-            }
+        when (status.usable()) {
+            false -> return@runCatchingCancellable DetectionReadiness.NotOffered
+            null -> return@runCatchingCancellable DetectionReadiness.Unavailable(
+                "the instance named an active adapter it did not describe",
+            )
+            true -> Unit
+        }
 
-        if (!status.usable()) return@runCatchingCancellable DetectionReadiness.NotOffered
+        val consent = status.consentPurpose()
+            ?: return@runCatchingCancellable DetectionReadiness.Ready
 
         val recorded = target.retrofit.consent(consent)
         if (recorded?.granted == true) {
@@ -180,9 +182,18 @@ class NetworkPestDetectionClient @Inject constructor(
         /** The backend's `error_code` for a missing consent, on an otherwise ordinary 403. */
         const val CONSENT_REQUIRED_CODE = "CONSENT_REQUIRED"
 
-        /** The feature is usable only when the operator enabled it *and* an adapter answers. */
-        fun PestDetectionStatusResponse.usable(): Boolean =
-            available && featureEnabled && activeAdapterStatus()?.configured == true
+        /**
+         * The feature is usable only when the operator enabled it *and* an adapter answers.
+         *
+         * `null` distinguishes the third case: the instance named an active adapter it did not
+         * describe. That is not "the operator has not enabled this" — it is an answer the app
+         * cannot read, and telling the user to ask an administrator to switch on something
+         * already switched on sends them after the wrong thing.
+         */
+        fun PestDetectionStatusResponse.usable(): Boolean? {
+            if (!available || !featureEnabled) return false
+            return activeAdapterStatus()?.configured
+        }
 
         /**
          * The consent the active adapter needs, or `null` when it needs none.

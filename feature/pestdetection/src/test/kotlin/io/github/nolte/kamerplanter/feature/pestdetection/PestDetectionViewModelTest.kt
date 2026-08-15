@@ -312,6 +312,37 @@ class PestDetectionViewModelTest {
         assertEquals(PestDetectionState.Ready(), model.state.value)
     }
 
+    /**
+     * Each refusal keeps its own wording.
+     *
+     * The retry flags were pinned but the messages were not, and the two carry different
+     * halves of the answer: a proxy's fixed body cap and the app's own size guard are both
+     * "too large" with `canRetry` apart, but only one of them is worth another shot — and
+     * swapping the strings would tell a self-hoster to keep photographing.
+     */
+    @Test
+    fun `each refusal keeps its own message`() = runTest(dispatcher) {
+        val messages = listOf(
+            RefusedReason.TOO_LARGE to R.string.pest_failed_too_large,
+            RefusedReason.REFUSED_BY_PROXY to R.string.pest_failed_proxy_limit,
+            RefusedReason.NOT_PROCESSABLE to R.string.pest_failed_not_processable,
+            RefusedReason.UNSUPPORTED_TYPE to R.string.pest_failed_unsupported_type,
+            RefusedReason.NOT_PERMITTED to R.string.pest_failed_not_permitted,
+        )
+
+        messages.forEach { (reason, expected) ->
+            detections.readiness = DetectionReadiness.Ready
+            detections.outcome = DetectionOutcome.Refused(reason)
+            val model = viewModel()
+            model.state.settled()
+
+            model.capture("en")
+            dispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("$reason", expected, (model.state.value as PestDetectionState.Failed).message)
+        }
+    }
+
     private fun detection() = Detection(
         key = "det-1",
         isConfident = true,
