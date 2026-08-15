@@ -210,8 +210,9 @@ private fun Viewfinder(
 /**
  * Whether the shutter can actually fire.
  *
- * The phone camera is ready as soon as it is chosen; the microscope has to be streaming, which
- * it is not while a handover or a USB dialogue is in flight.
+ * Neither source is ready the moment it is chosen: binding the phone camera takes a beat, and
+ * the microscope has to be streaming, which it is not while a handover or a USB dialogue is in
+ * flight. A shutter offered before either is a control whose press ends the flow on an error.
  */
 internal fun PestDetectionState.Ready.canFire(camera: MicroscopeState): Boolean = when (source) {
     null -> false

@@ -98,16 +98,21 @@ object JpegDownscale {
 }
 
 /**
- * The subsampling factor that brings [sourceEdge] to [target] or below.
+ * The subsampling factor that keeps [sourceEdge] at or **above** [target].
  *
- * The smallest power of two that fits: `BitmapFactory` rounds anything else *down* to one, so
- * asking for 3 gets 2 and decodes twice the intended size — and doubling once more would halve
- * the resolution again, which on a subject a few pixels across is the difference between a
- * finding and nothing.
+ * Above, not below, and that is the whole point: subsampling only halves, so the smallest
+ * factor that lands under the target usually lands far under it. A 4624-pixel sensor — an
+ * ordinary 16-megapixel width — divides to 2312 at 2, and to 1156 at 4. Choosing 4 to get
+ * "under 2048" throws away 44 % of the linear resolution before anything else has looked at
+ * the image, and on a mite a few pixels across that is the difference between a finding and
+ * nothing. The scale afterwards takes it the rest of the way, exactly.
+ *
+ * A power of two because `BitmapFactory` rounds anything else *down* to one: asking for 3 gets
+ * 2, which decodes twice the intended size.
  */
 internal fun sampleSizeFor(sourceEdge: Int, target: Int): Int {
     if (sourceEdge <= target) return 1
-    var sample = 2
-    while (sourceEdge / sample > target) sample *= 2
+    var sample = 1
+    while (sourceEdge / (sample * 2) >= target) sample *= 2
     return sample
 }

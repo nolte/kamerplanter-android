@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -473,7 +474,46 @@ class PestDetectionViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(model.state.value is PestDetectionState.Result)
-        assertEquals(CaptureSource.PHONE, model.chosenSource)
+        assertEquals(CaptureSource.PHONE, model.chosenSource.value)
+    }
+
+    /**
+     * Re-asking the instance clears the source with it.
+     *
+     * The screen reads the chosen source to decide whether USB monitoring runs. A source left
+     * over from the last attempt keeps it switched off across a retry — so the picker comes
+     * back with the microscope option frozen at whatever it last reported, and a device plugged
+     * in since is never noticed. The only way out would be leaving the screen.
+     */
+    @Test
+    fun `re-asking the instance returns to the picker with no source held`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+        model.state.settled()
+        model.chooseSource(CaptureSource.PHONE)
+
+        model.checkInstance()
+        model.state.settled()
+
+        assertEquals(PestDetectionState.Ready(), model.state.value)
+        assertNull("nothing may still claim the camera", model.chosenSource.value)
+    }
+
+    /** A stale "the phone is bound" must not follow the user to the other camera. */
+    @Test
+    fun `switching source clears the phone camera's readiness`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.Ready
+        val model = viewModel()
+        model.state.settled()
+        model.chooseSource(CaptureSource.PHONE)
+        model.phoneShutter = FakeShutter(byteArrayOf(1))
+
+        model.chooseSource(CaptureSource.MICROSCOPE)
+
+        assertEquals(
+            PestDetectionState.Ready(source = CaptureSource.MICROSCOPE, phoneReady = false),
+            model.state.value,
+        )
     }
 
     /** Choosing the phone with no shutter bound yet fails rather than hanging on nothing. */

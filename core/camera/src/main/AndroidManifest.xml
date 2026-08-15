@@ -8,9 +8,18 @@
          merged manifest with it, failing at runtime rather than at build time. -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Not required: a device without a camera can still connect to an instance and read its
-         plants, and the microscope path wants the permission for the USB dialogue rather than
-         for a camera of its own. -->
+    <!-- The CAMERA permission makes Play imply `android.hardware.camera` and `.autofocus` as
+         *required*, which filters the app off every device without a rear camera. Overriding
+         needs those exact names — `camera.any` is a different feature and leaves the implied
+         requirement in place. A device without a camera can still connect to an instance and
+         read its plants, and the microscope path wants the permission for the USB dialogue
+         rather than for a camera of its own. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />

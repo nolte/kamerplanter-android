@@ -250,7 +250,8 @@ private fun ScanningBody(
         // Asked once on arrival, and only where asking still shows something.
         LaunchedEffect(Unit) { if (permission.canAsk) permission.onRequest() }
         CameraPermissionBody(
-            onRequest = if (permission.canAsk) permission.onRequest else permission.onOpenSettings,
+            canAsk = permission.canAsk,
+            onRequest = permission.onRequest,
             onOpenSettings = permission.onOpenSettings,
         )
         return
@@ -330,16 +331,25 @@ private fun CameraUnavailableBody(onRetry: () -> Unit) {
 }
 
 @Composable
-private fun CameraPermissionBody(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
+private fun CameraPermissionBody(
+    canAsk: Boolean,
+    onRequest: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_camera_permission),
             textAlign = TextAlign.Center,
         )
-        Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = stringResource(R.string.settings_grant_permission))
+        // Once the request shows no dialogue there is nothing for a "grant permission" button
+        // to do, and offering one under that label leaves two controls doing the same thing
+        // with only one of them saying so.
+        if (canAsk) {
+            Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
+                Text(text = stringResource(R.string.settings_grant_permission))
+            }
         }
-        // Fallback route for a permanent denial, where re-requesting shows no dialog.
+        // The only route back from a permanent denial.
         TextButton(onClick = onOpenSettings, modifier = Modifier.padding(top = 8.dp)) {
             Text(text = stringResource(R.string.settings_open_app_settings))
         }

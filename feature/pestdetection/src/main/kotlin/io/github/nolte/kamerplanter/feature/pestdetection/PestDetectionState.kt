@@ -66,8 +66,9 @@ sealed interface PestDetectionState {
          *
          * In the state rather than only in the ViewModel because the shutter is gated on it:
          * binding is asynchronous, and a button offered before it completes does not fail
-         * quietly — it ends the flow on an error screen and loses the chosen source. It stays
-         * `false` for the microscope source, which has its own readiness in [MicroscopeState].
+         * quietly — it ends the flow on an error screen and loses the chosen source. Cleared
+         * whenever the source changes, so a stale "bound" from the phone cannot follow the
+         * user to the microscope, which has its own readiness in its camera state.
          */
         val phoneReady: Boolean = false,
     ) : PestDetectionState

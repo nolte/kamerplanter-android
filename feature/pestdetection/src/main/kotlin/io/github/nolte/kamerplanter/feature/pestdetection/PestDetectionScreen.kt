@@ -84,7 +84,8 @@ fun PestDetectionScreen(
     // picked the phone camera for access to a USB device would be a dialogue about nothing —
     // and a Result carries no source of its own, so reading only Ready would pop that dialogue
     // over the very photo they just took with the other camera.
-    val wantsMicroscope = wantsCamera && viewModel.chosenSource != CaptureSource.PHONE
+    val chosenSource by viewModel.chosenSource.collectAsStateWithLifecycle()
+    val wantsMicroscope = wantsCamera && chosenSource != CaptureSource.PHONE
     if (wantsMicroscope) {
         DisposableEffect(Unit) {
             viewModel.start()

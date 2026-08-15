@@ -47,6 +47,21 @@ class PestDetectionViewModel @Inject constructor(
      */
     val cameraState: StateFlow<MicroscopeState> = camera.state
 
+    private val _chosenSource = MutableStateFlow<CaptureSource?>(null)
+
+    /**
+     * The source in play, which outlives [PestDetectionState.Ready].
+     *
+     * A result carries no source of its own, so this is what tells the screen whether USB
+     * monitoring is still wanted while one is on display — and it is what [captureAgain]
+     * returns to. A flow rather than a field because the screen reads it: a plain read from a
+     * composition registers nothing, so a change would move nothing until some unrelated
+     * recomposition happened to notice.
+     */
+    val chosenSource: StateFlow<CaptureSource?> = _chosenSource.asStateFlow()
+
+    // Declared before the init below, which reaches it through checkInstance(): a property
+    // initialised further down the class would still be null when that runs.
     init {
         checkInstance()
     }
@@ -82,10 +97,14 @@ class PestDetectionViewModel @Inject constructor(
 
     /** Chooses where the next frame comes from. A no-op once one is being uploaded. */
     fun chooseSource(source: CaptureSource?) {
+        // Before the update, not inside it: `update` re-runs its lambda on a lost
+        // compare-and-set, and a side effect there would run twice.
+        _chosenSource.value = source
         _state.update { current ->
             if (current is PestDetectionState.Ready && !current.isUploading) {
-                chosenSource = source
-                current.copy(source = source)
+                // Cleared alongside the source: keeping a stale "the phone is bound" across a
+                // switch would offer the shutter for a camera that is not the chosen one.
+                current.copy(source = source, phoneReady = source == CaptureSource.PHONE && shutter != null)
             } else {
                 current
             }
@@ -110,6 +129,11 @@ class PestDetectionViewModel @Inject constructor(
 
     /** Asks the instance whether it can run a detection, and what stands in the way if not. */
     fun checkInstance() {
+        // The source goes with it. Re-asking the instance lands back on the picker, and a
+        // source left over from the last attempt would keep USB monitoring switched off — so
+        // the microscope option would sit there frozen at whatever it last reported, and a
+        // device plugged in since would never be noticed.
+        _chosenSource.value = null
         _state.value = PestDetectionState.CheckingInstance
         viewModelScope.launch {
             _state.value = when (val readiness = detections.readiness()) {
@@ -158,7 +182,6 @@ class PestDetectionViewModel @Inject constructor(
     fun capture(language: String) {
         val ready = _state.value as? PestDetectionState.Ready ?: return
         if (ready.isUploading || ready.source == null) return
-        chosenSource = ready.source
         _state.value = ready.copy(isUploading = true)
         viewModelScope.launch {
             val jpeg = when (ready.source) {
@@ -200,19 +223,13 @@ class PestDetectionViewModel @Inject constructor(
      * time would be a step they did not ask for.
      */
     fun captureAgain() {
-        _state.value = PestDetectionState.Ready(source = chosenSource, phoneReady = shutter != null)
+        _state.update {
+            PestDetectionState.Ready(
+                source = _chosenSource.value,
+                phoneReady = _chosenSource.value == CaptureSource.PHONE && shutter != null,
+            )
+        }
     }
-
-    /**
-     * The source in play, which outlives [PestDetectionState.Ready].
-     *
-     * A result carries no source of its own, so this is what tells the screen whether USB
-     * monitoring is still wanted while one is on display — and it is what [captureAgain]
-     * returns to.
-     */
-    @Volatile
-    var chosenSource: CaptureSource? = null
-        private set
 
     private companion object {
         /**

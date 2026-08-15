@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
@@ -61,10 +62,11 @@ class CameraPermission internal constructor(
 fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermission {
     val context = LocalContext.current
     var isGranted by remember { mutableStateOf(context.hasCameraPermission()) }
-    // Only meaningful after a denial, and only readable from an Activity. Re-read whenever the
-    // grant changes so the screen can tell "not asked yet" from "asked and refused for good".
-    var canAsk by remember { mutableStateOf(true) }
-    var asked by remember { mutableStateOf(false) }
+    // Saved, both of them, because a configuration change recreates the Activity: a plain
+    // `remember` resets on every rotation, so the screen would ask again for a grant the user
+    // had just refused, and would briefly offer "grant" to someone who has refused for good.
+    var canAsk by rememberSaveable { mutableStateOf(true) }
+    var asked by rememberSaveable { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isGranted = context.hasCameraPermission()
@@ -85,7 +87,9 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
     // launcher in a DisposableEffect that runs *after* composition, so launching from the
     // composition itself throws "Launcher has not been initialized" — an immediate crash on
     // every first visit without the grant. The flag keeps a recomposition from asking twice.
-    LaunchedEffect(Unit) {
+    // Keyed on the flag, not on Unit: a caller that starts out not wanting the request and
+    // later does would otherwise be ignored for the life of the composition.
+    LaunchedEffect(requestOnFirstShow) {
         if (requestOnFirstShow && !isGranted && !asked) {
             asked = true
             request()

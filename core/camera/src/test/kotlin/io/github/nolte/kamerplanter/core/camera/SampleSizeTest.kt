@@ -6,10 +6,10 @@ import org.junit.Test
 /**
  * The subsampling factor a phone photo is decoded at.
  *
- * `BitmapFactory` rounds a non-power-of-two `inSampleSize` **down** to one, so asking for 3
- * gets 2 and decodes twice the intended size — on a 50-megapixel capture that is the
- * difference between a bitmap that fits and an `OutOfMemoryError`. The arithmetic looks right
- * either way, which is why it needs a test rather than a comment.
+ * Two ways to get this wrong, and both cost real detection quality. Subsampling only halves,
+ * so a factor chosen to land *under* the target usually lands far under it — and
+ * `BitmapFactory` rounds a non-power-of-two down to one, so asking for 3 silently gets 2. The
+ * arithmetic looks right either way, which is why it needs a test rather than a comment.
  */
 class SampleSizeTest {
 
@@ -21,29 +21,44 @@ class SampleSizeTest {
         assertEquals(1, sampleSizeFor(800, target))
     }
 
-    /** A 4000-wide phone photo: 4000/2048 is 1.95, and rounding down would not shrink at all. */
+    /**
+     * The case that was wrong: an ordinary 16-megapixel sensor width.
+     *
+     * 4624 halves to 2312, which is still above the cap, and halves again to 1156 — 44 % of the
+     * linear resolution thrown away before anything has looked at the image. The decode stops
+     * at 2312 and the scale takes it to 2048 exactly.
+     */
     @Test
-    fun `a photo just past the target is halved once`() {
-        assertEquals(2, sampleSizeFor(target + 1, target))
-        assertEquals(2, sampleSizeFor(4000, target))
+    fun `a sensor width does not overshoot the cap`() {
+        assertEquals(2, sampleSizeFor(4624, target))
+        assertEquals(4, sampleSizeFor(9000, target))
+        // 4000 halves to 2000, which is already below the cap — so it is not halved at all,
+        // and the scale does the whole reduction.
+        assertEquals(1, sampleSizeFor(4000, target))
     }
 
-    /** An exact multiple must not be halved once more — 4096/2 is already at the target. */
+    /** An exact multiple may halve all the way down to the target, and not one step further. */
     @Test
-    fun `an exact multiple of the target is not subsampled twice`() {
+    fun `an exact multiple lands exactly on the target`() {
         assertEquals(2, sampleSizeFor(target * 2, target))
         assertEquals(4, sampleSizeFor(target * 4, target))
     }
 
-    /** The whole contract: the smallest power of two that fits. */
+    /**
+     * The whole contract: the largest power of two that still leaves the target reachable by
+     * scaling down. Halving once more would take the image below the cap, which the scale
+     * cannot undo.
+     */
     @Test
-    fun `every width gets the smallest power of two that fits`() {
-        (1..9000).forEach { width ->
+    fun `every width keeps enough pixels to reach the target`() {
+        (1..12_000).forEach { width ->
             val sample = sampleSizeFor(width, target)
             assert(sample and (sample - 1) == 0) { "$width produced a non-power-of-two $sample" }
-            assert(width / sample <= target) { "$width decoded to ${width / sample}, past $target" }
-            assert(sample == 1 || width / (sample / 2) > target) {
-                "$width used $sample, but ${sample / 2} would already have fit"
+            assert(width / sample >= target || width <= target) {
+                "$width decoded to ${width / sample}, below the $target it must still reach"
+            }
+            assert(width / (sample * 2) < target) {
+                "$width used $sample, but ${sample * 2} would still have reached $target"
             }
         }
     }

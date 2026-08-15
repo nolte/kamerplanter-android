@@ -36,11 +36,11 @@ dependencies {
 
     // For the ConnectionClient binding only — this module talks to the instance through
     // that seam and touches no networking type itself (ADR 0001, R-GEN-5).
+    implementation(project(":core:network"))
+
     // The device camera and its runtime permission, shared with pest detection. ML Kit stays
     // here: barcode decoding is this feature's concern, holding a camera is not.
     implementation(project(":core:camera"))
-
-    implementation(project(":core:network"))
 
     // The device-camera QR scanner lives here — and only here. The rest of the app
     // pairs through the app-owned PairingClient seam, never through CameraX/ML Kit.

@@ -45,13 +45,6 @@ dependencies {
     // both screens need.
     implementation(project(":core:camera"))
 
-    // Declared rather than inherited: both are used directly here — the permission launcher
-    // and ContextCompat — and they reach this module only through hilt-navigation-compose's
-    // own api dependencies today. A version bump that dropped either would break this module
-    // for a reason nothing in it names.
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.core.ktx)
-
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
