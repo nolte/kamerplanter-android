@@ -134,11 +134,40 @@ class GeneratedClientSerializationTest {
         val encoded = encodedArea("1E+400")
 
         assertTrue(encoded, encoded.contains("\"area_m2\":1E+400,"))
-        // Still a JSON number, not a string and not a broken document.
-        assertEquals(
-            BigDecimal("1E+400").compareTo(BigDecimal(json.parseToJsonElement(encoded).areaText())),
-            0,
-        )
+        // Still a JSON number, not a string and not a broken document — asserted on the
+        // re-parsed token so the exponent form itself is pinned, not merely the value.
+        assertEquals("1E+400", json.parseToJsonElement(encoded).areaText())
+    }
+
+    /**
+     * The nullable half of the same field.
+     *
+     * `container_volume_liters` is `float | None` upstream, so an unset one arrives as JSON
+     * `null` — and `JsonNull` *is* a `JsonPrimitive`, whose `content` reads `"null"`. It never
+     * reaches [DecimalWireFormat] today because kotlinx short-circuits a nullable element
+     * before consulting the serializer, but nothing in this module says so, and the field
+     * became load-bearing the moment this PR started exercising it.
+     */
+    @Test
+    fun `a null decimal stays null rather than reaching the decimal serializer`() {
+        fun volumeOf(field: String) = json.decodeFromString<PlantResponse>(
+            """
+            {
+              "cultivar_key": null,
+              "instance_id": "1f0b2c",
+              "key": "plant-7",
+              "plant_name": "Monstera",
+              "planted_on": "2026-03-14",
+              "removed_on": null,
+              "slot_key": null,
+              "species_key": "monstera-deliciosa",
+              "substrate_batch_key": null$field
+            }
+            """.trimIndent(),
+        ).containerVolumeLiters
+
+        assertNull("an explicit null", volumeOf(",\n  \"container_volume_liters\": null"))
+        assertNull("an older backend omitting the field", volumeOf(""))
     }
 
     private fun encodedArea(area: String) = json.encodeToString(

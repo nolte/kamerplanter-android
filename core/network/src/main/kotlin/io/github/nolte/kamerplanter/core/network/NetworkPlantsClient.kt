@@ -274,13 +274,18 @@ class NetworkPlantsClient(
          * tenant-wide: when one fails, every row on screen is affected, and nothing else in the
          * app would say so.
          *
-         * The log call is itself guarded, and that is not belt-and-braces. This runs in the
-         * `getOrElse` block — *outside* the `runCatchingCancellable` that makes an enrichment
-         * failure survivable — so anything thrown here escapes to `loadPlants`, whose own catch
+         * The log call is guarded because of where it sits. This runs in the `getOrElse`
+         * block — *outside* the `runCatchingCancellable` that makes an enrichment failure
+         * survivable — so anything thrown here escapes to `loadPlants`, whose own catch
          * degrades the whole list to `Unavailable`. A logger that threw would then do precisely
-         * what the failure it was reporting was forbidden from doing. Not hypothetical: an
-         * unmocked `android.util.Log` throws, which is what a JVM unit test sees, and removing
-         * this guard turns twelve of them red.
+         * what the failure it was reporting was forbidden from doing.
+         *
+         * The only thrower actually observed is the JVM unit test's `android.jar` stub, not
+         * anything on a device: removing this guard turns ten of this class's seventeen tests
+         * red, all of them with a `ClassCastException` on the degraded outcome rather than on
+         * the logging. So the guard buys a testable module without a global
+         * `isReturnDefaultValues`, and the structural point above is why it is worth keeping
+         * rather than working around.
          */
         @Suppress("TooGenericExceptionCaught", "SwallowedException")
         fun <K, V> warn(what: String, failure: Throwable): Map<K, V> {

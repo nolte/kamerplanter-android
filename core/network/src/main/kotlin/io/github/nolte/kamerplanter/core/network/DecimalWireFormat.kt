@@ -66,10 +66,17 @@ internal object DecimalWireFormat : KSerializer<BigDecimal> {
      * care profile's multiplier, say) goes out quietly changed.
      *
      * `toString` rather than `toPlainString`: JSON allows an exponent, and the plain form of a
-     * large negative scale is one digit per power of ten. An instance answering `1E+2000000000`
-     * — nonsense, but this client does not get to assume otherwise — would turn a nine-byte
-     * token into a two-gigabyte string on the way back out, which is an `OutOfMemoryError`
-     * rather than a failed request. `toString` keeps the exponent and stays short.
+     * large negative scale is one digit per power of ten. `1E+2000000000` is a thirteen-byte
+     * token whose plain form does not fit in a heap — measured, it is an `OutOfMemoryError`
+     * rather than a failed request. kamerplanter's own `float` fields cannot produce that (such
+     * a value would already be `inf` on their side), so this guards against a proxy, a future
+     * field or a hostile answer rather than against the backend itself. Cheap enough not to
+     * need a better excuse.
+     *
+     * The cost is a wire-format change for very small values: Java switches `toString` to
+     * exponent form below `1e-6`, so an instance that sent `0.0000001` gets `1E-7` back. Same
+     * number, valid JSON, and accepted by pydantic on both its parsing paths — verified rather
+     * than assumed. Areas, volumes and confidences all sit well above that threshold.
      */
     @OptIn(ExperimentalSerializationApi::class)
     override fun serialize(encoder: Encoder, value: BigDecimal) {
