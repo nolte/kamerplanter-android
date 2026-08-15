@@ -4,7 +4,9 @@ import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.FakeConnectionStore
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -26,7 +28,7 @@ import org.junit.Test
 class NetworkPlantsClientTest {
 
     /** Long enough that sitting it out is unmistakable, short enough not to stall the suite. */
-    private val SLOW_PHOTO_MILLIS = 3_000L
+    private val slowPhotoMillis = 3_000L
 
     private lateinit var server: MockWebServer
     private val responses = mutableMapOf<String, String>()
@@ -73,8 +75,6 @@ class NetworkPlantsClientTest {
 
     private fun client(
         credential: Credential = Credential.ApiKey("kp_sk_x"),
-        // Generous by default so the virtual clock in runTest cannot trip the budget while a
-        // test is asserting something else entirely.
         thumbnailBudgetMillis: Long = 60_000L,
     ) = NetworkPlantsClient(
         apis = plantsApiFactory(),
@@ -121,8 +121,18 @@ class NetworkPlantsClientTest {
             """{"photos":[],"plant_instance_key":"$it"}"""
     }
 
-    private suspend fun loaded(): List<PlantSummary> =
+    /**
+     * Runs the load on a real dispatcher.
+     *
+     * Not a detail: `runTest` drives a virtual clock, and the scheduler goes idle exactly
+     * when the load reaches its thumbnail timeout — so the clock jumps straight to the end of
+     * the budget however large it is, and any photo response still on the wire is discarded.
+     * A raised budget does not help, which is what an earlier version of this file assumed.
+     * On a real dispatcher the budget is wall-clock, the way it is in production.
+     */
+    private suspend fun loaded(): List<PlantSummary> = withContext(Dispatchers.Default) {
         (client().loadPlants() as PlantListOutcome.Loaded).plants
+    }
 
     @Test
     fun `maps name, species and resolved location onto a row`() = runTest {
@@ -222,17 +232,19 @@ class NetworkPlantsClientTest {
               {"attachment_id":"a1","byte_size":1,"is_cover":true,"mime_type":"image/jpeg",
                "uri":"/y","thumbnail_uris":{"small":"/thumbs/late.jpg","medium":"m","large":"l"}}]}
         """.trimIndent()
-        delays["/api/v1/t/demo/plant-instances/p1/photos"] = SLOW_PHOTO_MILLIS
+        delays["/api/v1/t/demo/plant-instances/p1/photos"] = slowPhotoMillis
 
         val startedAt = System.nanoTime()
-        val rows = (client(thumbnailBudgetMillis = 50L).loadPlants() as PlantListOutcome.Loaded).plants
+        val rows = withContext(Dispatchers.Default) {
+            (client(thumbnailBudgetMillis = 50L).loadPlants() as PlantListOutcome.Loaded).plants
+        }
         val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
 
         assertEquals("the list still arrives", 1, rows.size)
         assertNull("without the thumbnail that did not make it", rows.single().thumbnailUrl)
         assertTrue(
             "the load must not sit out the slow request; took ${elapsedMillis}ms",
-            elapsedMillis < SLOW_PHOTO_MILLIS / 2,
+            elapsedMillis < slowPhotoMillis / 2,
         )
     }
 
@@ -340,7 +352,7 @@ class NetworkPlantsClientTest {
     fun `a forbidden response routes to reconnecting rather than to a retry`() = runTest {
         statuses["/api/v1/t/demo/plant-instances"] = 403
 
-        assertEquals(PlantListOutcome.Unauthorized, client().loadPlants())
+        assertEquals(PlantListOutcome.Unauthorized, withContext(Dispatchers.Default) { client().loadPlants() })
     }
 
     /** A refused credential has to be told apart from an unreachable instance. */
@@ -348,14 +360,14 @@ class NetworkPlantsClientTest {
     fun `reports a rejected credential distinctly`() = runTest {
         statuses["/api/v1/t/demo/plant-instances"] = 401
 
-        assertEquals(PlantListOutcome.Unauthorized, client().loadPlants())
+        assertEquals(PlantListOutcome.Unauthorized, withContext(Dispatchers.Default) { client().loadPlants() })
     }
 
     @Test
     fun `reports a server error as unavailable`() = runTest {
         statuses["/api/v1/t/demo/plant-instances"] = 500
 
-        assertTrue(client().loadPlants() is PlantListOutcome.Unavailable)
+        assertTrue(withContext(Dispatchers.Default) { client().loadPlants() } is PlantListOutcome.Unavailable)
     }
 
     /** Light mode has no tenant, so there are no tenant-scoped plants to ask for. */
@@ -367,7 +379,9 @@ class NetworkPlantsClientTest {
             credentials = InMemoryCredentialStore(),
         )
 
-        assertTrue(lightMode.loadPlants() is PlantListOutcome.Unavailable)
+        assertTrue(
+            withContext(Dispatchers.Default) { lightMode.loadPlants() } is PlantListOutcome.Unavailable,
+        )
         assertTrue(requestedPaths.isEmpty())
     }
 }

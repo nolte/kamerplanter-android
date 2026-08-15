@@ -8,11 +8,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 /**
  * Guards the one control standing between the stored credential and a third-party host.
@@ -51,6 +53,13 @@ class AuthenticatedImageClientTest {
 
     private fun MockWebServer.answerOnce() = enqueue(MockResponse().setBody("x"))
 
+    /**
+     * Bounded so a request that never arrives fails the test instead of hanging it — on CI a
+     * hung test is the worse failure, because it says nothing about what went wrong.
+     */
+    private fun MockWebServer.recorded(): RecordedRequest =
+        requireNotNull(takeRequest(2, TimeUnit.SECONDS)) { "no request reached this server" }
+
     @Test
     fun `attaches the credential to a thumbnail on the connected instance`() {
         instance.answerOnce()
@@ -58,11 +67,16 @@ class AuthenticatedImageClientTest {
         client().newCall(Request.Builder().url(instance.url("/thumbs/a.jpg")).build())
             .execute().close()
 
-        assertEquals("Bearer at-1", instance.takeRequest().getHeader("Authorization"))
+        assertEquals("Bearer at-1", instance.recorded().getHeader("Authorization"))
     }
 
+    /**
+     * Both servers are on localhost, so what actually differs here is the port — which is
+     * the part of the check a naive host-only comparison would get wrong, and enough to
+     * prove the credential does not follow a URL off the connected instance.
+     */
     @Test
-    fun `sends nothing to a host that is not the connected instance`() {
+    fun `sends nothing to a server that is not the connected instance`() {
         elsewhere.answerOnce()
 
         client().newCall(Request.Builder().url(elsewhere.url("/thumbs/a.jpg")).build())
@@ -70,7 +84,7 @@ class AuthenticatedImageClientTest {
 
         assertNull(
             "a presigned object-store URL must not receive the kamerplanter credential",
-            elsewhere.takeRequest().getHeader("Authorization"),
+            elsewhere.recorded().getHeader("Authorization"),
         )
     }
 
@@ -83,7 +97,7 @@ class AuthenticatedImageClientTest {
             .newCall(Request.Builder().url(instance.url("/thumbs/a.jpg")).build())
             .execute().close()
 
-        assertEquals("Bearer kp_sk_x", instance.takeRequest().getHeader("Authorization"))
+        assertEquals("Bearer kp_sk_x", instance.recorded().getHeader("Authorization"))
     }
 
     /** Light mode has no credential, and its thumbnails need none. */
@@ -95,7 +109,7 @@ class AuthenticatedImageClientTest {
             .newCall(Request.Builder().url(instance.url("/thumbs/a.jpg")).build())
             .execute().close()
 
-        assertNull(instance.takeRequest().getHeader("Authorization"))
+        assertNull(instance.recorded().getHeader("Authorization"))
     }
 
     /**
@@ -111,6 +125,6 @@ class AuthenticatedImageClientTest {
             .newCall(Request.Builder().url(instance.url("/thumbs/a.jpg")).build())
             .execute().close()
 
-        assertEquals("Bearer at-1", instance.takeRequest().getHeader("Authorization"))
+        assertEquals("Bearer at-1", instance.recorded().getHeader("Authorization"))
     }
 }

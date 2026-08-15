@@ -85,6 +85,9 @@ class NetworkPlantsClient(
         }
     }
 
+    // getCompleted() is experimental API, chosen deliberately: it is the only way to read a
+    // Deferred that has already finished without suspending on the ones that have not.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private suspend fun loadFor(
         retrofit: Retrofit,
         tenant: String,
