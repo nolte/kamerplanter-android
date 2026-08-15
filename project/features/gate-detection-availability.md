@@ -42,21 +42,21 @@ is agreeing to text the app invented.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** When the instance reports detection unavailable or no adapter configured, the capture entry point is not offered.
-- [ ] **acceptance-2** When the entry point is not offered, the user is told why.
-- [ ] **acceptance-3** On an instance too old to carry the detection endpoints at all, the entry point is likewise not offered, rather than failing on a missing route.
-- [ ] **acceptance-4** When the active adapter requires cloud consent and it has not been granted, no image is captured until that consent is obtained.
-- [ ] **acceptance-5** The consent dialogue shows the purpose, description and legal basis exactly as the instance supplies them.
-- [ ] **acceptance-6** On an instance whose detection runs locally, no consent is requested.
+- [x] **acceptance-1** When the instance reports detection unavailable or no adapter configured, the capture entry point is not offered.
+- [x] **acceptance-2** When the entry point is not offered, the user is told why.
+- [x] **acceptance-3** On an instance too old to carry the detection endpoints at all, the entry point is likewise not offered, rather than failing on a missing route.
+- [x] **acceptance-4** When the active adapter requires cloud consent and it has not been granted, no image is captured until that consent is obtained.
+- [x] **acceptance-5** The consent dialogue shows the purpose, description and legal basis exactly as the instance supplies them.
+- [x] **acceptance-6** On an instance whose detection runs locally, no consent is requested.
 
 ## Test hooks
 
-- **acceptance-1** — unit test over the `GET /pest-detection/status` response mapping across `available`, `feature_enabled` and per-adapter `configured` — pending
-- **acceptance-2** — unit test asserting an explanatory state rather than an absent one — pending
-- **acceptance-3** — unit test driving a `404` from the detection routes, per `R-COMPAT-3` — pending
-- **acceptance-4** — unit test asserting no capture is reachable while consent is outstanding — pending
-- **acceptance-5** — unit test asserting the dialogue renders server-supplied strings verbatim, with no app-authored consent wording — pending
-- **acceptance-6** — unit test with a local adapter reporting no `requires_consent` — pending
+- **acceptance-1** — `NetworkPestDetectionClientTest` — four cases over `available`, `feature_enabled` and per-adapter `configured`, each asserting `NotOffered`
+- **acceptance-2** — `PestDetectionViewModelTest` — `NotOffered` is a state of its own, and the screen renders it as an explanation with no action rather than as an absent entry point
+- **acceptance-3** — `NetworkPestDetectionClientTest` — `404` on `/pests/status` maps to `NotOffered`, per `R-COMPAT-3`
+- **acceptance-4** — `PestDetectionViewModelTest` — with consent outstanding, `capture()` leaves the camera untouched and uploads nothing; removing the gate turns this red
+- **acceptance-5** — `NetworkPestDetectionClientTest` — `label`, `description` and `legal_basis` cross the module boundary as `ConsentTerms` exactly as the instance sent them, and the screen renders those fields directly; the app's own wording is reachable only when the instance supplied none
+- **acceptance-6** — `NetworkPestDetectionClientTest` — an active local adapter yields `Ready` and never reads the consent list, even with a configured cloud adapter beside it
 
 ## Consistency notes
 

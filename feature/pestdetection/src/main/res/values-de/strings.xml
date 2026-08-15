@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pest_title">Schädlingserkennung</string>
+    <string name="pest_checking">Instanz wird gefragt…</string>
+
+    <string name="pest_not_connected_title">Nicht verbunden</string>
+    <string name="pest_not_connected_body">Verbinde die App mit deiner kamerplanter-Instanz, um Schädlinge zu bestimmen.</string>
+    <string name="pest_not_connected_action">Zu den Einstellungen</string>
+
+    <string name="pest_not_offered_title">Auf dieser Instanz nicht verfügbar</string>
+    <string name="pest_not_offered_body">Die Schädlingserkennung ist ausgeschaltet, oder es ist keine Erkennung eingerichtet. Eine Administratorin schaltet sie auf der Instanz frei.</string>
+
+    <string name="pest_rejected_title">Verbindung nicht mehr akzeptiert</string>
+    <string name="pest_rejected_body">Deine Instanz hat die gespeicherte Anmeldung abgelehnt. Verbinde dich neu, um weiterzumachen.</string>
+
+    <string name="pest_consent_title">Foto an einen externen Dienst senden?</string>
+    <string name="pest_consent_body">Deine Instanz erkennt Schädlinge über einen externen Dienst. Dein Foto verlässt dafür die Instanz. Vorher wird nichts hochgeladen.</string>
+    <string name="pest_consent_action">Einverstanden, weiter</string>
+    <string name="pest_consent_working">Auswahl wird gespeichert…</string>
+    <string name="pest_consent_basis">Rechtsgrundlage: %1$s</string>
+
+    <string name="pest_capture">Bestimmen</string>
+    <string name="pest_capturing">Wird bestimmt…</string>
+    <string name="pest_no_device">Schließe ein USB-Mikroskop an, um einen Schädling zu bestimmen.</string>
+    <string name="pest_camera_permission">Für die Schädlingserkennung braucht die App die Kamera-Berechtigung — sonst lässt Android sie nicht mit dem Mikroskop sprechen.</string>
+    <string name="pest_grant_permission">Berechtigung erteilen</string>
+
+    <string name="pest_result_title">Das hat deine Instanz erkannt</string>
+    <string name="pest_result_again">Neues Foto aufnehmen</string>
+    <string name="pest_finding">%1$s · %2$d%%</string>
+    <string name="pest_mode_direct">Direkt erkannt</string>
+    <string name="pest_mode_symptom">Schadbild</string>
+    <string name="pest_beneficial_badge">Nützling</string>
+    <string name="pest_beneficial_note">Das ist ein Nützling. Nicht behandeln.</string>
+    <string name="pest_photo_description">Dein Foto mit den erkannten Stellen markiert</string>
+    <string name="pest_tiles">In %1$d Ausschnitten analysiert</string>
+
+    <string name="pest_abstained_title">Keine sichere Bestimmung</string>
+    <string name="pest_abstained_body">Deine Instanz hat nichts sicher genug erkannt. Nimm ein näheres Foto auf, oder sieh dir die Pflanze selbst an.</string>
+
+    <string name="pest_nothing_found_title">Nichts gefunden</string>
+    <string name="pest_nothing_found_body">Deine Instanz hat das Foto angesehen und weder Schädling noch Schadbild erkannt.</string>
+
+    <string name="pest_failed_title">Das hat nicht geklappt</string>
+    <string name="pest_failed_retry">Nochmal versuchen</string>
+    <string name="pest_failed_unreachable">Deine Instanz war nicht erreichbar. Prüfe, ob sie läuft, und versuch es nochmal.</string>
+    <string name="pest_failed_capture">Das Mikroskop hat kein Bild geliefert. Prüfe das Kabel und versuch es nochmal.</string>
+    <string name="pest_failed_too_large">Das Foto ist zu groß für deine Instanz. Versuch es nochmal — das nächste Bild ist meist kleiner.</string>
+    <string name="pest_failed_not_processable">Deine Instanz konnte das Foto nicht lesen. Versuch es nochmal.</string>
+    <string name="pest_failed_unsupported_type">Deine Instanz nimmt nur JPEG- und PNG-Fotos an, und dieses ist keins von beiden.</string>
+    <string name="pest_failed_not_permitted">Dein Konto darf in diesem Mandanten keine Schädlingserkennung ausführen.</string>
+    <string name="pest_failed_consent">Deine Auswahl konnte nicht gespeichert werden. Versuch es nochmal.</string>
+</resources>

@@ -22,6 +22,15 @@ object OpenApiDocumentPreparer {
      * `plant-photos` is separate from `plant-instances` upstream even though the photo
      * routes live under the `/plant-instances/{key}/photos` path — the plant list needs it
      * for row thumbnails and the diary needs it for uploads.
+     *
+     * `privacy` is here for one route pair. A cloud pest-detection adapter reports
+     * `requires_consent: "pest_detection_cloud"`, and the app must not upload an image
+     * before that consent exists (#10) — but the adapter status says only that a consent is
+     * *required*, never whether it was *granted*. `/privacy/consents` is the only place that
+     * answers the second question, so without it the app could only discover a missing
+     * consent from the 403 the upload comes back with, after the image already left the
+     * device. The tag brings its whole GDPR surface along (export, erasure, restriction);
+     * generating it is cheaper than hand-writing the two calls the app needs.
      */
     val KEEP_TAGS: Set<String> = setOf(
         "attachments",
@@ -34,6 +43,7 @@ object OpenApiDocumentPreparer {
         "plant-diary",
         "plant-instances",
         "plant-photos",
+        "privacy",
         "tenants",
         "users",
     )

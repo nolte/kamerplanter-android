@@ -61,11 +61,11 @@ disclaimer are readable to the person holding the phone.
 
 ## Test hooks
 
-- **acceptance-1** — end-to-end run on the Pixel 7a against a real instance with a configured adapter; this is also where requirement R26's device verification is pinned — pending
-- **acceptance-2** — end-to-end run on the Pixel 7a, phone-camera source — pending
-- **acceptance-3** — unit test over endpoint selection (`/plants/{key}/detect` vs `/detect`) — pending
-- **acceptance-4** — unit test asserting the `language` form field carries the resolved resource locale (`en` or `de`) on a device set to a third locale — pending
-- **acceptance-5** — unit test over the `415` response mapping — pending
+- **acceptance-1** — `NetworkPestDetectionClientTest` covers the upload and the response mapping; the end-to-end capture against a live instance is still outstanding — pending
+- **acceptance-2** — phone-camera source not implemented yet — pending
+- **acceptance-3** — `NetworkPestDetectionClientTest` pins that a plant key routes to the plant-bound endpoint and its absence to the standalone one; the app only reaches the standalone path so far — pending
+- **acceptance-4** — `PestDetectionViewModelTest` pins the language reaching the client, and `NetworkPestDetectionClientTest` that it arrives as an unquoted form field; the screen takes it from the configuration that resolved its own strings — pending
+- **acceptance-5** — the unsupported-media-type message names JPEG and PNG; no assertion yet — pending
 
 **Deliberately criterion-free requirements.** R10 (the 8 MB and MIME limits) and R25 (EN/DE
 resources) carry no acceptance criterion and therefore no hook — a hook keyed to a

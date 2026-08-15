@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pest_title">Pest detection</string>
+    <string name="pest_checking">Asking your instance…</string>
+
+    <string name="pest_not_connected_title">Not connected</string>
+    <string name="pest_not_connected_body">Connect the app to your kamerplanter instance to identify pests.</string>
+    <string name="pest_not_connected_action">Go to Settings</string>
+
+    <string name="pest_not_offered_title">Not available on this instance</string>
+    <string name="pest_not_offered_body">Pest detection is switched off, or no recognizer is configured. An administrator enables it on the instance.</string>
+
+    <string name="pest_rejected_title">Connection no longer accepted</string>
+    <string name="pest_rejected_body">Your instance refused the stored credential. Connect again to continue.</string>
+
+    <!-- Consent. The image leaves the instance for an external service, so this is asked
+         before the camera opens, never after a photo has been taken.
+
+         The title and body are a FALLBACK only. The instance supplies its own wording for the
+         purpose, and that is what the screen shows: this is an Art. 6(1)(a) GDPR consent, and
+         nobody should be agreeing to text this app wrote about processing it does not perform.
+         These two strings appear only where the instance supplied no wording at all. -->
+    <string name="pest_consent_title">Send the photo to an external service?</string>
+    <string name="pest_consent_body">Your instance is set up to recognize pests through an external service. Your photo leaves the instance for that. Nothing is uploaded until you agree.</string>
+    <string name="pest_consent_action">Agree and continue</string>
+    <string name="pest_consent_working">Saving your choice…</string>
+    <!-- %1$s is the legal basis the instance records, e.g. "consent". Shown verbatim. -->
+    <string name="pest_consent_basis">Legal basis: %1$s</string>
+
+    <!-- Viewfinder -->
+    <string name="pest_capture">Identify</string>
+    <string name="pest_capturing">Identifying…</string>
+    <string name="pest_no_device">Attach a USB microscope to identify a pest.</string>
+    <string name="pest_camera_permission">Pest detection needs the camera permission before Android will let the app talk to the microscope.</string>
+    <string name="pest_grant_permission">Grant permission</string>
+
+    <!-- Result -->
+    <string name="pest_result_title">What your instance recognized</string>
+    <string name="pest_result_again">Take another photo</string>
+    <!-- %1$s is a pest or beneficial name, %2$d its confidence as a whole percentage. -->
+    <string name="pest_finding">%1$s · %2$d%%</string>
+    <string name="pest_mode_direct">Recognized directly</string>
+    <string name="pest_mode_symptom">Damage pattern</string>
+    <string name="pest_beneficial_badge">Beneficial</string>
+    <string name="pest_beneficial_note">This is a beneficial insect. Do not treat it.</string>
+    <!-- Screen-reader label for the captured photo with the findings drawn over it. -->
+    <string name="pest_photo_description">Your photo with the recognized areas marked</string>
+    <!-- %1$d is the number of image tiles the instance ran recognition on. -->
+    <string name="pest_tiles">Analysed in %1$d sections</string>
+
+    <string name="pest_abstained_title">No reliable identification</string>
+    <string name="pest_abstained_body">Your instance did not recognize anything with enough confidence. Take a closer photo, or inspect the plant yourself.</string>
+
+    <string name="pest_nothing_found_title">Nothing found</string>
+    <string name="pest_nothing_found_body">Your instance looked at the photo and recognized no pest and no damage pattern.</string>
+
+    <!-- Failures -->
+    <string name="pest_failed_title">That did not work</string>
+    <string name="pest_failed_retry">Try again</string>
+    <string name="pest_failed_unreachable">Your instance could not be reached. Check that it is running and try again.</string>
+    <string name="pest_failed_capture">The microscope did not deliver a frame. Check the cable and try again.</string>
+    <string name="pest_failed_too_large">The photo is too large for your instance. Try again — the next frame is usually smaller.</string>
+    <string name="pest_failed_not_processable">Your instance could not read the photo. Try again.</string>
+    <!-- Names the formats, per the feature spec: a rejection the user cannot act on is
+         just a dead end. JPEG and PNG are what the backend accepts. -->
+    <string name="pest_failed_unsupported_type">Your instance accepts JPEG and PNG photos only, and this one is neither.</string>
+    <string name="pest_failed_not_permitted">Your account may not run pest detection in this tenant.</string>
+    <string name="pest_failed_consent">Your choice could not be saved. Try again.</string>
+</resources>
