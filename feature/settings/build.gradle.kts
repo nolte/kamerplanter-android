@@ -38,6 +38,10 @@ dependencies {
     // that seam and touches no networking type itself (ADR 0001, R-GEN-5).
     implementation(project(":core:network"))
 
+    // The device camera and its runtime permission, shared with pest detection. ML Kit stays
+    // here: barcode decoding is this feature's concern, holding a camera is not.
+    implementation(project(":core:camera"))
+
     // The device-camera QR scanner lives here — and only here. The rest of the app
     // pairs through the app-owned PairingClient seam, never through CameraX/ML Kit.
     // (This is the phone camera, distinct from the USB/UVC camera in :feature:microscope.)
@@ -48,9 +52,10 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
 
     implementation(platform(libs.compose.bom))
+    // ContextCompat, used directly by the QR scanner's executor.
+    implementation(libs.androidx.core.ktx)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
-    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.navigation.compose)

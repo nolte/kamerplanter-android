@@ -6,6 +6,7 @@
     <string name="microscope_usb_permission_denied">Der USB-Zugriff wurde abgelehnt — das passiert auch, wenn der Bildschirm sperrt, während der Dialog offen ist.</string>
     <string name="microscope_camera_permission">Android verlangt die Kamera-Berechtigung, bevor es Zugriff auf eine USB-Kamera gibt. Ohne sie lässt sich das Mikroskop nicht öffnen.</string>
     <string name="microscope_grant_permission">Berechtigung erteilen</string>
+    <string name="microscope_open_settings">App-Einstellungen öffnen</string>
     <string name="microscope_no_usb_host">Dieses Gerät unterstützt keinen USB-Host-Modus (OTG).</string>
     <string name="microscope_error">Mikroskop-Fehler: %1$s</string>
     <string name="microscope_retry">Nochmal versuchen</string>

@@ -24,6 +24,7 @@ dependencyResolutionManagement {
 rootProject.name = "kamerplanter-android"
 
 include(":app")
+include(":core:camera")
 include(":core:connection")
 include(":core:network")
 include(":feature:microscope")

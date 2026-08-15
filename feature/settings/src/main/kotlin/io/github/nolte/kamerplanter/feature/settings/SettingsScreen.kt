@@ -1,8 +1,5 @@
 package io.github.nolte.kamerplanter.feature.settings
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,21 +13,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
@@ -51,26 +42,31 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
-    // Re-read on resume: granting from system Settings does not restart the process.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        hasCameraPermission = context.hasCameraPermission()
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasCameraPermission = granted }
+    // Asked only once the scanner is what is on screen — a method chooser comes first here,
+    // unlike a viewfinder that is useless without the camera. Left to the shared helper rather
+    // than to an effect of this screen's own, which would ask again on every rotation because
+    // it keeps no memory of having asked.
+    val permission = rememberCameraPermission(
+        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
+    )
 
     SettingsContent(
         state = state,
-        hasCameraPermission = hasCameraPermission,
+        hasCameraPermission = permission.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
             onQrDetected = viewModel::onQrDetected,
             onScannerError = viewModel::onScannerError,
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
-            onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+            permission = PermissionActions(
+                // Only ever the dialogue. The scanner fires this on its own when it opens
+                // without the grant, and routing it to system settings after a permanent
+                // denial would launch another app's screen with nobody having tapped anything.
+                onRequest = permission.request,
+                canAsk = permission.canAsk,
+                onOpenSettings = permission.openSettings,
+            ),
         ),
         modifier = modifier,
     )
@@ -83,7 +79,21 @@ internal class ConnectionActions(
     val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
-    val onRequestPermission: () -> Unit,
+    val permission: PermissionActions,
+)
+
+/**
+ * What the scanner can do about a missing camera grant.
+ *
+ * Two callbacks rather than one, because after "Don't ask again" the system stops prompting:
+ * a request button there is a control that visibly does nothing, and app settings is the only
+ * route back.
+ */
+internal class PermissionActions(
+    val onRequest: () -> Unit,
+    /** `false` after "Don't ask again": asking again shows nothing, so the button must not. */
+    val canAsk: Boolean,
+    val onOpenSettings: () -> Unit,
 )
 
 @Composable
@@ -112,7 +122,7 @@ private fun SettingsContent(
                 onQrDetected = actions.onQrDetected,
                 onScannerError = actions.onScannerError,
                 onCancel = actions.onCancel,
-                onRequestPermission = actions.onRequestPermission,
+                permission = actions.permission,
             )
             ConnectionState.CameraUnavailable -> CameraUnavailableBody(
                 onRetry = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
@@ -237,14 +247,13 @@ private fun ScanningBody(
     onQrDetected: (String) -> Unit,
     onScannerError: () -> Unit,
     onCancel: () -> Unit,
-    onRequestPermission: () -> Unit,
+    permission: PermissionActions,
 ) {
-    val context = LocalContext.current
     if (!hasCameraPermission) {
-        LaunchedEffect(Unit) { onRequestPermission() }
         CameraPermissionBody(
-            onRequest = onRequestPermission,
-            onOpenSettings = { context.openAppSettings() },
+            canAsk = permission.canAsk,
+            onRequest = permission.onRequest,
+            onOpenSettings = permission.onOpenSettings,
         )
         return
     }
@@ -323,16 +332,25 @@ private fun CameraUnavailableBody(onRetry: () -> Unit) {
 }
 
 @Composable
-private fun CameraPermissionBody(onRequest: () -> Unit, onOpenSettings: () -> Unit) {
+private fun CameraPermissionBody(
+    canAsk: Boolean,
+    onRequest: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_camera_permission),
             textAlign = TextAlign.Center,
         )
-        Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
-            Text(text = stringResource(R.string.settings_grant_permission))
+        // Once the request shows no dialogue there is nothing for a "grant permission" button
+        // to do, and offering one under that label leaves two controls doing the same thing
+        // with only one of them saying so.
+        if (canAsk) {
+            Button(onClick = onRequest, modifier = Modifier.padding(top = 16.dp)) {
+                Text(text = stringResource(R.string.settings_grant_permission))
+            }
         }
-        // Fallback route for a permanent denial, where re-requesting shows no dialog.
+        // The only route back from a permanent denial.
         TextButton(onClick = onOpenSettings, modifier = Modifier.padding(top = 8.dp)) {
             Text(text = stringResource(R.string.settings_open_app_settings))
         }

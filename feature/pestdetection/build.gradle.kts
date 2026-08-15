@@ -41,12 +41,9 @@ dependencies {
     // and never names the library.
     implementation(project(":feature:microscope"))
 
-    // Declared rather than inherited: both are used directly here — the permission launcher
-    // and ContextCompat — and they reach this module only through hilt-navigation-compose's
-    // own api dependencies today. A version bump that dropped either would break this module
-    // for a reason nothing in it names.
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.core.ktx)
+    // The device camera — the second image source (#10) — and the CAMERA runtime permission
+    // both screens need.
+    implementation(project(":core:camera"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
