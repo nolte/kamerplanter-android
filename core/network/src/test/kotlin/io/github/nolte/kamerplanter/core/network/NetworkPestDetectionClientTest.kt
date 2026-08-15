@@ -301,7 +301,7 @@ class NetworkPestDetectionClientTest {
               {"label":"tetranychus_urticae","category":"pest","common_name":"Spider mite",
                "confidence":0.87,"mode":"direct","matched_pest_key":"pest-1",
                "bounding_box":{"x":0.3,"y":0.28,"width":0.22,"height":0.2}},
-              {"label":"coccinella","category":"beneficial","common_name":"Ladybird",
+              {"label":"coccinella","category":"pest","common_name":"Ladybird",
                "confidence":0.6,"mode":"direct","matched_beneficial_key":"ben-1"}
             ]""",
         )
@@ -321,9 +321,12 @@ class NetworkPestDetectionClientTest {
         assertFalse(mite.isBeneficial)
 
         val ladybird = detection.findings[1]
-        // Derived from matched_beneficial_key, not from the category string: acting on this is
-        // a treatment decision, and the category is the recognizer's own vocabulary.
-        assertTrue(ladybird.isBeneficial)
+        // The fixture calls it a pest and matches it to a beneficial, which is the only way to
+        // tell the two signals apart: with both agreeing, reading the category would pass too.
+        // The key is what the backend resolved against its own master data; the category is the
+        // recognizer's vocabulary — and getting this backwards is someone spraying a ladybird.
+        assertEquals("pest", ladybird.category)
+        assertTrue("matched_beneficial_key decides, not the category", ladybird.isBeneficial)
         assertNull("a symptom-mode finding carries no box", ladybird.boundingBox)
     }
 

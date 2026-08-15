@@ -29,15 +29,6 @@ internal class StreamSession private constructor(
     val modes: List<Size>,
     private val previewMode: Size,
 ) {
-    /**
-     * The surface this stream renders into.
-     *
-     * Exposed because *which* surface a session belongs to is the only sound basis for
-     * deciding whether a destroyed one should tear it down. Two screens can each hold a
-     * preview view, and view identity does not answer that question — the session does.
-     */
-    val surface: SurfaceTexture get() = binding.surface
-
     // @Volatile: retune() mutates these on the camera thread while the native frame
     // callback reads them on the UVC thread; without it that read can stay stale forever.
     @Volatile

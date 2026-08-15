@@ -84,6 +84,18 @@ class PestDetectionViewModelTest {
         assertEquals(PestDetectionState.Unauthorized, viewModel().state.settled())
     }
 
+    /**
+     * The client tells "refused" from "not permitted" apart; this pins that the ViewModel keeps
+     * them apart. Collapsing the two here would put "connect again" in front of a credential
+     * whose scope simply excludes detection — and re-pairing returns it to the same 403.
+     */
+    @Test
+    fun `a credential outside its scope is not asked to reconnect`() = runTest(dispatcher) {
+        detections.readiness = DetectionReadiness.NotPermitted
+
+        assertEquals(PestDetectionState.NotPermitted, viewModel().state.settled())
+    }
+
     @Test
     fun `an unreachable instance is a retryable failure`() = runTest(dispatcher) {
         detections.readiness = DetectionReadiness.Unavailable("boom")

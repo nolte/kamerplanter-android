@@ -165,7 +165,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     // left to the order in which the outgoing view is destroyed. openStream
                     // refuses while a session is published, so without this the arriving view
                     // never gets a stream and shows a black preview over a Streaming state.
-                    val heldElsewhere = synchronized(sessionLock) { surfaces.heldElsewhereThan(surface) }
+                    val heldElsewhere = synchronized(sessionLock) { surfaces.handoverFrom(surface) }
                     if (heldElsewhere != null) {
                         Log.i(TAG, "handing the stream over to a newer preview surface")
                         closeStream()
@@ -178,20 +178,24 @@ internal class UvcMicroscopeCamera @Inject constructor(
 
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
                     Log.i(TAG, "preview surface destroyed; open stream: ${session.get()?.deviceName}")
-                    // Whether this surface owns the stream is [StreamSurfaces]' decision, and
-                    // it covers the case a published session cannot: an open still in flight.
-                    // Opening a device takes hundreds of milliseconds, and a surface destroyed
-                    // inside that window has no session to compare against — answering "not
-                    // mine" there hands the platform a surface the open is about to render
-                    // into, which is the orphaned stream the generation counter exists to stop.
-                    if (synchronized(sessionLock) { surfaces.mayReclaim(surface) }) return true
-                    // The view itself survives this — the window merely stopped — so the
-                    // reference stays and onSurfaceTextureAvailable can reopen on return.
-                    // false: the platform must not reclaim the surface while the native
-                    // preview thread may still be writing into it. closeStream releases
-                    // it once the engine has actually let go.
-                    closeStream(release = surface)
-                    return false
+                    // Three answers, not two — see [DestroyOutcome]. The one that is easy to
+                    // miss is AWAIT_TEARDOWN: a surface this camera has already begun closing
+                    // must be kept from the platform, but starting another close would tear
+                    // down whatever is live by then, which during a handover is the *arriving*
+                    // screen's stream.
+                    return when (synchronized(sessionLock) { surfaces.onDestroyed(surface) }) {
+                        DestroyOutcome.RECLAIM -> true
+                        // The view itself survives this — the window merely stopped — so the
+                        // reference stays and onSurfaceTextureAvailable can reopen on return.
+                        // false: the platform must not reclaim the surface while the native
+                        // preview thread may still be writing into it. closeStream releases
+                        // it once the engine has actually let go.
+                        DestroyOutcome.TEAR_DOWN -> {
+                            closeStream(release = surface)
+                            false
+                        }
+                        DestroyOutcome.AWAIT_TEARDOWN -> false
+                    }
                 }
 
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
@@ -298,10 +302,11 @@ internal class UvcMicroscopeCamera @Inject constructor(
             }
             if (session.get() != null || opening != generation.get()) {
                 releaseSlot()
+                // Identity-scoped, so a newer open's claim survives this. Without it the slot
+                // stays set for a surface nothing ever opened, and the next destroy of *any*
+                // other surface tears down a perfectly live stream.
+                synchronized(sessionLock) { surfaces.abandoned(surface) }
                 return@execute
-            }
-            fun abandon() = synchronized(sessionLock) {
-                if (opening == generation.get()) surfaces.abandoned()
             }
             runCatching {
                 StreamSession.open(monitor, device, surface, frameCallback) { button, pressed ->
@@ -317,7 +322,7 @@ internal class UvcMicroscopeCamera @Inject constructor(
                     (opening == generation.get()).also { current ->
                         if (current) {
                             session.set(it)
-                            surfaces.published()
+                            surfaces.published(surface)
                             mutableState.value = MicroscopeState.Streaming
                         }
                     }
@@ -329,11 +334,12 @@ internal class UvcMicroscopeCamera @Inject constructor(
                 } else {
                     // A close overtook this open; nothing else would ever release it.
                     Log.i(TAG, "discarding a stream that was superseded while opening")
+                    synchronized(sessionLock) { surfaces.abandoned(surface) }
                     it.close()
                 }
             }.onFailure {
                 releaseSlot()
-                abandon()
+                synchronized(sessionLock) { surfaces.abandoned(surface) }
                 Log.w(TAG, "opening the microscope stream failed", it)
                 // Same generation check as the success path, and under the same lock: a
                 // teardown landing between the check and the write would still put an

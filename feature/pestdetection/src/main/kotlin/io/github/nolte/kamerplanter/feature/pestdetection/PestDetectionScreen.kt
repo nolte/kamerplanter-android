@@ -313,7 +313,14 @@ private fun DetectionResult(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AnnotatedCapture(frame = frame, findings = detection.findings)
+        // Only a confident detection draws boxes. The backend may list what it saw below its
+        // own threshold, and the findings list already suppresses those — drawing them anyway
+        // would put the marks of a result on screen under the words "no reliable
+        // identification", which is the more persuasive of the two.
+        AnnotatedCapture(
+            frame = frame,
+            findings = if (detection.outcome() == DetectionShape.FINDINGS) detection.findings else emptyList(),
+        )
 
         // Three outcomes, not two, and the difference between the last two is the whole point.
         // "I could not tell" and "I looked and there is nothing" are opposite answers: reading
