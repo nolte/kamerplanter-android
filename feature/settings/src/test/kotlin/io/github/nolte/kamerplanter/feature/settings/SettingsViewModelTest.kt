@@ -35,14 +35,15 @@ class SettingsViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
 
-    private val validQr = "kamerplanter://pair?url=https%3A%2F%2Fplants.example.org&code=ABC123"
+    // The payload a real instance encodes: the web UI writes JSON.stringify({ v, url, code }).
+    private val validQr = """{"v":1,"url":"https://plants.example.org","code":"ABC123"}"""
     private val request = ConnectionRequest.QrPairing(baseUrl = "https://plants.example.org", code = "ABC123")
     private val connection = Connection.QrPairing(
         baseUrl = "https://plants.example.org",
         tenantSlug = CANNED_TENANT.slug,
         identity = CANNED_IDENTITY,
     )
-    private val failQr = "kamerplanter://pair?url=https%3A%2F%2Fx&code=$CANNED_FAIL_CODE"
+    private val failQr = """{"v":1,"url":"https://x","code":"$CANNED_FAIL_CODE"}"""
 
     @Before
     fun setUp() {
@@ -171,6 +172,39 @@ class SettingsViewModelTest {
         viewModel.onQrDetected("just some scanned text")
 
         assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
+    }
+
+    @Test
+    fun `a foreign qr is reported as seen so the scanner can say so`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        // The distinction the scanner's badge rests on: this is not the same as seeing
+        // nothing, and reporting it as such is what makes a payload-format mismatch visible
+        // instead of looking like a camera that never focused.
+        assertEquals(QrReading.FOREIGN, viewModel.onQrDetected("just some scanned text"))
+    }
+
+    @Test
+    fun `an accepted qr is reported as accepted`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        assertEquals(QrReading.ACCEPTED, viewModel.onQrDetected(validQr))
+    }
+
+    @Test
+    fun `a qr decoded after the scan ended is stale, not foreign`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+
+        // The frames still carrying the accepted code keep arriving. Calling those foreign
+        // would put "not a kamerplanter code" on screen over a pairing already under way.
+        assertEquals(QrReading.STALE, viewModel.onQrDetected(validQr))
     }
 
     @Test

@@ -63,7 +63,9 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(CleartextGuard())
+        .build()
 
     // NOTE for whoever wires the Retrofit instance next: the generated multipart endpoints
     // declare plain `@Part("language") language: String` alongside the file part. Retrofit

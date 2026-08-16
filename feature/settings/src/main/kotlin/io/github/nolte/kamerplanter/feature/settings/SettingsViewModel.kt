@@ -158,18 +158,23 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Fed every barcode ML Kit decodes. Ignored unless the QR code is what is being
-     * collected; an unparseable or foreign payload is silently dropped so scanning
-     * continues (R44).
+     * Fed every barcode ML Kit decodes, and answers what became of it.
      *
-     * This runs on the analyzer's executor, not the main thread, so the move out of
-     * `ScanningQr` is a compare-and-set: only the caller that wins it proceeds, and a
-     * [cancel] that lands first makes this a no-op instead of being overwritten.
+     * A payload this build cannot read is dropped so scanning continues (R44) — a stray QR in
+     * frame must not end the scan — but it is reported as [QrReading.FOREIGN] rather than
+     * dropped in silence, because "no kamerplanter code here" and "the camera sees nothing"
+     * are the same picture to the person holding the phone.
+     *
+     * [QrScannerView] delivers on the main thread, so the read of `ScanningQr` and the move
+     * out of it are one uninterrupted step. The compare-and-set form is kept anyway: it costs
+     * nothing and it survives a caller that stops marshalling.
      */
-    fun onQrDetected(raw: String) {
-        val scanning = _state.value as? ConnectionState.Collecting.ScanningQr ?: return
-        val request = QrPayloadParser.parse(raw) ?: return
+    fun onQrDetected(raw: String): QrReading {
+        val scanning = _state.value as? ConnectionState.Collecting.ScanningQr
+            ?: return QrReading.STALE
+        val request = QrPayloadParser.parse(raw) ?: return QrReading.FOREIGN
         verify(scanning, request)
+        return QrReading.ACCEPTED
     }
 
     /** The device camera could not be bound; leave scanning for a recoverable error state. */

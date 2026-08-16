@@ -63,15 +63,20 @@ fun MicroscopeScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         floatingActionButton = {
-            if (uiState.camera is MicroscopeState.Streaming) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    // On screen because the body's own rocker never reaches USB — see
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Not gated on the stream. It was, on the grounds that the detection flow opens
+                // the same camera — true when that flow was microscope-only, and false since it
+                // grew a phone-camera source. Gating it meant the entire feature, including the
+                // source that needs no microscope at all, could only be reached by first
+                // attaching one: on a phone with nothing plugged in the app looked unchanged.
+                IdentifyPestButton(onIdentify = onIdentifyPest)
+                if (uiState.camera is MicroscopeState.Streaming) {
+                    // These two do need a live stream: there is nothing to zoom or capture
+                    // without one.
+                    //
+                    // Zoom is on screen because the body's own rocker never reaches USB — see
                     // MicroscopeCamera.zoomBy.
                     ZoomControls(onZoomIn = viewModel::zoomIn, onZoomOut = viewModel::zoomOut)
-                    // Offered only while a stream is running, like the shutter beside it: the
-                    // detection flow opens the same camera, so a device that cannot deliver a
-                    // frame here cannot deliver one there either.
-                    IdentifyPestButton(onIdentify = onIdentifyPest)
                     CaptureButton(isCapturing = uiState.isCapturing, onCapture = viewModel::capture)
                 }
             }

@@ -23,4 +23,7 @@
     <string name="settings_discovered_replaces">Du bist mit einer anderen Instanz verbunden. Weitermachen ersetzt diese Verbindung.</string>
     <string name="settings_discovered_continue">Mit dieser Instanz verbinden</string>
     <string name="settings_discovered_dismiss">Jetzt nicht</string>
+    <string name="settings_scan_recognised">QR-Code erkannt</string>
+    <string name="settings_scan_foreign">QR-Code erkannt, aber kein kamerplanter-Code</string>
+    <string name="settings_failed_local_network">Der Zugriff auf das lokale Netzwerk ist nicht erlaubt. Eine Instanz im eigenen Netz ist ohne ihn nicht erreichbar — erteile ihn in den App-Einstellungen.</string>
 </resources>

@@ -25,4 +25,7 @@
     <string name="settings_discovered_replaces">You are connected to a different instance. Continuing replaces that connection.</string>
     <string name="settings_discovered_continue">Connect to this instance</string>
     <string name="settings_discovered_dismiss">Not now</string>
+    <string name="settings_scan_recognised">QR code recognised</string>
+    <string name="settings_scan_foreign">QR code recognised, but it is not a kamerplanter code</string>
+    <string name="settings_failed_local_network">Local network access is not granted. An instance on your own network cannot be reached without it — grant it in the app settings.</string>
 </resources>

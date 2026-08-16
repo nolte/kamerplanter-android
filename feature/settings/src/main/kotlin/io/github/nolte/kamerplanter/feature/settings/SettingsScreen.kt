@@ -7,13 +7,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -22,9 +29,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
+import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import kotlinx.coroutines.delay
 
 /**
  * Settings screen whose centrepiece is connecting to the (self-hosted) kamerplanter
@@ -49,10 +58,20 @@ fun SettingsScreen(
     val permission = rememberCameraPermission(
         requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
     )
+    // Asked at the same moment as the camera, not after the scan. Since Android 16 an
+    // instance on the user's own network is unreachable without this grant — and unreachable
+    // in the worst way, with the connection dropped rather than refused, so the app sees only
+    // its own timeout expire and reports a healthy server as down. Asking once the scan has
+    // produced an address would mean interrupting an attempt already under way; asking here
+    // costs one dialogue in the one flow whose whole purpose is to reach such an instance.
+    val localNetwork = rememberLocalNetworkPermission(
+        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
+    )
 
     SettingsContent(
         state = state,
         hasCameraPermission = permission.isGranted,
+        hasLocalNetworkPermission = localNetwork.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
             onQrDetected = viewModel::onQrDetected,
@@ -75,7 +94,7 @@ fun SettingsScreen(
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
 internal class ConnectionActions(
     val onConnect: (ConnectionMethod) -> Unit,
-    val onQrDetected: (String) -> Unit,
+    val onQrDetected: (String) -> QrReading,
     val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
@@ -100,6 +119,7 @@ internal class PermissionActions(
 private fun SettingsContent(
     state: ConnectionState,
     hasCameraPermission: Boolean,
+    hasLocalNetworkPermission: Boolean,
     actions: ConnectionActions,
     modifier: Modifier = Modifier,
 ) {
@@ -141,7 +161,11 @@ private fun SettingsContent(
                 connection = state.connection,
                 onDisconnect = actions.onDisconnect,
             )
-            is ConnectionState.Failed -> FailedBody(onRetry = { actions.onConnect(state.method) })
+            is ConnectionState.Failed -> FailedBody(
+                reason = state.reason,
+                hasLocalNetworkPermission = hasLocalNetworkPermission,
+                onRetry = { actions.onConnect(state.method) },
+            )
         }
     }
 }
@@ -244,7 +268,7 @@ private fun NotConnectedBody(onConnect: () -> Unit) {
 @Composable
 private fun ScanningBody(
     hasCameraPermission: Boolean,
-    onQrDetected: (String) -> Unit,
+    onQrDetected: (String) -> QrReading,
     onScannerError: () -> Unit,
     onCancel: () -> Unit,
     permission: PermissionActions,
@@ -257,9 +281,20 @@ private fun ScanningBody(
         )
         return
     }
+    // The scanner's own verdict on the last code it saw, so that pointing the camera at a QR
+    // code always produces a visible reaction. Owned here rather than by the scanner because
+    // the cancel button below decides where the badge fits.
+    var lastReading by remember { mutableStateOf<ScanFeedback?>(null) }
+    ScanFeedbackTimeout(feedback = lastReading, onExpired = { lastReading = null })
+
     Box(modifier = Modifier.fillMaxSize()) {
         QrScannerView(
-            onQrDetected = onQrDetected,
+            onQrDetected = { raw ->
+                val reading = onQrDetected(raw)
+                // A new object every time, so holding a foreign code in frame keeps the badge
+                // alive instead of letting the first frame's timeout retire it.
+                lastReading = ScanFeedback(reading, (lastReading?.seq ?: 0) + 1)
+            },
             onError = onScannerError,
             modifier = Modifier.fillMaxSize(),
         )
@@ -272,14 +307,67 @@ private fun ScanningBody(
                 .fillMaxWidth()
                 .padding(24.dp),
         )
-        OutlinedButton(
-            onClick = onCancel,
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(24.dp),
         ) {
-            Text(text = stringResource(R.string.settings_cancel))
+            lastReading?.reading?.let { ScanFeedbackBadge(reading = it) }
+            OutlinedButton(onClick = onCancel) {
+                Text(text = stringResource(R.string.settings_cancel))
+            }
         }
+    }
+}
+
+/** The last decode plus a sequence number, so an unchanged verdict still counts as new. */
+private data class ScanFeedback(val reading: QrReading, val seq: Int)
+
+private const val FEEDBACK_VISIBLE_MILLIS = 2_000L
+
+/** Retires a badge that has stopped being refreshed — the code left the frame. */
+@Composable
+private fun ScanFeedbackTimeout(feedback: ScanFeedback?, onExpired: () -> Unit) {
+    val currentOnExpired by rememberUpdatedState(onExpired)
+    LaunchedEffect(feedback) {
+        if (feedback != null) {
+            delay(FEEDBACK_VISIBLE_MILLIS)
+            currentOnExpired()
+        }
+    }
+}
+
+/**
+ * Says that a QR code was seen, and whether it meant anything here.
+ *
+ * [QrReading.STALE] shows nothing: it is the tail of frames still carrying the code that was
+ * just accepted, and reporting it would contradict the pairing already under way.
+ */
+@Composable
+private fun ScanFeedbackBadge(reading: QrReading, modifier: Modifier = Modifier) {
+    val label = when (reading) {
+        QrReading.ACCEPTED -> R.string.settings_scan_recognised
+        QrReading.FOREIGN -> R.string.settings_scan_foreign
+        QrReading.STALE -> return
+    }
+    val colors = when (reading) {
+        QrReading.ACCEPTED -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        else -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+    Card(colors = colors, modifier = modifier.padding(bottom = 16.dp)) {
+        Text(
+            text = stringResource(label),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
     }
 }
 
@@ -304,13 +392,40 @@ private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun FailedBody(onRetry: () -> Unit) {
+private fun FailedBody(
+    reason: String,
+    hasLocalNetworkPermission: Boolean,
+    onRetry: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_failed),
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
         )
+        // Unlocalised on purpose: it is the client's own words about what it found, and
+        // translating it would mean inventing a fixed vocabulary of failures the client does
+        // not have. Better a technical sentence the instance's administrator can act on than a
+        // smooth one that says nothing.
+        Text(
+            text = reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        if (!hasLocalNetworkPermission) {
+            // The likeliest explanation for a timeout against a self-hosted instance, and one
+            // the reason above cannot give: a connection refused for want of this grant is
+            // dropped, not rejected, so what reaches the client is silence.
+            Text(
+                text = stringResource(R.string.settings_failed_local_network),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
         Button(onClick = onRetry, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_retry))
         }

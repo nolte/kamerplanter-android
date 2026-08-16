@@ -1,71 +1,87 @@
 package io.github.nolte.kamerplanter.feature.settings
 
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
-import java.net.URI
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
+import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
+import io.github.nolte.kamerplanter.core.connection.InstanceAddressPolicy
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /**
- * Parses the (fingierte) kamerplanter pairing QR code into a [ConnectionRequest.QrPairing].
+ * Reads a kamerplanter pairing QR code into the connection request it stands for.
  *
- * The dummy's canonical QR text is a custom-scheme URI:
+ * The pairing payload is the versioned JSON object the instance's web UI encodes verbatim:
  *
  * ```
- * kamerplanter://pair?url=<percent-encoded base URL>&code=<pairing code>
+ * {"v": 1, "url": "https://garten.example.org", "code": "Qm5kR2xoY0dWeUlHTnZaR1Vn…"}
  * ```
  *
- * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM.
- * Any input that is not this exact shape — a foreign QR, a bare string, a missing field —
- * yields `null`, which the caller treats as "invalid, keep scanning" (R44).
+ * Opaque JSON rather than a URL, and deliberately so: `code` is a one-time credential, and a
+ * payload a phone's system camera recognised as openable could be routed to whichever app the
+ * user picked from Android's chooser. Only the credential-free discovery link
+ * (`https://…/connect?v=1`) may be publicly recognisable.
  *
- * The real payload is the versioned JSON object `{"v": 1, "url": …, "code": …}`, whose
- * unknown versions must be refused rather than interpreted (R7); replacing this parser
- * with it is a separate step of
- * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8) and changes nothing
- * beyond this object.
+ * This scanner reads both, because the web UI shows them on the same dialogue and someone
+ * pointing a camera at one cannot be expected to know which they are looking at. A discovery
+ * link carries no credential, so it can only mean a light-mode connection.
+ *
+ * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM. Anything
+ * that is not one of these two shapes — a foreign QR, a bare string, a missing field — yields
+ * `null`, which the caller treats as "invalid, keep scanning" (R44).
  */
 object QrPayloadParser {
 
-    private const val SCHEME = "kamerplanter"
-    private const val HOST = "pair"
-    private const val PARAM_URL = "url"
-    private const val PARAM_CODE = "code"
+    /**
+     * The payload version this app understands.
+     *
+     * Present from v1 so a scanner can refuse a payload it predates rather than mis-parse it
+     * (R7). A version this build has never heard of describes a shape it cannot read, and
+     * reading one anyway is how a client acts on a field that has changed meaning — with a
+     * one-time credential in it.
+     */
+    private const val SUPPORTED_VERSION = 1
 
-    fun parse(raw: String): ConnectionRequest.QrPairing? {
-        val uri = runCatching { URI(raw.trim()) }.getOrNull()
-        // For `scheme://pair?...`, the authority carries the "pair" host.
-        val host = uri?.host ?: uri?.authority
-        val params = parseQuery(uri?.rawQuery)
-        val baseUrl = params[PARAM_URL]?.takeIf { it.isNotBlank() }
-        val code = params[PARAM_CODE]?.takeIf { it.isNotBlank() }
+    private const val FIELD_VERSION = "v"
+    private const val FIELD_URL = "url"
+    private const val FIELD_CODE = "code"
 
-        val isPairingUri = uri != null &&
-            SCHEME.equals(uri.scheme, ignoreCase = true) &&
-            HOST.equals(host, ignoreCase = true)
+    private val json = Json { ignoreUnknownKeys = true }
 
-        return if (isPairingUri && baseUrl != null && code != null) {
-            ConnectionRequest.QrPairing(baseUrl = baseUrl, code = code)
-        } else {
-            null
-        }
+    fun parse(raw: String): ConnectionRequest? {
+        val text = raw.trim()
+        // The pairing payload first. The two shapes cannot be confused — one starts with `{`
+        // and the other with `https://` — so the order is for readability, not correctness.
+        return text.asPairing()
+            ?: DiscoveryLinkParser.parse(text)?.let { ConnectionRequest.LightMode(it.baseUrl) }
     }
 
-    private fun parseQuery(rawQuery: String?): Map<String, String> {
-        if (rawQuery.isNullOrBlank()) return emptyMap()
-        return rawQuery.split("&").mapNotNull { pair ->
-            val separator = pair.indexOf('=')
-            if (separator <= 0) return@mapNotNull null
-            val key = pair.substring(0, separator)
-            val value = decode(pair.substring(separator + 1))
-            key to value
-        }.toMap()
+    private fun String.asPairing(): ConnectionRequest.QrPairing? {
+        val fields = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject
+            ?: return null
+        if (fields.number(FIELD_VERSION) != SUPPORTED_VERSION) return null
+        // The same address rule as the discovery link. A pairing payload names the instance
+        // that will receive its one-time credential, so an address this app may not talk to is
+        // not a payload it may act on.
+        val baseUrl = fields.text(FIELD_URL)?.takeIf { InstanceAddressPolicy.permits(it) }
+            ?: return null
+        val code = fields.text(FIELD_CODE) ?: return null
+        return ConnectionRequest.QrPairing(baseUrl = baseUrl, code = code)
     }
 
-    // Protect a literal '+' before decoding: URLDecoder treats '+' as a space (form-encoding),
-    // which would silently corrupt a base64-ish pairing code or a URL that contains one.
-    // A real space is transmitted as %20 and still decodes correctly.
-    private fun decode(value: String): String =
-        runCatching {
-            URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8.name())
-        }.getOrDefault(value)
+    private fun JsonObject.text(name: String): String? =
+        (this[name] as? JsonPrimitive)
+            ?.takeIf { it.isString }
+            ?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+
+    /**
+     * A numeric field, refusing a quoted one.
+     *
+     * `"v": "1"` is not the documented payload, and accepting it would mean guessing that a
+     * producer which got the type wrong got the rest right.
+     */
+    private fun JsonObject.number(name: String): Int? =
+        (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
 }

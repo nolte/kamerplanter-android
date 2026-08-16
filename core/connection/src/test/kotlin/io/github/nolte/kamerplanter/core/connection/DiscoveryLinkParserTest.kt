@@ -83,15 +83,30 @@ class DiscoveryLinkParserTest {
     }
 
     /**
-     * Plain HTTP is refused outright rather than upgraded.
+     * Plain HTTP to a routable host is refused rather than upgraded.
      *
      * An instance address arrived at over an unencrypted link could have been rewritten in
-     * transit, and this app would then offer to pair with whatever it named.
+     * transit, and this app would then offer to pair with whatever it named. The exception for
+     * a private address is [InstanceAddressPolicy]'s, and is covered by its own tests; what
+     * matters here is that this parser asks rather than deciding for itself.
      */
     @Test
-    fun `refuses anything that is not https`() {
+    fun `refuses plain http to a routable host, and any other scheme`() {
         assertNull(DiscoveryLinkParser.parse("http://plants.example/connect?v=1"))
         assertNull(DiscoveryLinkParser.parse("kamerplanter://connect?v=1"))
+    }
+
+    /**
+     * The development case, and the reason the app exists on this network at all: an instance
+     * served over plain http at a private address.
+     */
+    @Test
+    fun `reads a private-network instance over plain http, keeping its scheme`() {
+        assertEquals(
+            // Not rewritten to https — that address does not answer on 443.
+            DiscoveryLink(baseUrl = "http://192.168.178.21:8000"),
+            DiscoveryLinkParser.parse("http://192.168.178.21:8000/connect?v=1"),
+        )
     }
 
     /** Junk must fail as "not for us", never as an exception on the way in. */
