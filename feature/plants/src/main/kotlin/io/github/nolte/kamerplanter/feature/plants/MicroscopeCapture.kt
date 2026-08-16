@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
+import io.github.nolte.kamerplanter.feature.microscope.UnavailableReason
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -64,15 +65,16 @@ internal fun MicroscopeCapture(
                 .clip(RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            if (state is MicroscopeState.Streaming) {
-                // The engine owns its own surface; the composable only gives it a place to
-                // live. Recreating the view on every recomposition would tear the stream down
-                // and rebuild it, so the factory is keyed on nothing and never re-runs.
-                AndroidView(
-                    factory = microscope.createPreviewView,
-                    modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
-                )
-            } else {
+            // Always composed, never gated on the state — the stream opens *onto* this
+            // surface. Creating it only once the camera reports `Streaming` is a deadlock:
+            // no surface, so no stream; no stream, so never `Streaming`. The preview sat at
+            // "starting…" forever. `MicroscopeScreen` composes it unconditionally and lays
+            // its messages over the top, which is the shape that works.
+            AndroidView(
+                factory = microscope.createPreviewView,
+                modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
+            )
+            if (state !is MicroscopeState.Streaming) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -129,8 +131,20 @@ internal fun MicroscopeSession(start: () -> Unit, stop: () -> Unit) {
     }
 }
 
+/**
+ * What the surface says while it is not streaming.
+ *
+ * `AwaitingPermission` gets its own sentence rather than falling in with "starting": the
+ * system's USB dialogue is waiting for an answer, and telling the user something is loading
+ * while it waits for them is how a dialogue gets dismissed unanswered.
+ */
 private fun MicroscopeState.messageRes(): Int = when (this) {
-    is MicroscopeState.Unavailable -> R.string.plants_microscope_unavailable
+    is MicroscopeState.Unavailable -> when (reason) {
+        UnavailableReason.PERMISSION_DENIED -> R.string.plants_microscope_denied
+        UnavailableReason.NO_USB_HOST_SUPPORT -> R.string.plants_microscope_no_host
+        UnavailableReason.NO_DEVICE_ATTACHED -> R.string.plants_microscope_unavailable
+    }
+    MicroscopeState.AwaitingPermission -> R.string.plants_microscope_awaiting_permission
     is MicroscopeState.Error -> R.string.plants_microscope_error
     else -> R.string.plants_microscope_starting
 }

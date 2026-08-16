@@ -66,4 +66,7 @@
     <string name="plants_microscope_starting">Mikroskop startet …</string>
     <string name="plants_microscope_unavailable">Kein Mikroskop angeschlossen.</string>
     <string name="plants_microscope_error">Das Mikroskop konnte nicht gestartet werden.</string>
+    <string name="plants_microscope_awaiting_permission">Bitte den USB-Zugriff auf das Mikroskop bestätigen.</string>
+    <string name="plants_microscope_denied">Der USB-Zugriff wurde abgelehnt. Mikroskop abziehen und neu anstecken.</string>
+    <string name="plants_microscope_no_host">Dieses Telefon kann kein USB-Gerät betreiben.</string>
 </resources>

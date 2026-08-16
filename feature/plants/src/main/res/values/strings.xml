@@ -69,4 +69,7 @@
     <string name="plants_microscope_starting">Starting the microscope…</string>
     <string name="plants_microscope_unavailable">No microscope is attached.</string>
     <string name="plants_microscope_error">The microscope could not be started.</string>
+    <string name="plants_microscope_awaiting_permission">Confirm USB access for the microscope.</string>
+    <string name="plants_microscope_denied">USB access was refused. Unplug the microscope and attach it again.</string>
+    <string name="plants_microscope_no_host">This phone cannot host a USB device.</string>
 </resources>

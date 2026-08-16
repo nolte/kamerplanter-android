@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -462,10 +463,15 @@ private fun EnvironmentReadings(readings: List<EnvironmentReading>) {
 @Composable
 private fun EnvironmentReading.display(): String {
     val label = METRIC_LABELS[metric]?.let { stringResource(it) } ?: metric
+    // The configuration's locale, not `Locale.getDefault()`: read inside a composable the
+    // latter is invisible to Compose, so a decimal comma stays a decimal point until something
+    // else happens to recompose. Android Lint calls this `NonObservableLocale`, and it is the
+    // check that caught it — a rule my local gate does not run and CI does.
+    val locale = LocalConfiguration.current.locales[0]
     val number = if (value == value.toLong().toDouble()) {
         value.toLong().toString()
     } else {
-        String.format(java.util.Locale.getDefault(), "%.1f", value)
+        String.format(locale, "%.1f", value)
     }
     return listOfNotNull(label, number, unit).joinToString(" ")
 }
