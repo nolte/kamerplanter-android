@@ -64,7 +64,15 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        // Both layers, deliberately. An application interceptor sees the request the app
+        // built; a network interceptor sees each call actually placed on a socket, which is
+        // where redirects live. With only the first, an instance answering the pairing POST
+        // with `307 Location: http://elsewhere` sent the one-time code there in the clear:
+        // OkHttp follows redirects by default and keeps method and body on a 307, and the
+        // guard never saw the second request. The application layer stays because it refuses
+        // an address the app should not have assembled at all, before a socket is opened.
         .addInterceptor(CleartextGuard())
+        .addNetworkInterceptor(CleartextGuard())
         .build()
 
     // NOTE for whoever wires the Retrofit instance next: the generated multipart endpoints

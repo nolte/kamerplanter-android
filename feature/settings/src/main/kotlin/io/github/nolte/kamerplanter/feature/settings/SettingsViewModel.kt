@@ -179,9 +179,19 @@ class SettingsViewModel @Inject constructor(
             // deep link does — including the warning that continuing replaces a working
             // connection — rather than silently starting an attempt against another instance
             // because its code happened to be in frame first.
+            //
+            // Unless the scan was *started* from that offer. The web UI shows both codes on
+            // one dialogue and the analyser takes whichever it decodes first, so a user who
+            // answered "yes, this instance" and returned to the scanner would be offered the
+            // same instance again the moment its link won the frame — a loop out of which
+            // pairing was reachable only by pointing the camera away.
             is QrPayload.Discovery -> {
-                _state.compareAndSet(scanning, offerOf(payload.baseUrl, established?.baseUrl))
-                QrReading.ACCEPTED
+                if (scanning.prefilledBaseUrl?.sameInstanceAs(payload.baseUrl) == true) {
+                    QrReading.STALE
+                } else {
+                    _state.compareAndSet(scanning, offerOf(payload.baseUrl, established?.baseUrl))
+                    QrReading.ACCEPTED
+                }
             }
         }
     }
@@ -442,14 +452,6 @@ private fun ConnectionState.isRestingState(): Boolean = when (this) {
 }
 
 /**
- * How a [discovered] instance stands to the one already [connected].
- *
- * The distinction is the whole reason a link does not simply start a connection attempt:
- * scanning the code on the instance you are already connected to should say so rather than
- * walk you through pairing again, and scanning a different one is about to replace a working
- * connection — which the user should learn before, not after.
- */
-/**
  * The offer a discovered instance deserves, however it was discovered.
  *
  * One builder for both routes — the `/connect` deep link and the same link scanned in-app —
@@ -461,6 +463,14 @@ private fun offerOf(discovered: String, connected: String?) = ConnectionState.Di
     relation = relationTo(connected, discovered),
 )
 
+/**
+ * How a [discovered] instance stands to the one already [connected].
+ *
+ * The distinction is the whole reason a link does not simply start a connection attempt:
+ * scanning the code on the instance you are already connected to should say so rather than
+ * walk you through pairing again, and scanning a different one is about to replace a working
+ * connection — which the user should learn before, not after.
+ */
 private fun relationTo(connected: String?, discovered: String): DiscoveredInstance = when {
     connected == null -> DiscoveredInstance.NEW
     connected.sameInstanceAs(discovered) -> DiscoveredInstance.ALREADY_CONNECTED

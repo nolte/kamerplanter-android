@@ -603,6 +603,34 @@ class SettingsViewModelTest {
         )
     }
 
+    /**
+     * The instance the scan was started for is not offered back.
+     *
+     * Accepting the offer returns to the scanner with that instance prefilled, and the web UI
+     * shows the discovery code beside the pairing code — so whichever the analyser decoded
+     * first won. Offering it again turned "yes, this one" into a loop that only pointing the
+     * camera away could leave.
+     */
+    @Test
+    fun `a discovery link for the instance already being paired is ignored`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+        // The user accepts the offer and lands back on the scanner, this instance prefilled.
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        advanceUntilIdle()
+
+        val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+
+        assertEquals(QrReading.STALE, reading)
+        assertTrue(
+            viewModel.state.value.toString(),
+            viewModel.state.value is ConnectionState.Collecting.ScanningQr,
+        )
+    }
+
     /** Nothing is connected, so the link is simply an offer. */
     @Test
     fun `a discovered instance with nothing connected is new`() = runTest(dispatcher) {
