@@ -43,9 +43,13 @@ data class Tenant(
  * appears here, because those are stored encrypted under an Android Keystore-backed key
  * (R17) and must never reach plain DataStore. [ApiKey.keyHint] is already masked (R19).
  *
- * Light mode is structurally credential-free *and* tenant-free: an instance without
- * accounts has nothing to scope, which is why the tenant is a property of the two
- * credential-bearing kinds rather than of the interface.
+ * Light mode is structurally credential-free, but **not** tenant-free. It was modelled that
+ * way — an instance without accounts looked like an instance with nothing to scope — and the
+ * running backend says otherwise: a light-mode instance serves `GET /api/v1/tenants`
+ * unauthenticated and answers with its system tenant, while every plant, diary and pest route
+ * lives under `/api/v1/t/{slug}/…`. A connection without a slug can therefore address nothing,
+ * which is exactly what it did: the app connected, and the plant list was empty for every
+ * light-mode instance because it had no tenant to ask about.
  */
 sealed interface Connection {
 
@@ -54,10 +58,21 @@ sealed interface Connection {
 
     val method: ConnectionMethod
 
+    /**
+     * The tenant this connection addresses.
+     *
+     * On the interface, and non-null, because every route the app uses is scoped to one —
+     * plants, diary, pest detection alike. It lived on the two credential-bearing kinds while
+     * light mode was believed to have none; the two clients that needed it each carried their
+     * own `when` returning null for light mode, and both were wrong in the same way. Here the
+     * compiler is what keeps a new kind from repeating it.
+     */
+    val tenantSlug: String
+
     /** Paired by QR code; backed by a rotating refresh token (R8, R21, R22). */
     data class QrPairing(
         override val baseUrl: String,
-        val tenantSlug: String,
+        override val tenantSlug: String,
         /** The signed-in identity where the instance reports one, for display only (R26). */
         val identity: String? = null,
     ) : Connection {
@@ -72,16 +87,24 @@ sealed interface Connection {
      */
     data class ApiKey(
         override val baseUrl: String,
-        val tenantSlug: String,
+        override val tenantSlug: String,
         /** Masked remainder of the key — the most the UI may show of a secret (R19). */
         val keyHint: String,
     ) : Connection {
         override val method: ConnectionMethod = ConnectionMethod.API_KEY
     }
 
-    /** Connected to a light-mode instance: no credential, no tenant (R10). */
+    /**
+     * Connected to a light-mode instance: no credential, but a tenant like any other kind.
+     *
+     * The slug is non-null for the same reason it is on the other two: everything this app
+     * does with an instance is tenant-scoped, so a connection that cannot name one is not a
+     * usable connection, and storing it as absent would only move the failure to every screen
+     * that later tries to read something.
+     */
     data class LightMode(
         override val baseUrl: String,
+        override val tenantSlug: String,
     ) : Connection {
         override val method: ConnectionMethod = ConnectionMethod.LIGHT_MODE
     }

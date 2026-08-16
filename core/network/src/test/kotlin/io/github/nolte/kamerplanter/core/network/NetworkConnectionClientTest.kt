@@ -77,21 +77,50 @@ class NetworkConnectionClientTest {
     private fun enqueueHealth(mode: String = "full") =
         enqueueJson("""{"status":"healthy","version":"1.0.0","mode":"$mode"}""")
 
+    private fun enqueueTenants() =
+        enqueueJson(
+            """[{"key":"t1","slug":"demo","name":"Demo garden","description":null,
+               "is_active":true,"role":"lead","tenant_type":"personal"}]""",
+        )
+
     private fun requestsMade(): List<RecordedRequest> =
         List(server.requestCount) { server.takeRequest() }
 
     // --- light mode -------------------------------------------------------------------
 
+    /**
+     * Light mode has no credential and no identity — and tenants all the same.
+     *
+     * This asserted `emptyList()` until a real light-mode instance showed otherwise: it serves
+     * `/api/v1/tenants` unauthenticated and answers with its system tenant, while every plant
+     * route is scoped to a slug. The app connected happily and then had nothing to ask about,
+     * which reached the user as a permanently empty plant list.
+     */
     @Test
-    fun `light mode connects with no credential and no tenants`() = runTest {
+    fun `light mode connects with no credential, but with its tenants`() = runTest {
         enqueueHealth(mode = "light")
+        enqueueTenants()
 
         val result = client.connect(ConnectionRequest.LightMode(baseUrl()))
 
         val verified = result as ConnectionResult.Verified
         assertEquals(Credential.None, verified.credential)
-        assertEquals(emptyList<Tenant>(), verified.tenants)
+        assertEquals(listOf(Tenant(slug = "demo", displayName = "Demo garden")), verified.tenants)
         assertNull(verified.identity)
+    }
+
+    /** No identity call: light mode has no accounts, so `/api/v1/users/me` would 404. */
+    @Test
+    fun `light mode asks only about health and tenants`() = runTest {
+        enqueueHealth(mode = "light")
+        enqueueTenants()
+
+        client.connect(ConnectionRequest.LightMode(baseUrl()))
+
+        assertEquals(
+            listOf("/api/health", "/api/v1/tenants"),
+            requestsMade().map { it.path },
+        )
     }
 
     /** A full instance has accounts, so connecting to it credential-free would be a lie. */

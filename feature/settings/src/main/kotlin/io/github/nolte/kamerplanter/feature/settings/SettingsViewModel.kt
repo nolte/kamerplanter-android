@@ -294,9 +294,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** R15's adoption rule; light mode short-circuits it because it has no tenants (R10). */
+    /**
+     * R15's adoption rule, applied to every method.
+     *
+     * Light mode used to short-circuit it on the grounds that it has no tenants. It has: the
+     * instance serves them without a credential. Nothing about choosing between two of them
+     * depends on how the app authenticated, so the rule is simply the same one.
+     */
     private suspend fun resolveTenant(request: ConnectionRequest, result: ConnectionResult.Verified) {
-        val choiceNeeded = request.method != ConnectionMethod.LIGHT_MODE && result.tenants.size > 1
+        val choiceNeeded = result.tenants.size > 1
         if (choiceNeeded) {
             // Both the secret and the request wait here rather than in observable state (R19).
             pendingCredential = result.credential

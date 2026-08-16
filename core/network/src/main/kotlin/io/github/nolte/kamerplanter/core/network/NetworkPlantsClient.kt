@@ -1,7 +1,6 @@
 package io.github.nolte.kamerplanter.core.network
 
 import android.util.Log
-import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
 import io.github.nolte.kamerplanter.core.network.generated.apis.LocationsApi
@@ -63,10 +62,6 @@ class NetworkPlantsClient(
         val connection = connections.connection.first()
             ?: return PlantListOutcome.Unavailable("the app is not connected to an instance")
         val tenant = connection.tenantSlug
-            ?: return PlantListOutcome.Unavailable(
-                "this connection has no tenant, so it addresses no plants",
-            )
-
         val credential = credentials.load()
         val retrofit = apis.create(connection.baseUrl) { credential }
 
@@ -209,7 +204,12 @@ class NetworkPlantsClient(
                 .dashboard(tenantSlug = tenant)
                 .bodyOrThrow()
                 .mapNotNull { entry -> entry.asCareAction() }
-                .toMap()
+                // A plant usually has several open reminders — this tenant averages nearly
+                // three. `toMap()` kept whichever the server happened to list last, so which
+                // one a row showed was an accident of JSON order: a watering overdue by five
+                // days lost to a humidity check due next week. The most pressing one wins.
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, actions) -> actions.mostPressing() }
         }.getOrElse { failure -> warn("the care dashboard", failure) }
 
     /**
@@ -321,6 +321,19 @@ class NetworkPlantsClient(
             return plantKey to CareAction(kind = kind, urgency = urgency, dueDate = fields.text("due_date"))
         }
 
+        /**
+         * Overdue before upcoming, then the earliest due date.
+         *
+         * Ordered on the urgency the backend assigns rather than on the date alone: an entry
+         * without a date must still rank, and "overdue" is the backend's judgement, not
+         * something to re-derive from a date this app cannot see the schedule behind.
+         */
+        fun List<CareAction>.mostPressing(): CareAction =
+            minWithOrNull(
+                compareBy<CareAction> { if (it.urgency == URGENCY_OVERDUE) 0 else 1 }
+                    .thenBy { it.dueDate ?: "9999-99-99" },
+            ) ?: first()
+
         fun JsonObject.text(name: String): String? =
             (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
@@ -356,11 +369,3 @@ class NetworkPlantsClient(
             }
     }
 }
-
-/** The tenant a connection addresses, where it has one; light mode has none. */
-private val Connection.tenantSlug: String?
-    get() = when (this) {
-        is Connection.QrPairing -> tenantSlug
-        is Connection.ApiKey -> tenantSlug
-        is Connection.LightMode -> null
-    }

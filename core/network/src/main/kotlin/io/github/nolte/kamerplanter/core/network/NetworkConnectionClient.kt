@@ -66,10 +66,13 @@ class NetworkConnectionClient(
                 "instance is not in light mode (reports '${health.mode}'); it needs a credential",
             )
         }
-        // No accounts, so no identity, no tenants and no secret to hold (R10).
+        // No accounts, so no identity and no secret to hold — but tenants all the same. The
+        // list is served unauthenticated here, and it has to be read: every route this app
+        // uses afterwards is scoped to a slug, so returning none left the app connected to an
+        // instance it could ask nothing about.
         return ConnectionResult.Verified(
             identity = null,
-            tenants = emptyList(),
+            tenants = apis.create(request.baseUrl).tenants(),
             credential = Credential.None,
         )
     }

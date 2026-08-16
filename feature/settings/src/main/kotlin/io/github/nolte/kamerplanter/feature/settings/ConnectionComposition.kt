@@ -24,5 +24,6 @@ internal fun ConnectionRequest.connectionFor(tenant: Tenant?, identity: String?)
             tenant?.let { Connection.QrPairing(baseUrl, it.slug, identity) }
         is ConnectionRequest.ApiKey ->
             tenant?.let { Connection.ApiKey(baseUrl, it.slug, maskSecret(key)) }
-        is ConnectionRequest.LightMode -> Connection.LightMode(baseUrl)
+        is ConnectionRequest.LightMode ->
+            tenant?.let { Connection.LightMode(baseUrl, it.slug) }
     }
