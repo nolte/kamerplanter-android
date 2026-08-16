@@ -73,10 +73,11 @@ a credential to an instance that never asked for one.
 from `/api/health`'s `mode` field, and misreading it would produce a connection that appears
 to work and fails on the first authenticated call.
 
-**Partly shipped.** `Connection.LightMode` and `Credential.None` exist and are unit-tested
-on `feat/backend-connection`. The `/api/health` probe that would detect light mode does not
-exist anywhere — `core/network/` has no HTTP call at all — and `SettingsScreen` routes
-`Collecting.LightModeEntry` back to the not-connected body.
+**Shipped, except its own entry surface.** `Connection.LightMode`, `Credential.None`, the
+`/api/health` probe and the tenant read all exist and are exercised against a running
+instance. What is still missing is the form: `SettingsScreen` routes
+`Collecting.LightModeEntry` back to the not-connected body, so a light-mode instance is
+reached by scanning its discovery QR rather than by typing its address.
 
 ## Risks
 

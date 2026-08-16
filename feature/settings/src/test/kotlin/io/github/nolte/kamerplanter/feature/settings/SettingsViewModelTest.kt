@@ -251,7 +251,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `light mode connects without a tenant`() = runTest(dispatcher) {
+    fun `light mode connects with the tenant the instance reports`() = runTest(dispatcher) {
         val store = FakeConnectionStore()
         val viewModel = viewModel(store = store)
 

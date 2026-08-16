@@ -329,10 +329,6 @@ class NetworkConnectionClient(
         const val HTTP_NOT_FOUND = 404
 
         /**
-         * Deliberately the exception's type and message rather than the whole throwable: a
-         * stack trace of a failed connection attempt can carry the request that produced it.
-         */
-        /**
          * Why a light-mode instance's tenant list could not be read.
          *
          * A 404 is worth naming: this route is where an instance older than the app's
@@ -343,9 +339,16 @@ class NetworkConnectionClient(
             this is HttpFailure && status == HTTP_NOT_FOUND ->
                 "this instance offers no tenant list — it may be older than this app expects"
             this is HttpFailure -> "the instance answered HTTP $status when asked for its tenants"
-            else -> "could not read the instance's tenants (${shortCause()})"
+            // Not `shortCause()`: for an empty body it falls through to the shared sentence
+            // about "the tenants this credential may address" — the very phrasing this
+            // function exists to keep off a path that sends no credential.
+            else -> "could not read the instance's tenants (${this::class.simpleName})"
         }
 
+        /**
+         * Deliberately the exception's type and message rather than the whole throwable: a
+         * stack trace of a failed connection attempt can carry the request that produced it.
+         */
         fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
 
         /**
