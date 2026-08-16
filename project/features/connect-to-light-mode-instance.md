@@ -51,10 +51,14 @@ the first real call.
 **This feature exists because the reviewer refused a bundling I had chosen for
 convenience.** The API-key path and this one were drafted as a single feature on the grounds
 that both are "a form, a verification, no scanner". That is a UI similarity and nothing more:
-this path has no secret, no tenant scope, no header and no masked hint. The domain model
-already says so — `Connection.LightMode` carries only a base URL, and `Credential.None` is a
-`data object` rather than a null precisely because "light mode has no secret" is a
-structural fact.
+this path has no secret, no header and no masked hint. `Credential.None` is a `data object`
+rather than a null precisely because "light mode has no secret" is a structural fact.
+
+That paragraph also claimed "no tenant scope", and the domain model was built to match —
+`Connection.LightMode` carried a base URL and nothing else. That half was wrong, and it was
+wrong in the way a structural claim is worst: eleven files were written around it. A light
+instance scopes its routes like any other, so the connection carries a slug now. What
+survives is the narrower fact the split was really about — no *credential*.
 
 **The split is what gives R11 a home.** In the bundled draft, R11 — no `Authorization`
 header while a light-mode connection is active — was claimed by the feature's requirement
@@ -76,9 +80,12 @@ exist anywhere — `core/network/` has no HTTP call at all — and `SettingsScre
 
 ## Risks
 
-- The requirement artefact records light-mode tenant semantics as `assumed` and unverified:
-  whether a light-mode instance exposes tenant-scoped routes at all was never confirmed. If
-  it does, R32's path handling and this feature's shape both need revisiting.
+- ~~The requirement artefact records light-mode tenant semantics as `assumed` and
+  unverified.~~ **This risk was realised.** A running light-mode instance does expose the
+  tenant-scoped routes, and the app — built on the assumption that it does not — connected
+  successfully and then showed an empty plant list for every such instance, because it had no
+  slug with which to ask. `Connection.LightMode` now carries one. Worth keeping visible: the
+  risk was written down, correctly, and the code was written against the assumption anyway.
 - acceptance-2 is the least observable criterion in R-1 and the most consequential when
   wrong.
 - Was blocked on backend release `v0.2.0`, like every other network-bearing criterion; it was

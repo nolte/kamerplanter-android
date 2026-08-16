@@ -313,7 +313,15 @@ class SettingsViewModel @Inject constructor(
             if (connection == null) {
                 pendingCredential = Credential.None
                 pendingRequest = null
-                _state.value = ConnectionState.Failed(request.method, "no tenant is scoped to this credential")
+                // Light mode sends no credential, so it cannot be the credential's fault.
+                // The old sentence was written for the two methods that carry one and sent a
+                // light-mode user looking for a key they never had.
+                val reason = if (request.method == ConnectionMethod.LIGHT_MODE) {
+                    "this instance reports no tenants, so it holds no plants to show"
+                } else {
+                    "no tenant is scoped to this credential"
+                }
+                _state.value = ConnectionState.Failed(request.method, reason)
             } else {
                 pendingRequest = null
                 establish(connection, result.credential)
