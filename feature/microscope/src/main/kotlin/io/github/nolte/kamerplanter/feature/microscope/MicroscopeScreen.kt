@@ -17,6 +17,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -28,7 +29,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 
 /**
@@ -57,6 +61,15 @@ fun MicroscopeScreen(
         DisposableEffect(Unit) {
             viewModel.start()
             onDispose { viewModel.stop() }
+        }
+    }
+    // Only while this screen is on show. The camera is a singleton and its shutter ring is
+    // broadcast to every collector, so a screen that keeps listening after the user has
+    // navigated away competes for the one capture the device allows per press.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.shutterPresses.collect { viewModel.capture() }
         }
     }
 

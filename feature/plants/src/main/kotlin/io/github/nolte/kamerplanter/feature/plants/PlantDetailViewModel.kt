@@ -14,12 +14,14 @@ import io.github.nolte.kamerplanter.core.network.PlantListOutcome
 import io.github.nolte.kamerplanter.core.network.PlantSummary
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /** What the plant's page is showing. */
@@ -82,12 +84,18 @@ class PlantDetailViewModel @Inject constructor(
      */
     internal val microscope = MicroscopeAccess(
         state = camera.state,
+        buttonPresses = camera.buttonPresses,
         createPreviewView = camera::createPreviewView,
         start = camera::start,
         stop = camera::stop,
         capture = {
-            camera.captureFrame().getOrNull()?.let {
-                JpegDownscale.toUploadable(it.jpeg, MAX_PHOTO_BYTES)
+            // Off the main thread: decode, scale and re-encode of a full frame is tens of
+            // milliseconds, and on the caller's dispatcher — the composition's — it freezes
+            // the very spinner that is meant to show the capture running.
+            withContext(Dispatchers.Default) {
+                camera.captureFrame().getOrNull()?.let {
+                    JpegDownscale.toUploadable(it.jpeg, MAX_PHOTO_BYTES)
+                }
             }
         },
     )

@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,8 +32,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nolte.kamerplanter.feature.microscope.MicroscopeButton
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
 import io.github.nolte.kamerplanter.feature.microscope.UnavailableReason
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -54,41 +57,48 @@ internal fun MicroscopeCapture(
     onCancel: () -> Unit,
 ) {
     var isCapturing by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val state by microscope.state.collectAsStateWithLifecycle()
 
+    /** One capture, however it was asked for; ignored while one is already running. */
+    fun trigger() {
+        if (isCapturing || state !is MicroscopeState.Streaming) return
+        isCapturing = true
+        failed = false
+        scope.launch {
+            val jpeg = microscope.capture()
+            isCapturing = false
+            // A frame that could not be read leaves the preview open — the usual cause is that
+            // the sample moved, and the next press is the remedy — but it says so. Silence
+            // here is what made a press of the ring look like a ring that does not work.
+            if (jpeg != null) onCaptured(jpeg) else failed = true
+        }
+    }
+
+    // The shutter ring on the microscope itself. The device reports it as a UVC button, and
+    // the microscope tab has always acted on it — so a user who has used that tab arrives here
+    // knowing the ring works, presses it, and nothing happens. Reaching for the phone with one
+    // hand while holding a leaf under the objective with the other is exactly what the ring
+    // exists to avoid.
+    LaunchedEffect(microscope) {
+        microscope.buttonPresses.collect { button ->
+            if (button is MicroscopeButton.Shutter) trigger()
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(PREVIEW_HEIGHT)
-                .clip(RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            // Always composed, never gated on the state — the stream opens *onto* this
-            // surface. Creating it only once the camera reports `Streaming` is a deadlock:
-            // no surface, so no stream; no stream, so never `Streaming`. The preview sat at
-            // "starting…" forever. `MicroscopeScreen` composes it unconditionally and lays
-            // its messages over the top, which is the shape that works.
-            AndroidView(
-                factory = microscope.createPreviewView,
-                modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
+        Preview(
+            state = state,
+            createPreviewView = microscope.createPreviewView,
+            isCapturing = isCapturing,
+        )
+        if (failed) {
+            Text(
+                text = stringResource(R.string.plants_microscope_capture_failed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
-            if (state !is MicroscopeState.Streaming) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                ) {
-                    Text(
-                        text = stringResource(state.messageRes()),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                }
-            }
-            if (isCapturing) CircularProgressIndicator()
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -98,22 +108,56 @@ internal fun MicroscopeCapture(
                 Text(stringResource(R.string.plants_note_cancel))
             }
             Button(
-                onClick = {
-                    isCapturing = true
-                    scope.launch {
-                        val jpeg = microscope.capture()
-                        isCapturing = false
-                        // A frame that could not be read leaves the preview open rather than
-                        // returning to the form empty-handed: the usual cause is that the
-                        // sample moved, and the next press is the remedy.
-                        if (jpeg != null) onCaptured(jpeg)
-                    }
-                },
+                onClick = ::trigger,
                 enabled = state is MicroscopeState.Streaming && !isCapturing,
             ) {
                 Text(stringResource(R.string.plants_note_microscope_shutter))
             }
         }
+    }
+}
+
+/**
+ * The live image, with whatever is true instead of it laid over the top.
+ *
+ * The preview view is always composed, never gated on the state — the stream opens *onto* this
+ * surface. Creating it only once the camera reports `Streaming` is a deadlock: no surface, so
+ * no stream; no stream, so never `Streaming`. The dialogue sat at "starting…" for good.
+ * `MicroscopeScreen` composes it unconditionally and lays its messages over the top, which is
+ * the shape that works.
+ */
+@Composable
+private fun Preview(
+    state: MicroscopeState,
+    createPreviewView: (Context) -> View,
+    isCapturing: Boolean,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(PREVIEW_HEIGHT)
+            .clip(RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidView(
+            factory = createPreviewView,
+            modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
+        )
+        if (state !is MicroscopeState.Streaming) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Text(
+                    text = stringResource(state.messageRes()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
+        }
+        if (isCapturing) CircularProgressIndicator()
     }
 }
 
@@ -160,6 +204,8 @@ private val PREVIEW_HEIGHT = 220.dp
  */
 internal data class MicroscopeAccess(
     val state: StateFlow<MicroscopeState>,
+    /** The device's own shutter ring, so it works here as it does on the microscope tab. */
+    val buttonPresses: SharedFlow<MicroscopeButton>,
     val createPreviewView: (Context) -> View,
     val start: () -> Unit,
     val stop: () -> Unit,

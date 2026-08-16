@@ -51,14 +51,36 @@ class MicroscopeViewModelTest {
         }
     }
 
+    /**
+     * The shutter ring is offered, not acted on.
+     *
+     * This ViewModel used to capture on every press for as long as it existed, and a tab's
+     * ViewModel outlives its visit — so a press from anywhere else in the app captured into a
+     * screen nobody was watching. Harmless while this was the only consumer; not once a
+     * plant's diary grew a capture surface of its own, because the camera drops the second
+     * capture of one press and whichever collector lost the race got nothing back. The screen
+     * now collects this while it is STARTED, so exactly one surface answers a press.
+     */
     @Test
-    fun `hardware shutter button captures a frame`() = runTest {
+    fun `the hardware shutter button is reported for the screen to act on`() = runTest {
+        viewModel.shutterPresses.test {
+            camera.buttonFlow.emit(MicroscopeButton.Shutter)
+
+            awaitItem()
+            // A button this build does not know is not a shutter, and must not fire one.
+            camera.buttonFlow.emit(MicroscopeButton.Unknown(index = 4))
+            expectNoEvents()
+        }
+    }
+
+    @Test
+    fun `capturing stores the frame it was given`() = runTest {
         val frame = CapturedFrame(jpeg = byteArrayOf(7), width = 1920, height = 1080)
         camera.captureResult = Result.success(frame)
 
         viewModel.uiState.test {
             awaitItem()
-            camera.buttonFlow.emit(MicroscopeButton.Shutter)
+            viewModel.capture()
             assertSame(frame, expectMostRecentItem().lastCapture)
         }
     }
