@@ -144,13 +144,19 @@ fun PlantDetailScreen(
     }
 
     if (noteOpen) {
+        // Closed by the write landing, not by the press that started it. Closing on the press
+        // discarded the draft — the typed sentence and every photo, including a microscope
+        // frame taken with the sample still under the objective — while the request was still
+        // in flight. A 422 or a lost connection then reported a careful reason for work that
+        // no longer existed. The dialogue stays, the reason arrives, the draft is still there.
+        LaunchedEffect(state.actionDone) {
+            if (state.actionDone == PlantAction.NOTE_ADDED) noteOpen = false
+        }
         NoteDialog(
             microscope = viewModel.microscope,
+            isSaving = state.isWorking,
             onDismiss = { noteOpen = false },
-            onSave = { text, photos, captureEnvironment ->
-                viewModel.addNote(text, photos, captureEnvironment)
-                noteOpen = false
-            },
+            onSave = viewModel::addNote,
         )
     }
 }
@@ -494,11 +500,13 @@ private val METRIC_LABELS = mapOf(
 @Composable
 private fun NoteDialog(
     microscope: MicroscopeAccess,
+    isSaving: Boolean,
     onDismiss: () -> Unit,
     onSave: (text: String, photos: List<ByteArray>, captureEnvironment: Boolean) -> Unit,
 ) {
     val draft = rememberSaveable(saver = NoteDraft.Saver) { NoteDraft() }
     val permission = rememberCameraPermission(requestOnFirstShow = false)
+    val withCamera = rememberCameraGate(permission)
     val picking = rememberPhotoPicking { picked ->
         draft.photos = (draft.photos + picked).take(MAX_PHOTOS)
     }
@@ -527,9 +535,9 @@ private fun NoteDialog(
                     // dialogue for a video-class device to an app without it. Only the library
                     // picker needs nothing — the system picker grants per item as it goes.
                     sources = PhotoSourceActions(
-                        onCamera = { permission.ifGranted(picking.takePhoto) },
+                        onCamera = { withCamera(picking.takePhoto) },
                         onLibrary = picking.pickFromLibrary,
-                        onMicroscope = { permission.ifGranted { draft.microscopeOpen = true } },
+                        onMicroscope = { withCamera { draft.microscopeOpen = true } },
                     ),
                 )
             }
@@ -540,9 +548,13 @@ private fun NoteDialog(
             // letting the instance refuse the entry after the photos have uploaded.
             TextButton(
                 onClick = { onSave(draft.text, draft.photos, draft.captureEnvironment) },
-                enabled = draft.text.isNotBlank() && !draft.microscopeOpen,
+                enabled = draft.text.isNotBlank() && !draft.microscopeOpen && !isSaving,
             ) {
-                Text(stringResource(R.string.plants_note_save))
+                Text(
+                    stringResource(
+                        if (isSaving) R.string.plants_note_saving else R.string.plants_note_save,
+                    ),
+                )
             }
         },
         dismissButton = {
@@ -551,9 +563,31 @@ private fun NoteDialog(
     )
 }
 
-/** Runs [action] with the camera grant, asking for it first where it is missing. */
-private fun CameraPermission.ifGranted(action: () -> Unit) {
-    if (isGranted) action() else request()
+/**
+ * Runs an action with the camera grant, asking for it first and then carrying on.
+ *
+ * The carrying on is the point. Asking and stopping there left the user watching a dialogue
+ * they had just answered "allow" to, with nothing happening — the source they picked was
+ * forgotten the moment the request went out, and only a second tap did what the first one
+ * asked for.
+ */
+@Composable
+private fun rememberCameraGate(permission: CameraPermission): (() -> Unit) -> Unit {
+    var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    LaunchedEffect(permission.isGranted) {
+        if (permission.isGranted) {
+            pending?.invoke()
+            pending = null
+        }
+    }
+    return { action ->
+        if (permission.isGranted) {
+            action()
+        } else {
+            pending = action
+            permission.request()
+        }
+    }
 }
 
 /**

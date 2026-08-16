@@ -39,7 +39,11 @@ internal fun String?.instanceErrorDetail(): String? {
             // rule the backend enforces itself writes `message`. Reading only the first put
             // "photo_refs" on screen with nothing after it — a field name and a silence.
             val why = detail.text("reason") ?: detail.text("message")
-            listOfNotNull(field, why).joinToString(": ")
+            // A field with no explanation is dropped, not reported alone. "photo_refs" by
+            // itself is the failure mode this whole function was rewritten to end, and
+            // keeping it here would suppress the envelope's own `message` below — trading a
+            // sentence that says something for a word that does not.
+            why?.let { listOfNotNull(field, it).joinToString(": ") }
         }
         ?.filter { it.isNotBlank() }
         .orEmpty()

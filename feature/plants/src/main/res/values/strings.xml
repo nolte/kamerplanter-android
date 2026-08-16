@@ -73,4 +73,5 @@
     <string name="plants_microscope_denied">USB access was refused. Unplug the microscope and attach it again.</string>
     <string name="plants_microscope_no_host">This phone cannot host a USB device.</string>
     <string name="plants_microscope_capture_failed">The frame could not be read. Hold the sample still and try again.</string>
+    <string name="plants_note_saving">Saving…</string>
 </resources>

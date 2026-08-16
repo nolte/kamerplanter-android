@@ -123,9 +123,19 @@ class PlantDetailViewModel @Inject constructor(
 
             // The diary is loaded second and its failure is not fatal: a plant whose diary
             // cannot be read is still a plant whose care can be confirmed.
-            val diary = (actions.diary(plantKey) as? DiaryOutcome.Loaded)?.entries.orEmpty()
+            //
+            // A failure keeps what is already on screen rather than replacing it with an empty
+            // list. Every write reloads this page, so one flaky read after a saved entry would
+            // have answered "Nothing written down yet." directly under the entry the user had
+            // just written — the one moment they are certain the diary is not empty.
+            val diary = (actions.diary(plantKey) as? DiaryOutcome.Loaded)?.entries
             _state.update {
-                it.copy(plant = plant, diary = diary, isLoading = false, loadError = null)
+                it.copy(
+                    plant = plant,
+                    diary = diary ?: it.diary,
+                    isLoading = false,
+                    loadError = null,
+                )
             }
         }
     }

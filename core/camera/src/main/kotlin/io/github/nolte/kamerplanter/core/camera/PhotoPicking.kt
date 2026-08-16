@@ -1,6 +1,7 @@
 package io.github.nolte.kamerplanter.core.camera
 
 import android.content.Context
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -10,9 +11,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.File
 
 /**
@@ -56,25 +59,34 @@ fun rememberPhotoPicking(
         }
     }
 
-    // Created once per composition rather than per capture: the launcher has to be told the
-    // destination before it starts, and a file named at launch time would be a new file on
-    // every recomposition — including the one that follows the result arriving.
-    val target = remember { context.newCaptureFile() }
+    // One fixed name, not a fresh temp file. `createTempFile` per composition left a new empty
+    // file in the cache on every visit and deleted none of them — and worse, a recomposition
+    // after an Activity restart named a *different* file from the one the camera app had been
+    // told to write, so the photo arrived nowhere. The name is derived, so the destination
+    // survives a restart mid-capture; the file is deleted once its bytes have been read.
+    val target = remember(context) { context.captureFile() }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         if (!saved) return@rememberLauncherForActivityResult
         scope.launch {
-            onPhotos(listOfNotNull(context.readUploadable(target, maxBytes)))
+            val photo = context.readUploadable(target.toUri(), maxBytes)
+            withContext(Dispatchers.IO) { target.delete() }
+            onPhotos(listOfNotNull(photo))
         }
     }
 
-    return remember(library, camera, target) {
+    return remember(library, camera, target, context) {
         PhotoPicking(
             pickFromLibrary = {
                 library.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                 )
             },
-            takePhoto = { camera.launch(target) },
+            takePhoto = {
+                // Created here, not in the composition: a dialogue whose user never reaches
+                // for the camera should not touch the filesystem at all.
+                target.parentFile?.mkdirs()
+                camera.launch(context.uriFor(target))
+            },
         )
     }
 }
@@ -88,15 +100,43 @@ private suspend fun Context.readUploadable(uri: Uri, maxBytes: Int): ByteArray? 
         val raw = runCatching {
             contentResolver.openInputStream(uri)?.use { it.readBytes() }
         }.getOrNull() ?: return@withContext null
-        JpegDownscale.toUploadable(raw, maxBytes)
+        JpegDownscale.toUploadable(raw, maxBytes, raw.exifRotationDegrees())
     }
 
-/** A cache file inside the path the FileProvider publishes, and its content URI. */
-private fun Context.newCaptureFile(): Uri {
-    val dir = File(cacheDir, "captures").apply { mkdirs() }
-    val file = File.createTempFile("capture", ".jpg", dir)
-    return FileProvider.getUriForFile(this, "$packageName.camera.fileprovider", file)
-}
+/**
+ * How far the photo has to turn to sit upright.
+ *
+ * A phone photographs through a sensor that is mounted sideways and records the correction as
+ * an EXIF tag rather than rotating the pixels. Re-encoding drops the tag, so a photo passed
+ * through here without its rotation reached the instance lying on its side — which
+ * `PhoneCameraShutter` already knew, and took from CameraX's `rotationDegrees`. A picked image
+ * has no CameraX to ask.
+ *
+ * `android.media.ExifInterface`, not the AndroidX one: reading a stream has worked since API
+ * 24 and this app starts at 26, so the dependency would buy nothing. Mirrored orientations are
+ * left alone — they come from front cameras and scanners, not from a leaf under a lens.
+ */
+private fun ByteArray.exifRotationDegrees(): Int = runCatching {
+    when (
+        ExifInterface(ByteArrayInputStream(this))
+            .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    ) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> QUARTER_TURN
+        ExifInterface.ORIENTATION_ROTATE_180 -> HALF_TURN
+        ExifInterface.ORIENTATION_ROTATE_270 -> THREE_QUARTER_TURN
+        else -> 0
+    }
+}.getOrDefault(0)
+
+/** Where the camera app writes, inside the path the FileProvider publishes. */
+private fun Context.captureFile(): File = File(File(cacheDir, "captures"), "capture.jpg")
+
+private fun Context.uriFor(file: File): Uri =
+    FileProvider.getUriForFile(this, "$packageName.camera.fileprovider", file)
+
+private const val QUARTER_TURN = 90
+private const val HALF_TURN = 180
+private const val THREE_QUARTER_TURN = 270
 
 /** The endpoint's own ceiling: a diary entry references at most five photos. */
 const val MAX_PHOTOS: Int = 5
