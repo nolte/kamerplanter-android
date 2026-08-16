@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.feature.plants
 
 import android.content.Context
 import android.text.format.DateUtils
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,7 @@ import java.time.ZoneId
 @Composable
 fun PlantsScreen(
     onOpenSettings: () -> Unit,
+    onOpenPlant: (plantKey: String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlantListViewModel = hiltViewModel(),
 ) {
@@ -69,8 +71,11 @@ fun PlantsScreen(
     }
     PlantsContent(
         state = state,
-        onRetry = viewModel::retry,
-        onOpenSettings = onOpenSettings,
+        actions = PlantListActions(
+            onRetry = viewModel::retry,
+            onOpenSettings = onOpenSettings,
+            onOpenPlant = onOpenPlant,
+        ),
         imageLoader = imageLoader,
         modifier = modifier,
     )
@@ -79,8 +84,7 @@ fun PlantsScreen(
 @Composable
 internal fun PlantsContent(
     state: PlantListState,
-    onRetry: () -> Unit,
-    onOpenSettings: () -> Unit,
+    actions: PlantListActions,
     imageLoader: ImageLoader? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -94,7 +98,7 @@ internal fun PlantsContent(
                 title = stringResource(R.string.plants_not_connected_title),
                 body = stringResource(R.string.plants_not_connected_body),
                 actionLabel = stringResource(R.string.plants_not_connected_action),
-                onAction = onOpenSettings,
+                onAction = actions.onOpenSettings,
             )
             PlantListState.Empty -> CenteredMessage(
                 title = stringResource(R.string.plants_empty_title),
@@ -106,26 +110,30 @@ internal fun PlantsContent(
                     title = stringResource(R.string.plants_rejected_title),
                     body = stringResource(R.string.plants_rejected_body),
                     actionLabel = stringResource(R.string.plants_not_connected_action),
-                    onAction = onOpenSettings,
+                    onAction = actions.onOpenSettings,
                 )
             } else {
                 CenteredMessage(
                     title = stringResource(R.string.plants_failed_title),
                     body = stringResource(R.string.plants_failed_body),
                     actionLabel = stringResource(R.string.plants_failed_retry),
-                    onAction = onRetry,
+                    onAction = actions.onRetry,
                 )
             }
-            is PlantListState.Content -> PlantList(state.plants, imageLoader)
+            is PlantListState.Content -> PlantList(state.plants, imageLoader, actions.onOpenPlant)
         }
     }
 }
 
 @Composable
-private fun PlantList(plants: List<PlantSummary>, imageLoader: ImageLoader?) {
+private fun PlantList(
+    plants: List<PlantSummary>,
+    imageLoader: ImageLoader?,
+    onOpenPlant: (plantKey: String) -> Unit,
+) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(items = plants, key = { it.key }) { plant ->
-            PlantRow(plant, imageLoader)
+            PlantRow(plant, imageLoader, onClick = { onOpenPlant(plant.key) })
             // Inset to where the text starts (thumbnail plus its gap), so the divider reads as
             // a break between entries rather than a rule drawn across the page.
             HorizontalDivider(modifier = Modifier.padding(start = THUMBNAIL_SIZE + 32.dp))
@@ -147,10 +155,14 @@ private fun PlantList(plants: List<PlantSummary>, imageLoader: ImageLoader?) {
  * last and unattached.
  */
 @Composable
-private fun PlantRow(plant: PlantSummary, imageLoader: ImageLoader?) {
+private fun PlantRow(plant: PlantSummary, imageLoader: ImageLoader?, onClick: () -> Unit) {
+    val openLabel = stringResource(R.string.plants_open_description, plant.displayName)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Clickable before the padding, so the ripple covers the whole row rather than a
+            // rectangle inset from the edges the user is aiming at.
+            .clickable(onClickLabel = openLabel, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.Top,
@@ -382,3 +394,16 @@ private fun CenteredMessage(
         }
     }
 }
+
+/**
+ * The list's callbacks, bundled.
+ *
+ * Same reason `ConnectionActions` exists in `:feature:settings`: a content composable that
+ * takes every one of them as its own parameter grows a signature nobody reads, and the
+ * threshold that catches it is there to force exactly this grouping.
+ */
+data class PlantListActions(
+    val onRetry: () -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onOpenPlant: (plantKey: String) -> Unit,
+)

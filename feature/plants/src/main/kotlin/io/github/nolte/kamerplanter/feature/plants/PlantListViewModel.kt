@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
+import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.PlantListOutcome
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import kotlinx.coroutines.Job
@@ -35,6 +36,7 @@ class PlantListViewModel @Inject constructor(
      */
     val imageClient: AuthenticatedImageClient,
     connections: ConnectionStore,
+    changes: PlantDataChanges,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<PlantListState>(PlantListState.Loading)
@@ -70,6 +72,18 @@ class PlantListViewModel @Inject constructor(
                         load()
                     }
                 }
+        }
+    }
+
+    init {
+        // What a plant's page changed, this list has to show. Guarded on being connected: a
+        // signal cannot arrive while disconnected, but reacting to one by loading would
+        // replace an honest "not connected" with a failure about an instance that is not
+        // there.
+        viewModelScope.launch {
+            changes.changes.collect {
+                if (_state.value != PlantListState.NotConnected) retry()
+            }
         }
     }
 

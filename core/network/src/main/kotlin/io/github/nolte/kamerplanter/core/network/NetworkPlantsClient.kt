@@ -259,9 +259,6 @@ class NetworkPlantsClient(
          */
         const val THUMBNAIL_BUDGET_MILLIS = 4_000L
 
-        /** Statuses a retry cannot fix, because they are about the credential. */
-        val CREDENTIAL_REFUSED = setOf(401, 403)
-
         const val LOG_TAG = "PlantsClient"
 
         /**

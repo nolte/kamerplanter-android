@@ -24,4 +24,27 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
 
+
+    <application>
+
+        <!--
+          Hands the system camera a place to write a full-size photo.
+
+          `TakePicturePreview` needs no provider but hands back a thumbnail-sized bitmap, which
+          is not a plant photo anybody would want in a diary. Declared here rather than in
+          `:app` so the module that launches the capture also carries what the capture needs;
+          the authority is derived from the application id at runtime, so an app embedding this
+          module needs no manifest of its own.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.camera.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/camera_file_paths" />
+        </provider>
+    </application>
+
 </manifest>

@@ -5,6 +5,7 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.FakeConnectionStore
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
+import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.PlantListOutcome
 import io.github.nolte.kamerplanter.core.network.PlantSummary
 import io.github.nolte.kamerplanter.core.network.PlantsClient
@@ -37,13 +38,53 @@ class PlantListViewModelTest {
     private fun viewModel(
         client: PlantsClient = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA))),
         store: ConnectionStore = FakeConnectionStore(CONNECTED),
+        changes: PlantDataChanges = PlantDataChanges(),
     ) = PlantListViewModel(
         plants = client,
         // Not exercised by these tests — they assert state transitions, not image loading —
         // but the ViewModel hands it to the screen, so it has to be real.
         imageClient = AuthenticatedImageClient(OkHttpClient(), InMemoryCredentialStore(), store),
         connections = store,
+        changes = changes,
     )
+
+    /**
+     * A write on a plant's own page reaches this list.
+     *
+     * The list's ViewModel survives a trip into the detail page, so without this a plant
+     * watered there stayed "overdue" in the list the user came back to — which reads as the
+     * button on the other screen having done nothing.
+     */
+    @Test
+    fun `a change announced elsewhere reloads the list`() = runTest(dispatcher) {
+        val changes = PlantDataChanges()
+        val client = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA)))
+        val viewModel = viewModel(client = client, changes = changes)
+        advanceUntilIdle()
+        assertEquals(1, client.loads)
+
+        changes.notifyChanged()
+        advanceUntilIdle()
+
+        assertEquals(2, client.loads)
+        // Still connected, still showing plants — a reload, not a reset.
+        assertEquals(PlantListState.Content(listOf(MONSTERA)), viewModel.state.value)
+    }
+
+    /** Nothing to reload when there is no instance, and no failure to invent about one. */
+    @Test
+    fun `a change while disconnected leaves the list alone`() = runTest(dispatcher) {
+        val changes = PlantDataChanges()
+        val client = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA)))
+        val viewModel = viewModel(client = client, store = FakeConnectionStore(null), changes = changes)
+        advanceUntilIdle()
+
+        changes.notifyChanged()
+        advanceUntilIdle()
+
+        assertEquals(0, client.loads)
+        assertEquals(PlantListState.NotConnected, viewModel.state.value)
+    }
 
     @Test
     fun `shows the plants of a connected instance`() = runTest(dispatcher) {
