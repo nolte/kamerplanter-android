@@ -134,6 +134,15 @@ sealed interface ConnectionState {
     data class Failed(
         val method: ConnectionMethod,
         val reason: String,
+        /**
+         * The address the attempt was made against.
+         *
+         * Carried so the screen can tell a home instance from a public one. The advice that
+         * follows a failure differs completely between them, and a hint about local-network
+         * access shown after a refused credential on a public host is noise — the kind a user
+         * learns to skip, taking the useful hints with it.
+         */
+        val baseUrl: String,
     ) : ConnectionState
 }
 

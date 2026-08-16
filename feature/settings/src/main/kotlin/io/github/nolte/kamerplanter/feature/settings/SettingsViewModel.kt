@@ -122,10 +122,7 @@ class SettingsViewModel @Inject constructor(
             // process died.
             combine(_state, discoveries.link, ::Pair).collect { (current, waiting) ->
                 if (waiting == null || !current.isRestingState()) return@collect
-                val offer = ConnectionState.Discovered(
-                    baseUrl = waiting.baseUrl,
-                    relation = relationTo(established?.baseUrl, waiting.baseUrl),
-                )
+                val offer = offerOf(waiting.baseUrl, established?.baseUrl)
                 // Consumed only once the transition has landed. `update` re-runs its lambda on
                 // a lost compare-and-set, so consuming inside one would take the link on the
                 // first attempt and hand back nothing on the second — scanned, swallowed,
@@ -172,9 +169,21 @@ class SettingsViewModel @Inject constructor(
     fun onQrDetected(raw: String): QrReading {
         val scanning = _state.value as? ConnectionState.Collecting.ScanningQr
             ?: return QrReading.STALE
-        val request = QrPayloadParser.parse(raw) ?: return QrReading.FOREIGN
-        verify(scanning, request)
-        return QrReading.ACCEPTED
+        return when (val payload = QrPayloadParser.parse(raw)) {
+            null -> QrReading.FOREIGN
+            is QrPayload.Pairing -> {
+                verify(scanning, payload.request)
+                QrReading.ACCEPTED
+            }
+            // A link is an address, not a decision. It reaches the same offer a `/connect`
+            // deep link does — including the warning that continuing replaces a working
+            // connection — rather than silently starting an attempt against another instance
+            // because its code happened to be in frame first.
+            is QrPayload.Discovery -> {
+                _state.compareAndSet(scanning, offerOf(payload.baseUrl, established?.baseUrl))
+                QrReading.ACCEPTED
+            }
+        }
     }
 
     /** The device camera could not be bound; leave scanning for a recoverable error state. */
@@ -287,7 +296,7 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionResult.Failure -> {
                     pendingCredential = Credential.None
                     pendingRequest = null
-                    _state.value = ConnectionState.Failed(request.method, result.reason)
+                    _state.value = ConnectionState.Failed(request.method, result.reason, request.baseUrl)
                 }
                 is ConnectionResult.Verified -> resolveTenant(request, result)
             }
@@ -307,7 +316,11 @@ class SettingsViewModel @Inject constructor(
             if (connection == null) {
                 pendingCredential = Credential.None
                 pendingRequest = null
-                _state.value = ConnectionState.Failed(request.method, "no tenant is scoped to this credential")
+                _state.value = ConnectionState.Failed(
+                    request.method,
+                    "no tenant is scoped to this credential",
+                    request.baseUrl,
+                )
             } else {
                 pendingRequest = null
                 establish(connection, result.credential)
@@ -335,7 +348,7 @@ class SettingsViewModel @Inject constructor(
 
         val secretStored = runCatchingCancellable { credentials.save(credential) }
         if (secretStored.isFailure) {
-            _state.value = ConnectionState.Failed(connection.method, STORAGE_FAILURE_REASON)
+            _state.value = ConnectionState.Failed(connection.method, STORAGE_FAILURE_REASON, connection.baseUrl)
             return
         }
 
@@ -350,7 +363,7 @@ class SettingsViewModel @Inject constructor(
             runCatchingCancellable { credentials.clear() }
             runCatchingCancellable { store.clear() }
             established = null
-            _state.value = ConnectionState.Failed(connection.method, STORAGE_FAILURE_REASON)
+            _state.value = ConnectionState.Failed(connection.method, STORAGE_FAILURE_REASON, connection.baseUrl)
         }
     }
 }
@@ -436,6 +449,18 @@ private fun ConnectionState.isRestingState(): Boolean = when (this) {
  * walk you through pairing again, and scanning a different one is about to replace a working
  * connection — which the user should learn before, not after.
  */
+/**
+ * The offer a discovered instance deserves, however it was discovered.
+ *
+ * One builder for both routes — the `/connect` deep link and the same link scanned in-app —
+ * because the two differ only in how the address arrived. Built outside the state machine, as
+ * [relationTo] already is: it decides nothing about the connection, it only describes one.
+ */
+private fun offerOf(discovered: String, connected: String?) = ConnectionState.Discovered(
+    baseUrl = discovered,
+    relation = relationTo(connected, discovered),
+)
+
 private fun relationTo(connected: String?, discovered: String): DiscoveredInstance = when {
     connected == null -> DiscoveredInstance.NEW
     connected.sameInstanceAs(discovered) -> DiscoveredInstance.ALREADY_CONNECTED

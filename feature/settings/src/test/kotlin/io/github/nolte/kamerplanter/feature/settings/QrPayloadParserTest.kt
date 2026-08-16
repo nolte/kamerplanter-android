@@ -27,9 +27,11 @@ class QrPayloadParserTest {
         val request = QrPayloadParser.parse(payload)
 
         assertEquals(
-            ConnectionRequest.QrPairing(
-                baseUrl = "https://garten.example.org",
-                code = "Qm5kR2xoY0dWeUlH",
+            QrPayload.Pairing(
+                ConnectionRequest.QrPairing(
+                    baseUrl = "https://garten.example.org",
+                    code = "Qm5kR2xoY0dWeUlH",
+                ),
             ),
             request,
         )
@@ -94,14 +96,16 @@ class QrPayloadParserTest {
     /**
      * The credential-free discovery link, which the same dialogue offers for light mode.
      *
-     * It names an instance and nothing else, so it can only mean a light-mode connection —
-     * reading it as a pairing would invent a credential the payload does not carry.
+     * It names an instance and nothing else — not which mode that instance runs in. Read as a
+     * light-mode connection request it would have started an attempt that a full instance
+     * refuses, and would have replaced a working connection without the warning the same link
+     * gets when it arrives as a deep link. It is an address, and the caller decides.
      */
     @Test
-    fun `reads a discovery link as a light-mode connection`() {
-        val request = QrPayloadParser.parse("https://garten.example.org/connect?v=1")
+    fun `reads a discovery link as the address it is`() {
+        val payload = QrPayloadParser.parse("https://garten.example.org/connect?v=1")
 
-        assertEquals(ConnectionRequest.LightMode("https://garten.example.org"), request)
+        assertEquals(QrPayload.Discovery("https://garten.example.org"), payload)
     }
 
     /** The discovery link's own rules still apply — an unknown version is refused there too. */

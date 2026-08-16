@@ -33,6 +33,7 @@ import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.InstanceAddressPolicy
 import kotlinx.coroutines.delay
 
 /**
@@ -58,14 +59,20 @@ fun SettingsScreen(
     val permission = rememberCameraPermission(
         requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
     )
-    // Asked at the same moment as the camera, not after the scan. Since Android 16 an
-    // instance on the user's own network is unreachable without this grant — and unreachable
-    // in the worst way, with the connection dropped rather than refused, so the app sees only
-    // its own timeout expire and reports a healthy server as down. Asking once the scan has
-    // produced an address would mean interrupting an attempt already under way; asking here
-    // costs one dialogue in the one flow whose whole purpose is to reach such an instance.
+    // Asked in this flow rather than after the scan: since Android 16 an instance on the
+    // user's own network is unreachable without this grant — and unreachable in the worst way,
+    // with the connection dropped rather than refused, so the app sees only its own timeout
+    // expire and reports a healthy server as down. Asking once the scan has produced an
+    // address would mean interrupting an attempt already under way.
+    //
+    // Waits for the camera grant instead of asking beside it. `Activity.requestPermissions`
+    // refuses a second request while one is open — it logs "Can request only one set of
+    // permissions at a time" and immediately delivers an empty result, which the launcher
+    // reads as a denial. The dialogue would never appear, and the helper would record a
+    // permanent refusal for a permission the user was never asked about: precisely the
+    // ungranted state this whole change exists to avoid.
     val localNetwork = rememberLocalNetworkPermission(
-        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
+        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr && permission.isGranted,
     )
 
     SettingsContent(
@@ -163,7 +170,11 @@ private fun SettingsContent(
             )
             is ConnectionState.Failed -> FailedBody(
                 reason = state.reason,
-                hasLocalNetworkPermission = hasLocalNetworkPermission,
+                // Only where the grant could have been the cause. Shown after every failure
+                // it is advice about the wrong thing most of the time, and advice a user
+                // skips is advice that no longer works when it is right.
+                needsLocalNetwork = !hasLocalNetworkPermission &&
+                    InstanceAddressPolicy.isPrivate(state.baseUrl),
                 onRetry = { actions.onConnect(state.method) },
             )
         }
@@ -392,11 +403,7 @@ private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun FailedBody(
-    reason: String,
-    hasLocalNetworkPermission: Boolean,
-    onRetry: () -> Unit,
-) {
+private fun FailedBody(reason: String, needsLocalNetwork: Boolean, onRetry: () -> Unit) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_failed),
@@ -414,7 +421,7 @@ private fun FailedBody(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
-        if (!hasLocalNetworkPermission) {
+        if (needsLocalNetwork) {
             // The likeliest explanation for a timeout against a self-hosted instance, and one
             // the reason above cannot give: a connection refused for want of this grant is
             // dropped, not rejected, so what reaches the client is silence.

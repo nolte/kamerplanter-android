@@ -580,6 +580,29 @@ class SettingsViewModelTest {
         credentials = InMemoryCredentialStore(Credential.Session("at", "rt", 0L)),
     )
 
+    /**
+     * The same link, scanned instead of followed, reaches the same offer.
+     *
+     * It used to start a connection attempt outright. The web UI shows the discovery QR beside
+     * the pairing QR, so a camera aimed at the pairing code can pick up the other one first —
+     * and a scan that silently replaced a working connection with another instance is the exact
+     * outcome the `Discovered` offer exists to prevent.
+     */
+    @Test
+    fun `a scanned discovery link becomes an offer, not an attempt`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+
+        assertEquals(QrReading.ACCEPTED, reading)
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.NEW),
+            viewModel.state.value,
+        )
+    }
+
     /** Nothing is connected, so the link is simply an offer. */
     @Test
     fun `a discovered instance with nothing connected is new`() = runTest(dispatcher) {
