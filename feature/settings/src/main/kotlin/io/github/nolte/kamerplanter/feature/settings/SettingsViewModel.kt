@@ -306,7 +306,12 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionResult.Failure -> {
                     pendingCredential = Credential.None
                     pendingRequest = null
-                    _state.value = ConnectionState.Failed(request.method, result.reason, request.baseUrl)
+                    _state.value = ConnectionState.Failed(
+                        request.method,
+                        result.reason,
+                        request.baseUrl,
+                        unreachable = result.unreachable,
+                    )
                 }
                 is ConnectionResult.Verified -> resolveTenant(request, result)
             }

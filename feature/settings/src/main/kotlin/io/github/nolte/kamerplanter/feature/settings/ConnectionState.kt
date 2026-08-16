@@ -143,6 +143,14 @@ sealed interface ConnectionState {
          * learns to skip, taking the useful hints with it.
          */
         val baseUrl: String,
+        /**
+         * The instance never answered, as opposed to refusing.
+         *
+         * What separates "your network cannot reach it" from "it said no". Only the first can
+         * be a missing local-network grant, and the address alone does not tell them apart:
+         * a TLS host name that resolves inside the home network looks public and is not.
+         */
+        val unreachable: Boolean = false,
     ) : ConnectionState
 }
 

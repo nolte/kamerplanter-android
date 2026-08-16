@@ -33,7 +33,6 @@ import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
-import io.github.nolte.kamerplanter.core.connection.InstanceAddressPolicy
 import kotlinx.coroutines.delay
 
 /**
@@ -59,21 +58,20 @@ fun SettingsScreen(
     val permission = rememberCameraPermission(
         requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
     )
-    // Asked in this flow rather than after the scan: since Android 16 an instance on the
-    // user's own network is unreachable without this grant — and unreachable in the worst way,
-    // with the connection dropped rather than refused, so the app sees only its own timeout
-    // expire and reports a healthy server as down. Asking once the scan has produced an
-    // address would mean interrupting an attempt already under way.
+    // Asked whenever this screen is reached without it, not only while scanning. Tying it to
+    // the scanner left it unreachable for the user who needs it most: someone already
+    // connected to `192.168.x.x` who updates to Android 16 has every request dropped from
+    // then on, and the scanner sits behind disconnecting the connection that stopped working.
+    // Settings is where connections live, so the ask has a visible reason here.
     //
-    // Waits for the camera grant instead of asking beside it. `Activity.requestPermissions`
-    // refuses a second request while one is open — it logs "Can request only one set of
-    // permissions at a time" and immediately delivers an empty result, which the launcher
-    // reads as a denial. The dialogue would never appear, and the helper would record a
-    // permanent refusal for a permission the user was never asked about: precisely the
-    // ungranted state this whole change exists to avoid.
-    val localNetwork = rememberLocalNetworkPermission(
-        requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr && permission.isGranted,
-    )
+    // Held back only while the camera dialogue is the one on screen.
+    // `Activity.requestPermissions` refuses a second request while one is open — it logs "Can
+    // request only one set of permissions at a time" and delivers an empty result, which the
+    // launcher reads as a denial and the helper records as permanent, for a dialogue the user
+    // never saw.
+    val cameraDialogueIsOpen =
+        state is ConnectionState.Collecting.ScanningQr && !permission.isGranted
+    val localNetwork = rememberLocalNetworkPermission(requestOnFirstShow = !cameraDialogueIsOpen)
 
     SettingsContent(
         state = state,
@@ -81,17 +79,24 @@ fun SettingsScreen(
         hasLocalNetworkPermission = localNetwork.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
-            onQrDetected = viewModel::onQrDetected,
-            onScannerError = viewModel::onScannerError,
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
-            permission = PermissionActions(
+            scanner = ScannerActions(
+                onQrDetected = viewModel::onQrDetected,
+                onScannerError = viewModel::onScannerError,
                 // Only ever the dialogue. The scanner fires this on its own when it opens
                 // without the grant, and routing it to system settings after a permanent
                 // denial would launch another app's screen with nobody having tapped anything.
-                onRequest = permission.request,
-                canAsk = permission.canAsk,
-                onOpenSettings = permission.openSettings,
+                permission = PermissionActions(
+                    onRequest = permission.request,
+                    canAsk = permission.canAsk,
+                    onOpenSettings = permission.openSettings,
+                ),
+            ),
+            localNetwork = PermissionActions(
+                onRequest = localNetwork.request,
+                canAsk = localNetwork.canAsk,
+                onOpenSettings = localNetwork.openSettings,
             ),
         ),
         modifier = modifier,
@@ -101,10 +106,18 @@ fun SettingsScreen(
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
 internal class ConnectionActions(
     val onConnect: (ConnectionMethod) -> Unit,
-    val onQrDetected: (String) -> QrReading,
-    val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
+    /** Everything the scanner needs, grouped: only one state uses any of it. */
+    val scanner: ScannerActions,
+    /** The local-network grant, for the failure screen to offer where it may be the cause. */
+    val localNetwork: PermissionActions,
+)
+
+/** The scanner's own callbacks and its camera grant. */
+internal class ScannerActions(
+    val onQrDetected: (String) -> QrReading,
+    val onScannerError: () -> Unit,
     val permission: PermissionActions,
 )
 
@@ -146,10 +159,8 @@ private fun SettingsContent(
             )
             is ConnectionState.Collecting.ScanningQr -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
-                onQrDetected = actions.onQrDetected,
-                onScannerError = actions.onScannerError,
+                scanner = actions.scanner,
                 onCancel = actions.onCancel,
-                permission = actions.permission,
             )
             ConnectionState.CameraUnavailable -> CameraUnavailableBody(
                 onRetry = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
@@ -170,11 +181,17 @@ private fun SettingsContent(
             )
             is ConnectionState.Failed -> FailedBody(
                 reason = state.reason,
-                // Only where the grant could have been the cause. Shown after every failure
-                // it is advice about the wrong thing most of the time, and advice a user
-                // skips is advice that no longer works when it is right.
-                needsLocalNetwork = !hasLocalNetworkPermission &&
-                    InstanceAddressPolicy.isPrivate(state.baseUrl),
+                // Only where the grant could have been the cause: the instance did not answer.
+                // A refusal is never this, and shown after every failure the advice is about
+                // the wrong thing most of the time — advice a user skips no longer works when
+                // it is right.
+                //
+                // Judged on the outcome, not on how the address is spelled. Split-horizon DNS
+                // is the ordinary way to self-host with TLS, so the address that needs this
+                // grant most often looks entirely public.
+                localNetwork = actions.localNetwork.takeIf {
+                    !hasLocalNetworkPermission && state.unreachable
+                },
                 onRetry = { actions.onConnect(state.method) },
             )
         }
@@ -279,11 +296,10 @@ private fun NotConnectedBody(onConnect: () -> Unit) {
 @Composable
 private fun ScanningBody(
     hasCameraPermission: Boolean,
-    onQrDetected: (String) -> QrReading,
-    onScannerError: () -> Unit,
+    scanner: ScannerActions,
     onCancel: () -> Unit,
-    permission: PermissionActions,
 ) {
+    val permission = scanner.permission
     if (!hasCameraPermission) {
         CameraPermissionBody(
             canAsk = permission.canAsk,
@@ -301,12 +317,12 @@ private fun ScanningBody(
     Box(modifier = Modifier.fillMaxSize()) {
         QrScannerView(
             onQrDetected = { raw ->
-                val reading = onQrDetected(raw)
+                val reading = scanner.onQrDetected(raw)
                 // A new object every time, so holding a foreign code in frame keeps the badge
                 // alive instead of letting the first frame's timeout retire it.
                 lastReading = ScanFeedback(reading, (lastReading?.seq ?: 0) + 1)
             },
-            onError = onScannerError,
+            onError = scanner.onScannerError,
             modifier = Modifier.fillMaxSize(),
         )
         Text(
@@ -403,7 +419,12 @@ private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun FailedBody(reason: String, needsLocalNetwork: Boolean, onRetry: () -> Unit) {
+private fun FailedBody(
+    reason: String,
+    /** Non-null when a missing local-network grant is a plausible cause and can be asked for. */
+    localNetwork: PermissionActions?,
+    onRetry: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_failed),
@@ -421,7 +442,7 @@ private fun FailedBody(reason: String, needsLocalNetwork: Boolean, onRetry: () -
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
-        if (needsLocalNetwork) {
+        if (localNetwork != null) {
             // The likeliest explanation for a timeout against a self-hosted instance, and one
             // the reason above cannot give: a connection refused for want of this grant is
             // dropped, not rejected, so what reaches the client is silence.
@@ -432,6 +453,26 @@ private fun FailedBody(reason: String, needsLocalNetwork: Boolean, onRetry: () -
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp),
             )
+            // With a way to act on it. Naming a missing grant and offering nothing is the dead
+            // end this file criticises on the camera path — and once the system stops
+            // prompting, app settings is the only route left.
+            TextButton(
+                onClick = if (localNetwork.canAsk) {
+                    localNetwork.onRequest
+                } else {
+                    localNetwork.onOpenSettings
+                },
+            ) {
+                Text(
+                    text = stringResource(
+                        if (localNetwork.canAsk) {
+                            R.string.settings_grant_local_network
+                        } else {
+                            R.string.settings_open_app_settings
+                        },
+                    ),
+                )
+            }
         }
         Button(onClick = onRetry, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_retry))

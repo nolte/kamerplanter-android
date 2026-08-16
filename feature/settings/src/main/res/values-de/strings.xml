@@ -26,4 +26,5 @@
     <string name="settings_scan_recognised">QR-Code erkannt</string>
     <string name="settings_scan_foreign">QR-Code erkannt, aber kein kamerplanter-Code</string>
     <string name="settings_failed_local_network">Der Zugriff auf das lokale Netzwerk ist nicht erlaubt. Eine Instanz im eigenen Netz ist ohne ihn nicht erreichbar — erteile ihn in den App-Einstellungen.</string>
+    <string name="settings_grant_local_network">Zugriff aufs lokale Netz erlauben</string>
 </resources>

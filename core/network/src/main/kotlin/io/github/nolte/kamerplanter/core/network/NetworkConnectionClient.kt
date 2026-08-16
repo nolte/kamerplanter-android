@@ -57,7 +57,14 @@ class NetworkConnectionClient(
         }.getOrElse { failure ->
             // A diagnostic, never a UI string — and never one that could echo the secret it
             // failed on, which is why nothing here interpolates the request itself.
-            ConnectionResult.Failure(failure.asReason(request.baseUrl))
+            //
+            // An IOException is the instance not answering; anything else is it answering
+            // something the app could not use. Only the first can be a missing local-network
+            // grant, and only this layer knows which happened.
+            ConnectionResult.Failure(
+                reason = failure.asReason(request.baseUrl),
+                unreachable = failure is IOException,
+            )
         }
 
     private suspend fun connectLightMode(request: ConnectionRequest.LightMode): ConnectionResult {
