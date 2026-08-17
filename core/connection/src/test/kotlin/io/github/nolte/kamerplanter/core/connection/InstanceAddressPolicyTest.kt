@@ -75,6 +75,21 @@ class InstanceAddressPolicyTest {
         assertFalse(InstanceAddressPolicy.permits("http://localhost.example.org"))
     }
 
+    /**
+     * A host name `java.net.URI` declines to parse is still a host name.
+     *
+     * `getHost()` enforces a stricter syntax than DNS, OkHttp or a home NAS: an underscore
+     * makes it answer null, and the address was then refused and reported as a foreign QR
+     * code — for something every other part of the stack handles.
+     */
+    @Test
+    fun `an underscore in the host does not make the address foreign`() {
+        assertTrue(InstanceAddressPolicy.permits("http://mein_nas.local:8000"))
+        assertTrue(InstanceAddressPolicy.permits("https://mein_nas.example.org"))
+        // The rule itself does not loosen: the host is still judged on its own.
+        assertFalse(InstanceAddressPolicy.permits("http://mein_nas.example.org"))
+    }
+
     @Test
     fun `only http and https are addresses at all`() {
         assertFalse(InstanceAddressPolicy.permits("ftp://192.168.178.21"))

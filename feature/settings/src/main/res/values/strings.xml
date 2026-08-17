@@ -31,4 +31,6 @@
     <string name="settings_grant_local_network">Grant local network access</string>
     <string name="settings_tenant_choice_title">Which garden?</string>
     <string name="settings_tenant_choice_body">This instance holds more than one. The app connects to the one you pick.</string>
+    <string name="settings_scan_unsupported">This kamerplanter code is newer than the app. Update the app to use it.</string>
+    <string name="settings_scan_address_refused">This instance is reached over an unencrypted connection, which the app allows only inside your own network.</string>
 </resources>

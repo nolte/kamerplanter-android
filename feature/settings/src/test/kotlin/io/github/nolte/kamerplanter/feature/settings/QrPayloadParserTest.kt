@@ -59,11 +59,17 @@ class QrPayloadParserTest {
      *
      * Refusing matters more here than anywhere else in the app: the payload carries a one-time
      * credential, and guessing at the meaning of its fields is guessing with that credential.
+     *
+     * Refused **as ours**. It used to come back `null`, like a stranger's QR code, so the
+     * scanner told the user they were holding the wrong code when they were holding the right
+     * one and running the wrong app.
      */
     @Test
-    fun `refuses a payload version it does not know`() {
-        assertNull(QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")))
-        assertNull(QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")))
+    fun `refuses a payload version it does not know, as ours`() {
+        val refused = QrPayload.Refused(RefusedReason.UNSUPPORTED_VERSION)
+
+        assertEquals(refused, QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")))
+        assertEquals(refused, QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")))
     }
 
     /** No version at all is not the documented contract either. */
@@ -106,6 +112,30 @@ class QrPayloadParserTest {
         val payload = QrPayloadParser.parse("https://garten.example.org/connect?v=1")
 
         assertEquals(QrPayload.Discovery("https://garten.example.org"), payload)
+    }
+
+    /**
+     * An address the app may not talk to is refused as ours too.
+     *
+     * A self-hoster running an instance on a routable address without TLS scans their own
+     * valid pairing code. Reported as foreign, they would look for the fault in their
+     * instance rather than in this app's rule about unencrypted connections.
+     */
+    @Test
+    fun `a refused address is refused as ours, not as foreign`() {
+        val onPlainHttp = """{"v":1,"url":"http://garten.example.org","code":"Qm5kR2xo"}"""
+
+        assertEquals(
+            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ALLOWED),
+            QrPayloadParser.parse(onPlainHttp),
+        )
+    }
+
+    /** A payload missing a field is indistinguishable from a foreign JSON code, and stays so. */
+    @Test
+    fun `an incomplete payload is not claimed as ours`() {
+        assertNull(QrPayloadParser.parse("""{"v":1,"code":"Qm5kR2xo"}"""))
+        assertNull(QrPayloadParser.parse("""{"v":1,"url":"https://garten.example.org"}"""))
     }
 
     /** The discovery link's own rules still apply — an unknown version is refused there too. */

@@ -189,9 +189,20 @@ class SettingsViewModel @Inject constructor(
                 if (scanning.prefilledBaseUrl?.sameInstanceAs(payload.baseUrl) == true) {
                     QrReading.STALE
                 } else {
-                    _state.compareAndSet(scanning, offerOf(payload.baseUrl, established?.baseUrl))
-                    QrReading.ACCEPTED
+                    // The compare-and-set decides the answer rather than being ignored. A lost
+                    // one means the scan changed nothing — `cancel()` landed first, or a
+                    // waiting link already moved the state — and reporting "recognised" for it
+                    // is exactly the indistinguishability this return value exists to remove.
+                    val moved = _state.compareAndSet(
+                        scanning,
+                        offerOf(payload.baseUrl, established?.baseUrl),
+                    )
+                    if (moved) QrReading.ACCEPTED else QrReading.STALE
                 }
+            }
+            is QrPayload.Refused -> when (payload.reason) {
+                RefusedReason.UNSUPPORTED_VERSION -> QrReading.UNSUPPORTED
+                RefusedReason.ADDRESS_NOT_ALLOWED -> QrReading.ADDRESS_REFUSED
             }
         }
     }

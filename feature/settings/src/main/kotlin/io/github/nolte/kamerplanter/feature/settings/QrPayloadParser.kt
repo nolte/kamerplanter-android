@@ -24,6 +24,29 @@ sealed interface QrPayload {
 
     /** A credential-free `/connect` link: an address, and an offer to use it. */
     data class Discovery(val baseUrl: String) : QrPayload
+
+    /**
+     * Recognisably a kamerplanter code, and one this build will not act on.
+     *
+     * Distinct from "not ours" because the two need opposite words. A refused payload used to
+     * come back as `null` like a stranger's QR code, so someone scanning their own valid
+     * pairing code was told it was not one — the same misdiagnosis this scanner was rewritten
+     * to end, one layer further in.
+     */
+    data class Refused(val reason: RefusedReason) : QrPayload
+}
+
+/** Why a kamerplanter code was recognised and still refused. */
+enum class RefusedReason {
+
+    /** A payload version this build predates; reading it anyway is how fields change meaning. */
+    UNSUPPORTED_VERSION,
+
+    /**
+     * The instance address in the payload is one the app may not talk to — plain `http` to a
+     * routable host, or a scheme that is not http at all.
+     */
+    ADDRESS_NOT_ALLOWED,
 }
 
 /**
@@ -70,21 +93,35 @@ object QrPayloadParser {
         val text = raw.trim()
         // The pairing payload first. The two shapes cannot be confused — one starts with `{`
         // and the other with a scheme — so the order is for readability, not correctness.
-        return text.asPairing()?.let(QrPayload::Pairing)
+        return text.asPairing()
             ?: DiscoveryLinkParser.parse(text)?.let { QrPayload.Discovery(it.baseUrl) }
     }
 
-    private fun String.asPairing(): ConnectionRequest.QrPairing? {
+    /**
+     * The pairing payload, or why it was refused — `null` only when this is not one at all.
+     *
+     * A version this build predates and an address it may not talk to are both recognisably
+     * ours, and both used to leave here as `null`, which the scanner reports as a stranger's
+     * code. That told a self-hoster running an instance on a routable address without TLS
+     * that their own valid pairing code was not a kamerplanter code.
+     */
+    private fun String.asPairing(): QrPayload? {
         val fields = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject
             ?: return null
-        if (fields.number(FIELD_VERSION) != SUPPORTED_VERSION) return null
+        val version = fields.number(FIELD_VERSION) ?: return null
+        val code = fields.text(FIELD_CODE) ?: return null
+        val url = fields.text(FIELD_URL) ?: return null
+        // Shape first, judgement after: a payload missing `url` or `code` is indistinguishable
+        // from a foreign JSON QR code and stays `null`, while one that carries both is ours
+        // and earns a reason.
+        if (version != SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.UNSUPPORTED_VERSION)
         // The same address rule as the discovery link. A pairing payload names the instance
         // that will receive its one-time credential, so an address this app may not talk to is
         // not a payload it may act on.
-        val baseUrl = fields.text(FIELD_URL)?.takeIf { InstanceAddressPolicy.permits(it) }
-            ?: return null
-        val code = fields.text(FIELD_CODE) ?: return null
-        return ConnectionRequest.QrPairing(baseUrl = baseUrl, code = code)
+        if (!InstanceAddressPolicy.permits(url)) {
+            return QrPayload.Refused(RefusedReason.ADDRESS_NOT_ALLOWED)
+        }
+        return QrPayload.Pairing(ConnectionRequest.QrPairing(baseUrl = url, code = code))
     }
 
     private fun JsonObject.text(name: String): String? =

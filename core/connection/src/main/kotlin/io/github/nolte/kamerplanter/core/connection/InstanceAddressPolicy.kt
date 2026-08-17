@@ -37,13 +37,13 @@ object InstanceAddressPolicy {
      */
     fun isPrivate(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        return uri.host?.takeIf { it.isNotBlank() }?.isPrivateAddress() ?: false
+        return uri.hostOrAuthority()?.isPrivateAddress() ?: false
     }
 
     /** Whether a whole instance URL may be used. */
     fun permits(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        return permits(uri.scheme, uri.host)
+        return permits(uri.scheme, uri.hostOrAuthority())
     }
 
     /** Whether a scheme/host pair may be used, for callers that already parsed the URL. */
@@ -56,6 +56,21 @@ object InstanceAddressPolicy {
         }
     }
 }
+
+/**
+ * The host, taken from the authority when [URI] declines to name one.
+ *
+ * `URI.getHost()` returns null for a host name containing an underscore — the syntax it
+ * enforces is stricter than what DNS resolvers, OkHttp and home NAS boxes actually accept.
+ * A pairing payload naming `http://mein_nas.local:8000` was therefore refused and reported as
+ * a foreign QR code, for an address every other part of the stack would have handled.
+ *
+ * The authority is the same text minus any userinfo and port, so reading it back is not a
+ * looser rule — the decision below still runs on the host alone.
+ */
+private fun URI.hostOrAuthority(): String? =
+    (host ?: authority?.substringAfterLast('@')?.substringBeforeLast(':'))
+        ?.takeIf { it.isNotBlank() }
 
 /** Suffixes reserved for names that only resolve inside a local network. */
 private val PRIVATE_SUFFIXES = listOf(".local", ".home.arpa", ".internal")

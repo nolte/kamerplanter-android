@@ -29,4 +29,6 @@
     <string name="settings_grant_local_network">Zugriff aufs lokale Netz erlauben</string>
     <string name="settings_tenant_choice_title">Welcher Garten?</string>
     <string name="settings_tenant_choice_body">Diese Instanz führt mehrere. Die App verbindet sich mit dem, den du wählst.</string>
+    <string name="settings_scan_unsupported">Dieser kamerplanter-Code ist neuer als die App. Aktualisiere die App, um ihn zu nutzen.</string>
+    <string name="settings_scan_address_refused">Diese Instanz läuft unverschlüsselt. Das erlaubt die App nur im eigenen Netz.</string>
 </resources>
