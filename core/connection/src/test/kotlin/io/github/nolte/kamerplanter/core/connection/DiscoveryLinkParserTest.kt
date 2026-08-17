@@ -109,6 +109,21 @@ class DiscoveryLinkParserTest {
         )
     }
 
+    /**
+     * A host `java.net.URI` will not name is still a host, and its port still counts.
+     *
+     * The underscore fix landed in `InstanceAddressPolicy` first and not here, so the same
+     * instance's pairing code was accepted while its `/connect` link was called foreign —
+     * with both codes on one dialogue and the scanner taking whichever it decoded first.
+     */
+    @Test
+    fun `reads a link whose host java-net-URI refuses to name`() {
+        assertEquals(
+            DiscoveryLink(baseUrl = "http://mein_nas.local:8000"),
+            DiscoveryLinkParser.parse("http://mein_nas.local:8000/connect?v=1"),
+        )
+    }
+
     /** Junk must fail as "not for us", never as an exception on the way in. */
     @Test
     fun `refuses input that is not a link at all`() {

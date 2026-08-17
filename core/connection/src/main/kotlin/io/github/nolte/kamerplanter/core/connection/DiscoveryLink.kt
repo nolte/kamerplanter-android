@@ -46,7 +46,11 @@ object DiscoveryLinkParser {
 
     fun parse(raw: String): DiscoveryLink? {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
-        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        // Read through the shared helper: `java.net.URI` refuses to name a host containing an
+        // underscore, and this parser reading it differently from InstanceAddressPolicy is how
+        // one instance's pairing code was accepted while its `/connect` link was called
+        // foreign — both codes hang on the same dialogue.
+        val host = uri.hostOrAuthority() ?: return null
         if (!InstanceAddressPolicy.permits(uri.scheme, host)) return null
         if (query(uri.rawQuery)[PARAM_VERSION] != SUPPORTED_VERSION) return null
 
@@ -92,7 +96,7 @@ fun String.sameInstanceAs(other: String): Boolean = normalizedInstance() == othe
 private fun String.normalizedInstance(): String {
     val uri = runCatching { URI(trim()) }.getOrNull() ?: return trim().lowercase()
     val scheme = uri.scheme?.lowercase().orEmpty()
-    val host = uri.host?.lowercase().orEmpty()
+    val host = uri.hostOrAuthority()?.lowercase().orEmpty()
     val path = uri.path.orEmpty().trimEnd('/')
     return "$scheme://$host${uri.explicitPort()}$path"
 }
@@ -104,7 +108,7 @@ private fun String.normalizedInstance(): String {
  * them as different tells a user that continuing would replace the connection they are already
  * on — the exact failure the comparison exists to avoid.
  */
-private fun URI.explicitPort(): String = when (port) {
+private fun URI.explicitPort(): String = when (val port = portOrAuthority()) {
     -1, DEFAULT_PORTS[scheme?.lowercase()] -> ""
     else -> ":$port"
 }

@@ -39,14 +39,26 @@ sealed interface QrPayload {
 /** Why a kamerplanter code was recognised and still refused. */
 enum class RefusedReason {
 
-    /** A payload version this build predates; reading it anyway is how fields change meaning. */
-    UNSUPPORTED_VERSION,
+    /**
+     * A payload from a release this build predates.
+     *
+     * Separate from [PAYLOAD_TOO_OLD] because the advice is opposite: here the app is behind
+     * and the user updates it. One shared "version mismatch" would have told the owner of an
+     * older instance to update the wrong side.
+     */
+    PAYLOAD_TOO_NEW,
+
+    /** A payload older than this build reads — the instance is behind, not the app. */
+    PAYLOAD_TOO_OLD,
 
     /**
-     * The instance address in the payload is one the app may not talk to — plain `http` to a
-     * routable host, or a scheme that is not http at all.
+     * Plain `http` to a routable host: an address the app will only use inside a private
+     * network, because the payload carries a one-time credential.
      */
-    ADDRESS_NOT_ALLOWED,
+    ADDRESS_NOT_ENCRYPTED,
+
+    /** An address this app cannot use at all — no scheme, or one that is not http(s). */
+    ADDRESS_UNUSABLE,
 }
 
 /**
@@ -109,20 +121,35 @@ object QrPayloadParser {
         val fields = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject
             ?: return null
         val version = fields.number(FIELD_VERSION) ?: return null
+        // The version decides first, before any other field is required. `v` is the only field
+        // guaranteed to survive a version change — that is what it is for — so demanding `url`
+        // and `code` ahead of it means a v2 payload that renames one of them falls through as
+        // "not a kamerplanter code", which is precisely what the version exists to prevent.
+        if (version > SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW)
+        if (version < SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+
+        // Missing fields at the version this build does read: indistinguishable from a foreign
+        // JSON QR code, so not claimed as ours.
         val code = fields.text(FIELD_CODE) ?: return null
         val url = fields.text(FIELD_URL) ?: return null
-        // Shape first, judgement after: a payload missing `url` or `code` is indistinguishable
-        // from a foreign JSON QR code and stays `null`, while one that carries both is ours
-        // and earns a reason.
-        if (version != SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.UNSUPPORTED_VERSION)
+
         // The same address rule as the discovery link. A pairing payload names the instance
         // that will receive its one-time credential, so an address this app may not talk to is
-        // not a payload it may act on.
+        // not a payload it may act on. The two refusals are told apart because the advice is:
+        // "your instance has no TLS" is help, and it is wrong for an address with no scheme.
         if (!InstanceAddressPolicy.permits(url)) {
-            return QrPayload.Refused(RefusedReason.ADDRESS_NOT_ALLOWED)
+            return QrPayload.Refused(url.addressRefusal())
         }
         return QrPayload.Pairing(ConnectionRequest.QrPairing(baseUrl = url, code = code))
     }
+
+    /** Whether the address is unencrypted-but-understood, or not an address this app can use. */
+    private fun String.addressRefusal(): RefusedReason =
+        if (startsWith("http://", ignoreCase = true)) {
+            RefusedReason.ADDRESS_NOT_ENCRYPTED
+        } else {
+            RefusedReason.ADDRESS_UNUSABLE
+        }
 
     private fun JsonObject.text(name: String): String? =
         (this[name] as? JsonPrimitive)

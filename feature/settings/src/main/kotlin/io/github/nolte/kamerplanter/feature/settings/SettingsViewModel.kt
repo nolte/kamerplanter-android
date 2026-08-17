@@ -172,8 +172,11 @@ class SettingsViewModel @Inject constructor(
         return when (val payload = QrPayloadParser.parse(raw)) {
             null -> QrReading.FOREIGN
             is QrPayload.Pairing -> {
-                verify(scanning, payload.request)
-                QrReading.ACCEPTED
+                // The compare-and-set decides the answer here too. A frame still in flight
+                // after `cancel()` — this runs on ML Kit's analyzer thread, cancel on the main
+                // one — starts no pairing, and saying "recognised" for it is the very
+                // indistinguishability this return value exists to remove.
+                if (verify(scanning, payload.request)) QrReading.ACCEPTED else QrReading.STALE
             }
             // A link is an address, not a decision. It reaches the same offer a `/connect`
             // deep link does — including the warning that continuing replaces a working
@@ -201,8 +204,10 @@ class SettingsViewModel @Inject constructor(
                 }
             }
             is QrPayload.Refused -> when (payload.reason) {
-                RefusedReason.UNSUPPORTED_VERSION -> QrReading.UNSUPPORTED
-                RefusedReason.ADDRESS_NOT_ALLOWED -> QrReading.ADDRESS_REFUSED
+                RefusedReason.PAYLOAD_TOO_NEW -> QrReading.TOO_NEW
+                RefusedReason.PAYLOAD_TOO_OLD -> QrReading.TOO_OLD
+                RefusedReason.ADDRESS_NOT_ENCRYPTED -> QrReading.ADDRESS_NOT_ENCRYPTED
+                RefusedReason.ADDRESS_UNUSABLE -> QrReading.ADDRESS_UNUSABLE
             }
         }
     }
@@ -307,9 +312,14 @@ class SettingsViewModel @Inject constructor(
      * this safe to call off the main thread: a caller that loses the race does nothing at
      * all — no state write, no stashed secret, no backend call — so a cancellation that
      * landed first stands instead of being overwritten.
+     *
+     * Returns whether it won, because the scanner has to say something back and "recognised"
+     * would be a lie for a scan that started nothing. This is the branch carrying the one-time
+     * credential, and it swallowed the lost race silently while the discovery branch beside it
+     * reported one.
      */
-    private fun verify(from: ConnectionState, request: ConnectionRequest) {
-        if (!_state.compareAndSet(from, ConnectionState.Verifying(request.method))) return
+    private fun verify(from: ConnectionState, request: ConnectionRequest): Boolean {
+        if (!_state.compareAndSet(from, ConnectionState.Verifying(request.method))) return false
         pendingCredential = Credential.None
         pendingRequest = request
         viewModelScope.launch {
@@ -327,6 +337,7 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionResult.Verified -> resolveTenant(request, result)
             }
         }
+        return true
     }
 
     /**

@@ -17,22 +17,22 @@ enum class QrReading {
     /** A QR code, but not a kamerplanter one at all — someone else's. */
     FOREIGN,
 
-    /**
-     * A kamerplanter code from a release this build predates.
-     *
-     * Its own case because "not a kamerplanter code" is wrong here and unhelpful: the user is
-     * holding the right code and needs a newer app, not a different code.
-     */
-    UNSUPPORTED,
+    /** A kamerplanter code newer than this build: the app is behind, not the code. */
+    TOO_NEW,
+
+    /** A kamerplanter code older than this build reads: the instance is behind. */
+    TOO_OLD,
 
     /**
-     * A kamerplanter code naming an address this app may not talk to.
+     * A kamerplanter code naming an instance reached without TLS on a routable address.
      *
-     * Plain `http` to a routable host, in practice. Told it was "not a kamerplanter code", a
-     * self-hoster would look for the fault in their instance rather than in the app's rule
-     * about unencrypted connections.
+     * Told it was "not a kamerplanter code", a self-hoster would look for the fault in their
+     * instance rather than in this app's rule about unencrypted connections.
      */
-    ADDRESS_REFUSED,
+    ADDRESS_NOT_ENCRYPTED,
+
+    /** A kamerplanter code naming an address this app cannot use at all. */
+    ADDRESS_UNUSABLE,
 
     /**
      * Decoded after the scan had already ended: the frame that carried the accepted code is

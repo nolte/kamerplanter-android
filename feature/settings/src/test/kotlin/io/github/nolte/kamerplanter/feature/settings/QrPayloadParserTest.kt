@@ -65,11 +65,32 @@ class QrPayloadParserTest {
      * one and running the wrong app.
      */
     @Test
-    fun `refuses a payload version it does not know, as ours`() {
-        val refused = QrPayload.Refused(RefusedReason.UNSUPPORTED_VERSION)
+    fun `refuses a payload version it does not know, as ours, and says which way`() {
+        // Which side is behind decides the advice, so the two are not one reason. Told simply
+        // "version mismatch", the owner of an older instance would update the wrong side.
+        assertEquals(
+            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")),
+        )
+        assertEquals(
+            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD),
+            QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")),
+        )
+    }
 
-        assertEquals(refused, QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")))
-        assertEquals(refused, QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")))
+    /**
+     * A newer payload is refused as ours even when its fields have moved.
+     *
+     * Renaming a field is what a version bump is *for*, so demanding this build's fields
+     * before comparing the version defeats the mechanism: the payload would fall through as a
+     * stranger's code, which is the outcome the version exists to prevent.
+     */
+    @Test
+    fun `a newer payload is claimed as ours even when its fields have changed`() {
+        assertEquals(
+            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayloadParser.parse("""{"v":2,"origin":"https://garten.example.org","token":"x"}"""),
+        )
     }
 
     /** No version at all is not the documented contract either. */
@@ -126,8 +147,22 @@ class QrPayloadParserTest {
         val onPlainHttp = """{"v":1,"url":"http://garten.example.org","code":"Qm5kR2xo"}"""
 
         assertEquals(
-            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ALLOWED),
+            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ENCRYPTED),
             QrPayloadParser.parse(onPlainHttp),
+        )
+    }
+
+    /**
+     * An address the app cannot use at all is a different refusal from an unencrypted one.
+     *
+     * "Your instance has no TLS" is help exactly once — and misleading for an address with no
+     * scheme, where TLS is not what went wrong.
+     */
+    @Test
+    fun `an address with no usable scheme is refused as unusable`() {
+        assertEquals(
+            QrPayload.Refused(RefusedReason.ADDRESS_UNUSABLE),
+            QrPayloadParser.parse("""{"v":1,"url":"garten.example.org","code":"Qm5kR2xo"}"""),
         )
     }
 
