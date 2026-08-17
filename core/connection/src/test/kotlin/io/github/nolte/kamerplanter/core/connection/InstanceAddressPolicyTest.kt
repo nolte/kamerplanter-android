@@ -52,6 +52,23 @@ class InstanceAddressPolicyTest {
         assertFalse(InstanceAddressPolicy.permits("http://notlocal"))
     }
 
+    /**
+     * A hostname that merely starts like an IPv6 range is still a hostname.
+     *
+     * The IPv6 test is prefix matching, and it used to run against every host string: `fdroid`
+     * and `fc-nas` begin with `fd` and `fc`, so both earned the cleartext exception and would
+     * have carried a pairing credential unencrypted to a routable host. The test above already
+     * claimed hostnames are judged as written; it just never asked one that looked like an
+     * address.
+     */
+    @Test
+    fun `a hostname that starts like an ipv6 range is not one`() {
+        assertFalse(InstanceAddressPolicy.permits("http://fdroid.example.com"))
+        assertFalse(InstanceAddressPolicy.permits("http://fc-nas.dyndns.example.org"))
+        assertFalse(InstanceAddressPolicy.permits("http://fe80.attacker.example"))
+        assertFalse(InstanceAddressPolicy.permits("http://fdisk"))
+    }
+
     @Test
     fun `a suffix must be the whole label, not a substring`() {
         assertFalse(InstanceAddressPolicy.permits("http://evil-local"))

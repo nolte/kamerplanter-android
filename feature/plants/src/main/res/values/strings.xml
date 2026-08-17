@@ -2,23 +2,33 @@
 <resources>
     <string name="plants_loading">Loading your plants…</string>
 
+
+
     <string name="plants_not_connected_title">Not connected</string>
     <string name="plants_not_connected_body">Connect the app to your kamerplanter instance to see your plants here.</string>
     <string name="plants_not_connected_action">Go to Settings</string>
 
+
+
     <string name="plants_empty_title">No plants yet</string>
     <string name="plants_empty_body">Once you add plants to your kamerplanter instance, they appear here.</string>
+
+
 
     <string name="plants_failed_title">Could not load your plants</string>
     <string name="plants_failed_body">The instance could not be reached. Check that it is running and try again.</string>
     <string name="plants_failed_retry">Try again</string>
 
+
+
     <string name="plants_rejected_title">Connection no longer accepted</string>
     <string name="plants_rejected_body">Your instance refused the stored credential. Connect again to continue.</string>
+
 
     <!-- Screen-reader label for a row's photo. %1$s is the plant's name. -->
     <string name="plants_photo_description">Photo of %1$s</string>
     <string name="plants_photo_missing_description">No photo for %1$s</string>
+
 
     <!-- Care badge. The reminder type comes from the backend, so unknown kinds fall back. -->
     <string name="plants_care_watering">Water</string>

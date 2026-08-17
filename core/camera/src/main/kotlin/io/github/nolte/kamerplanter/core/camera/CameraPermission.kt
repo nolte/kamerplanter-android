@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,12 +75,23 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
  * — indistinguishable from a server that is actually down. Requested where an instance address
  * is about to be used, not at startup, so the reason for asking is visible.
  *
- * Harmless on older releases: an undeclared permission on a system that has never heard of it
- * is reported as granted, so callers need no version check.
+ * Reported as granted below API 36, where the permission does not exist and nothing is gated on
+ * it. Not because the platform says so — asked about a name it has never heard of,
+ * `checkSelfPermission` answers *denied*, which is the opposite. Without this branch every
+ * device under Android 16 held a permanently ungranted permission: the screen offered "grant
+ * local network access in the app settings" after every failure against a private address, for
+ * a setting not present there, and each visit fired a request that came back refused without a
+ * dialogue and burned `canAsk`.
  */
 @Composable
-fun rememberLocalNetworkPermission(requestOnFirstShow: Boolean = true): CameraPermission =
-    rememberRuntimePermission(PERMISSION_ACCESS_LOCAL_NETWORK, requestOnFirstShow)
+fun rememberLocalNetworkPermission(requestOnFirstShow: Boolean = true): CameraPermission {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+        return remember {
+            CameraPermission(isGranted = true, canAsk = false, request = {}, openSettings = {})
+        }
+    }
+    return rememberRuntimePermission(PERMISSION_ACCESS_LOCAL_NETWORK, requestOnFirstShow)
+}
 
 /**
  * The permission string, spelled out rather than taken from `Manifest.permission`.

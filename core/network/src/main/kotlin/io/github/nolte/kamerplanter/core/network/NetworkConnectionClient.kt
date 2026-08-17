@@ -14,6 +14,7 @@ import io.github.nolte.kamerplanter.core.network.generated.models.ServiceAccount
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
 import retrofit2.Retrofit
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -56,7 +57,14 @@ class NetworkConnectionClient(
         }.getOrElse { failure ->
             // A diagnostic, never a UI string — and never one that could echo the secret it
             // failed on, which is why nothing here interpolates the request itself.
-            ConnectionResult.Failure(failure.asReason(request.baseUrl))
+            //
+            // An IOException is the instance not answering; anything else is it answering
+            // something the app could not use. Only the first can be a missing local-network
+            // grant, and only this layer knows which happened.
+            ConnectionResult.Failure(
+                reason = failure.asReason(request.baseUrl),
+                unreachable = failure is IOException,
+            )
         }
 
     private suspend fun connectLightMode(request: ConnectionRequest.LightMode): ConnectionResult {
@@ -70,11 +78,21 @@ class NetworkConnectionClient(
         // list is served unauthenticated here, and it has to be read: every route this app
         // uses afterwards is scoped to a slug, so returning none left the app connected to an
         // instance it could ask nothing about.
-        return ConnectionResult.Verified(
-            identity = null,
-            tenants = apis.create(request.baseUrl).tenants(),
-            credential = Credential.None,
-        )
+        //
+        // Its failures are described here rather than by the shared reason table, which was
+        // written for the two methods that carry a credential: a 401 there reads "the instance
+        // refused this credential", a sentence about something light mode never sent.
+        return runCatchingCancellable { apis.create(request.baseUrl).tenants() }
+            .fold(
+                onSuccess = {
+                    ConnectionResult.Verified(
+                        identity = null,
+                        tenants = it,
+                        credential = Credential.None,
+                    )
+                },
+                onFailure = { ConnectionResult.Failure(it.lightModeTenantsReason()) },
+            )
     }
 
     private suspend fun connectQrPairing(request: ConnectionRequest.QrPairing): ConnectionResult {
@@ -316,12 +334,43 @@ class NetworkConnectionClient(
         const val HTTP_LOCKED = 423
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_MANY_REQUESTS = 429
+        const val HTTP_NOT_FOUND = 404
 
         /**
-         * Deliberately the exception's type and message rather than the whole throwable: a
-         * stack trace of a failed connection attempt can carry the request that produced it.
+         * Why a light-mode instance's tenant list could not be read.
+         *
+         * A 404 is worth naming: this route is where an instance older than the app's
+         * expectations gives itself away, and "not found" alone would send the user looking at
+         * their network for a problem that is not there.
          */
-        fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
+        fun Throwable.lightModeTenantsReason(): String = when {
+            this is HttpFailure && status == HTTP_NOT_FOUND ->
+                "this instance offers no tenant list — it may be older than this app expects"
+            this is HttpFailure -> "the instance answered HTTP $status when asked for its tenants"
+            // Not `shortCause()`: for an empty body it falls through to the shared sentence
+            // about "the tenants this credential may address" — the very phrasing this
+            // function exists to keep off a path that sends no credential.
+            else -> "could not read the instance's tenants (${this::class.simpleName})"
+        }
+
+        /**
+         * The type, plus the message only where the message describes the transport.
+         *
+         * This string is shown to the user, so it may not echo what the failure failed on: a
+         * `JsonDecodingException` quotes the offending payload in its message, and a redeem
+         * response quoted back would put a session token on screen (R19). An [IOException]
+         * describes the connection instead — an address, a port, a timeout — and that is the
+         * most useful sentence this app produces: "failed to connect to …:443 from … after
+         * 10000ms" is what turned an unreachable instance from a guess into a measurement.
+         * Dropping every message to be safe would cost exactly the one worth keeping.
+         *
+         * Never the whole throwable: a stack trace of a failed attempt can carry the request
+         * that produced it.
+         */
+        fun Throwable.diagnostic(): String = when (this) {
+            is IOException -> "${this::class.simpleName}: ${message.orEmpty()}"
+            else -> this::class.simpleName.orEmpty()
+        }
 
         /**
          * The most useful short form of a cause that is safe to show. A status where there

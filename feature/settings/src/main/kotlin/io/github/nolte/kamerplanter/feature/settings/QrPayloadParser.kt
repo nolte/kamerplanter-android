@@ -10,7 +10,24 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 
 /**
- * Reads a kamerplanter pairing QR code into the connection request it stands for.
+ * What a scanned kamerplanter QR code turns out to be.
+ *
+ * Two shapes with two meanings, and they were briefly one: a discovery link was mapped
+ * straight to a light-mode connection request, which reads a *location* as a *mode*. The link
+ * says where an instance is and nothing else — the instance may well have accounts — so the
+ * two cannot share a return type without the caller guessing.
+ */
+sealed interface QrPayload {
+
+    /** A pairing payload, complete with the one-time credential it carries. */
+    data class Pairing(val request: ConnectionRequest.QrPairing) : QrPayload
+
+    /** A credential-free `/connect` link: an address, and an offer to use it. */
+    data class Discovery(val baseUrl: String) : QrPayload
+}
+
+/**
+ * Reads a kamerplanter QR code into what it means.
  *
  * The pairing payload is the versioned JSON object the instance's web UI encodes verbatim:
  *
@@ -23,9 +40,9 @@ import kotlinx.serialization.json.intOrNull
  * user picked from Android's chooser. Only the credential-free discovery link
  * (`https://…/connect?v=1`) may be publicly recognisable.
  *
- * This scanner reads both, because the web UI shows them on the same dialogue and someone
- * pointing a camera at one cannot be expected to know which they are looking at. A discovery
- * link carries no credential, so it can only mean a light-mode connection.
+ * Both are read, because the web UI shows them on the same dialogue and someone pointing a
+ * camera at one cannot be expected to know which they are looking at — but they are returned
+ * as the different things they are.
  *
  * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM. Anything
  * that is not one of these two shapes — a foreign QR, a bare string, a missing field — yields
@@ -49,12 +66,12 @@ object QrPayloadParser {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun parse(raw: String): ConnectionRequest? {
+    fun parse(raw: String): QrPayload? {
         val text = raw.trim()
         // The pairing payload first. The two shapes cannot be confused — one starts with `{`
-        // and the other with `https://` — so the order is for readability, not correctness.
-        return text.asPairing()
-            ?: DiscoveryLinkParser.parse(text)?.let { ConnectionRequest.LightMode(it.baseUrl) }
+        // and the other with a scheme — so the order is for readability, not correctness.
+        return text.asPairing()?.let(QrPayload::Pairing)
+            ?: DiscoveryLinkParser.parse(text)?.let { QrPayload.Discovery(it.baseUrl) }
     }
 
     private fun String.asPairing(): ConnectionRequest.QrPairing? {
