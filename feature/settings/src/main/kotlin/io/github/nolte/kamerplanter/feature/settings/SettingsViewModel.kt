@@ -158,9 +158,10 @@ class SettingsViewModel @Inject constructor(
      * Fed every barcode ML Kit decodes, and answers what became of it.
      *
      * A payload this build cannot read is dropped so scanning continues (R44) — a stray QR in
-     * frame must not end the scan — but it is reported as [QrReading.FOREIGN] rather than
-     * dropped in silence, because "no kamerplanter code here" and "the camera sees nothing"
-     * are the same picture to the person holding the phone.
+     * frame must not end the scan — but it is always reported, because "no kamerplanter code
+     * here" and "the camera sees nothing" are the same picture to the person holding the
+     * phone. Which report depends on what was refused: a stranger's code is
+     * [QrReading.FOREIGN], while one of ours that this build cannot use says so and says why.
      *
      * [QrScannerView] delivers on the main thread, so the read of `ScanningQr` and the move
      * out of it are one uninterrupted step. The compare-and-set form is kept anyway: it costs

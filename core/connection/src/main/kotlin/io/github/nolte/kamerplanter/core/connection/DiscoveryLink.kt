@@ -44,6 +44,28 @@ object DiscoveryLinkParser {
     private const val PATH_SEGMENT = "connect"
     private const val PARAM_VERSION = "v"
 
+    /**
+     * The version a `/connect` link declares, for a link that is otherwise one of ours.
+     *
+     * Offered so a caller can tell "a link from a release this app predates" from "not our
+     * link at all". [parse] answers `null` to both, and the scanner words that as somebody
+     * else's QR code — so an instance updated to v2 showed "newer than the app" for its
+     * pairing code and "not a kamerplanter code" for its discovery link, depending on which
+     * the camera decoded first. Both hang on the same dialogue.
+     *
+     * `null` when the shape is not a `/connect` link at a usable address at all; the version
+     * is not read from something that was never ours.
+     */
+    fun declaredVersion(raw: String): Int? {
+        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+        val host = uri.hostOrAuthority() ?: return null
+        if (!InstanceAddressPolicy.permits(uri.scheme, host)) return null
+        if (uri.path.orEmpty().split('/').filter { it.isNotBlank() }.lastOrNull() != PATH_SEGMENT) {
+            return null
+        }
+        return query(uri.rawQuery)[PARAM_VERSION]?.toIntOrNull()
+    }
+
     fun parse(raw: String): DiscoveryLink? {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
         // Read through the shared helper: `java.net.URI` refuses to name a host containing an

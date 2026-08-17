@@ -65,16 +65,13 @@ class QrPayloadParserTest {
      * one and running the wrong app.
      */
     @Test
-    fun `refuses a payload version it does not know, as ours, and says which way`() {
-        // Which side is behind decides the advice, so the two are not one reason. Told simply
-        // "version mismatch", the owner of an older instance would update the wrong side.
+    fun `refuses a payload version it does not know, as ours`() {
+        // Which side is behind decides the advice, which is why the reasons are separate at
+        // all. Only "too new" is reachable while v1 is both the first and the supported
+        // version; the other waits for the day this app moves on.
         assertEquals(
             QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
             QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")),
-        )
-        assertEquals(
-            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD),
-            QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")),
         )
     }
 
@@ -91,6 +88,49 @@ class QrPayloadParserTest {
             QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
             QrPayloadParser.parse("""{"v":2,"origin":"https://garten.example.org","token":"x"}"""),
         )
+    }
+
+    /**
+     * A version number alone does not make a code ours.
+     *
+     * Deciding on `v` before anything else fixed one misdiagnosis and created its mirror
+     * image: a foreign `{"v":9}` would have been reported as "newer than this app", telling
+     * someone to update for a code that was never kamerplanter's. Something has to name an
+     * instance or carry a credential.
+     */
+    @Test
+    fun `a bare version number is not claimed as ours`() {
+        assertNull(QrPayloadParser.parse("""{"v":9}"""))
+        assertNull(QrPayloadParser.parse("""{"v":9,"session":"abc","colour":"green"}"""))
+    }
+
+    /**
+     * v1 is where the format starts, so nothing below it is a kamerplanter payload.
+     *
+     * Reported as "older than the app reads", a stranger's `{"v":0,…}` would have sent the
+     * user to update a server that has nothing to do with it.
+     */
+    @Test
+    fun `a version below the first published one is foreign, not old`() {
+        assertNull(QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":0")))
+        assertNull(QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":-3")))
+    }
+
+    /**
+     * A `/connect` link this build cannot read answers like the pairing payload does.
+     *
+     * The web UI shows both codes on one dialogue and the analyser takes whichever frame it
+     * decodes first, so answering "too new" to one and "not ours" to the other would
+     * contradict itself as the camera moved.
+     */
+    @Test
+    fun `a discovery link from a newer release is refused as ours`() {
+        assertEquals(
+            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayloadParser.parse("https://garten.example.org/connect?v=2"),
+        )
+        // Still not ours when the shape is not a `/connect` link at all.
+        assertNull(QrPayloadParser.parse("https://garten.example.org/pair?v=2"))
     }
 
     /** No version at all is not the documented contract either. */
@@ -173,10 +213,13 @@ class QrPayloadParserTest {
         assertNull(QrPayloadParser.parse("""{"v":1,"url":"https://garten.example.org"}"""))
     }
 
-    /** The discovery link's own rules still apply — an unknown version is refused there too. */
+    /**
+     * The discovery link's own rules still apply — but an unknown version is now refused *as
+     * ours*, which the test above covers. What stays foreign is a link whose address the app
+     * may not use at all: there is no instance there to be too new or too old.
+     */
     @Test
-    fun `refuses a discovery link it cannot read`() {
-        assertNull(QrPayloadParser.parse("https://garten.example.org/connect?v=2"))
+    fun `refuses a discovery link it cannot use`() {
         assertNull(QrPayloadParser.parse("http://garten.example.org/connect?v=1"))
     }
 

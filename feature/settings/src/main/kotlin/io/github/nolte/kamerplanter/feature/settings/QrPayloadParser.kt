@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import java.net.URI
 
 /**
  * What a scanned kamerplanter QR code turns out to be.
@@ -48,7 +49,13 @@ enum class RefusedReason {
      */
     PAYLOAD_TOO_NEW,
 
-    /** A payload older than this build reads — the instance is behind, not the app. */
+    /**
+     * A payload older than this build reads — the instance is behind, not the app.
+     *
+     * Unreachable while v1 is both the first version and the supported one, and kept because
+     * the day this app moves to v2 is the day an un-updated instance needs to be told which
+     * side to update.
+     */
     PAYLOAD_TOO_OLD,
 
     /**
@@ -79,9 +86,12 @@ enum class RefusedReason {
  * camera at one cannot be expected to know which they are looking at — but they are returned
  * as the different things they are.
  *
- * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM. Anything
- * that is not one of these two shapes — a foreign QR, a bare string, a missing field — yields
- * `null`, which the caller treats as "invalid, keep scanning" (R44).
+ * Deliberately pure Kotlin (no `android.net.Uri`) so it is unit-testable on the JVM.
+ *
+ * Three answers, not two. A stranger's QR, a bare string or a payload missing its fields yield
+ * `null` — "invalid, keep scanning" (R44). A code that is recognisably kamerplanter's and
+ * still unusable yields [QrPayload.Refused] with a reason, because telling someone holding
+ * their own valid pairing code that it is not one sends them looking in the wrong place.
  */
 object QrPayloadParser {
 
@@ -99,6 +109,18 @@ object QrPayloadParser {
     private const val FIELD_URL = "url"
     private const val FIELD_CODE = "code"
 
+    /** The first payload version kamerplanter published; nothing below it is one. */
+    private const val FIRST_VERSION = 1
+
+    /**
+     * Field names a later payload version might plausibly use for the same two things.
+     *
+     * A guess, and stated as one. It only decides whether an unreadable code is reported as
+     * "too new for this app" or as a stranger's — both of which are honest, and the second of
+     * which is the safe way to be wrong.
+     */
+    private val FUTURE_FIELD_HINTS = setOf("origin", "instance", "server", "token", "pairing")
+
     private val json = Json { ignoreUnknownKeys = true }
 
     fun parse(raw: String): QrPayload? {
@@ -107,6 +129,10 @@ object QrPayloadParser {
         // and the other with a scheme — so the order is for readability, not correctness.
         return text.asPairing()
             ?: DiscoveryLinkParser.parse(text)?.let { QrPayload.Discovery(it.baseUrl) }
+            // A `/connect` link this build cannot read is still recognisably ours, and gets
+            // the same answer the pairing payload does. Reported as a stranger's code, the two
+            // codes on one dialogue would contradict each other frame by frame.
+            ?: text.asRefusedLink()
     }
 
     /**
@@ -121,12 +147,22 @@ object QrPayloadParser {
         val fields = runCatching { json.parseToJsonElement(this) }.getOrNull() as? JsonObject
             ?: return null
         val version = fields.number(FIELD_VERSION) ?: return null
-        // The version decides first, before any other field is required. `v` is the only field
-        // guaranteed to survive a version change — that is what it is for — so demanding `url`
-        // and `code` ahead of it means a v2 payload that renames one of them falls through as
-        // "not a kamerplanter code", which is precisely what the version exists to prevent.
-        if (version > SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW)
+
+        // Below the first version kamerplanter ever published, this is not a kamerplanter
+        // payload at all — v1 is where the format starts. Claiming it would tell someone
+        // scanning a foreign `{"v":0,…}` code to go and update their instance, which is the
+        // same misdiagnosis this parser exists to end, pointing the other way.
+        if (version < FIRST_VERSION) return null
         if (version < SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+
+        // Newer than this build: claimed as ours, but only on evidence. A version bump may
+        // rename fields — that is what versions are for, so this cannot demand *this* build's
+        // field names — while a bare `{"v":9}` from somebody else's app is not a kamerplanter
+        // code and must not be reported as one. A pairing payload names an instance and
+        // carries a credential; something recognisable as either is the anchor.
+        if (version > SUPPORTED_VERSION) {
+            return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW).takeIf { fields.looksLikePairing() }
+        }
 
         // Missing fields at the version this build does read: indistinguishable from a foreign
         // JSON QR code, so not claimed as ours.
@@ -143,13 +179,39 @@ object QrPayloadParser {
         return QrPayload.Pairing(ConnectionRequest.QrPairing(baseUrl = url, code = code))
     }
 
-    /** Whether the address is unencrypted-but-understood, or not an address this app can use. */
-    private fun String.addressRefusal(): RefusedReason =
-        if (startsWith("http://", ignoreCase = true)) {
-            RefusedReason.ADDRESS_NOT_ENCRYPTED
-        } else {
-            RefusedReason.ADDRESS_UNUSABLE
+    /**
+     * Whether the address is unencrypted-but-understood, or not one this app can use at all.
+     *
+     * Read through [URI], on the same parse the policy used to refuse it. Matching the raw
+     * string's prefix instead let the two disagree: a leading space made a plainly
+     * unencrypted address read as unusable, and `http:///pair` — no host — was reported as an
+     * encryption problem, which it is not.
+     */
+    /** A `/connect` link whose version this build does not read; `null` when it is not one. */
+    private fun String.asRefusedLink(): QrPayload? =
+        when (val version = DiscoveryLinkParser.declaredVersion(this)) {
+            null -> null
+            in Int.MIN_VALUE until FIRST_VERSION -> null
+            in FIRST_VERSION until SUPPORTED_VERSION ->
+                QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+            SUPPORTED_VERSION -> null
+            else -> QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW)
         }
+
+    private fun String.addressRefusal(): RefusedReason {
+        val scheme = runCatching { URI(trim()).scheme }.getOrNull()?.lowercase()
+        return if (scheme == "http") RefusedReason.ADDRESS_NOT_ENCRYPTED else RefusedReason.ADDRESS_UNUSABLE
+    }
+
+    /**
+     * Whether an object of an unknown version is recognisably a pairing payload.
+     *
+     * Deliberately loose: it may not require this build's field names, since renaming them is
+     * exactly what a version bump is allowed to do. It only asks whether anything here names
+     * an instance or carries a credential.
+     */
+    private fun JsonObject.looksLikePairing(): Boolean =
+        keys.any { it == FIELD_URL || it == FIELD_CODE || it in FUTURE_FIELD_HINTS }
 
     private fun JsonObject.text(name: String): String? =
         (this[name] as? JsonPrimitive)
