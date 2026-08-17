@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,13 +25,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 
 /**
- * The CAMERA grant, and the one honest way out when it is refused for good.
+ * A runtime grant, and the one honest way out when it is refused for good.
  *
- * Shared because three screens need it for two different reasons — QR pairing and pest
- * detection use the device camera, and the microscope needs it because AOSP refuses to show
- * the USB permission dialogue for a video-class device to an app that does not hold it. Each
- * had grown its own copy, and only one of them handled a permanent denial: the other two
- * offered a button that visibly did nothing.
+ * Shared because several screens need one for different reasons — QR pairing and pest
+ * detection use the device camera, the microscope needs the camera grant because AOSP refuses
+ * to show the USB permission dialogue for a video-class device to an app that does not hold
+ * it, and connecting to a self-hosted instance needs local-network access. Each had grown its
+ * own copy, and only one of them handled a permanent denial: the other two offered a button
+ * that visibly did nothing.
+ *
+ * Named for the camera, and living in the camera module, because that is where the first one
+ * was needed; nothing about it is camera-specific.
  */
 class CameraPermission internal constructor(
     /** Whether the app may use the camera right now. */
@@ -59,9 +64,50 @@ class CameraPermission internal constructor(
  * viewfinders — and is left off where the screen has something to say first.
  */
 @Composable
-fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermission {
+fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermission =
+    rememberRuntimePermission(Manifest.permission.CAMERA, requestOnFirstShow)
+
+/**
+ * Local-network access, the grant a self-hosted instance needs.
+ *
+ * Separate from INTERNET since Android 16: without it a connection to a private address is
+ * dropped silently, so the app sees a connect timeout and reports the instance as unreachable
+ * — indistinguishable from a server that is actually down. Requested where an instance address
+ * is about to be used, not at startup, so the reason for asking is visible.
+ *
+ * Reported as granted below API 36, where the permission does not exist and nothing is gated on
+ * it. Not because the platform says so — asked about a name it has never heard of,
+ * `checkSelfPermission` answers *denied*, which is the opposite. Without this branch every
+ * device under Android 16 held a permanently ungranted permission: the screen offered "grant
+ * local network access in the app settings" after every failure against a private address, for
+ * a setting not present there, and each visit fired a request that came back refused without a
+ * dialogue and burned `canAsk`.
+ */
+@Composable
+fun rememberLocalNetworkPermission(requestOnFirstShow: Boolean = true): CameraPermission {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) {
+        return remember {
+            CameraPermission(isGranted = true, canAsk = false, request = {}, openSettings = {})
+        }
+    }
+    return rememberRuntimePermission(PERMISSION_ACCESS_LOCAL_NETWORK, requestOnFirstShow)
+}
+
+/**
+ * The permission string, spelled out rather than taken from `Manifest.permission`.
+ *
+ * The constant only exists in the SDK from API 36. Naming it directly would tie compilation to
+ * that SDK for a value that is just a string, and the platform resolves it by name anyway.
+ */
+private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+
+@Composable
+private fun rememberRuntimePermission(
+    permission: String,
+    requestOnFirstShow: Boolean,
+): CameraPermission {
     val context = LocalContext.current
-    var isGranted by remember { mutableStateOf(context.hasCameraPermission()) }
+    var isGranted by remember { mutableStateOf(context.hasPermission(permission)) }
     // Saved, both of them, because a configuration change recreates the Activity: a plain
     // `remember` resets on every rotation, so the screen would ask again for a grant the user
     // had just refused, and would briefly offer "grant" to someone who has refused for good.
@@ -69,7 +115,7 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
     var asked by rememberSaveable { mutableStateOf(false) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        isGranted = context.hasCameraPermission()
+        isGranted = context.hasPermission(permission)
         if (isGranted) canAsk = true
     }
     val launcher = rememberLauncherForActivityResult(
@@ -79,10 +125,10 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
         // After a refusal the system tells us whether another dialogue is still possible. It
         // says "false" both for a permanent denial and — on some versions — for the very first
         // refusal, which is why this is only read once a request has actually happened.
-        canAsk = granted || context.shouldShowCameraRationale()
+        canAsk = granted || context.shouldShowRationale(permission)
     }
 
-    val request = { launcher.launch(Manifest.permission.CAMERA) }
+    val request = { launcher.launch(permission) }
     // In an effect, not in the composition: `rememberLauncherForActivityResult` registers its
     // launcher in a DisposableEffect that runs *after* composition, so launching from the
     // composition itself throws "Launcher has not been initialized" — an immediate crash on
@@ -104,9 +150,10 @@ fun rememberCameraPermission(requestOnFirstShow: Boolean = true): CameraPermissi
     )
 }
 
-fun Context.hasCameraPermission(): Boolean =
-    ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-        PackageManager.PERMISSION_GRANTED
+fun Context.hasCameraPermission(): Boolean = hasPermission(Manifest.permission.CAMERA)
+
+fun Context.hasPermission(permission: String): Boolean =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
 /**
  * Opens this app's system settings page — the only route back to the camera permission after a
@@ -121,9 +168,9 @@ fun Context.openAppSettings() {
     startActivity(intent)
 }
 
-private fun Context.shouldShowCameraRationale(): Boolean {
+private fun Context.shouldShowRationale(permission: String): Boolean {
     val activity = findActivity() ?: return false
-    return ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)
+    return ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
 }
 
 /**

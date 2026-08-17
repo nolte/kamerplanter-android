@@ -9,6 +9,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      Reaching an instance on the user's own network. Since Android 16 this is a separate
+      runtime grant: INTERNET no longer covers a private address, and without it a connection
+      to one is dropped without an error — the app only sees its own connect timeout expire.
+      A self-hosted kamerplanter is normally exactly such an address, so this is not an edge
+      case for this app but the main path.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
     <!-- Backup stays on, but the connection's two DataStore files are excluded from it:
          the credential ciphertext is undecryptable without the Keystore key (which is never
          backed up), and the connection record carries the signed-in identity and a private
@@ -19,6 +28,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Kamerplanter">
         <!-- singleTop so a /connect link arriving while the app is already open reaches
@@ -60,7 +70,13 @@
                      no query string, so every https://*/connect is claimed regardless of its
                      `v`, and the parser is what refuses a version this build cannot read. The
                      narrowing is one-sided on purpose — it removes the claims that are never
-                     ours, and leaves the ones only the parser can judge. -->
+                     ours, and leaves the ones only the parser can judge.
+
+                     https only, although the parser also reads `http://<private address>` for
+                     a development instance served without TLS. A wildcard-host filter is a
+                     claim on every host on the internet, and staking it for cleartext as well
+                     is broader than this app needs: a development instance's link is scanned
+                     in-app, where the same parser reads it. Deliberate, not an oversight. -->
                 <data
                     android:scheme="https"
                     android:host="*"

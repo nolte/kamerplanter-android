@@ -7,13 +7,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -22,9 +29,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
+import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import kotlinx.coroutines.delay
 
 /**
  * Settings screen whose centrepiece is connecting to the (self-hosted) kamerplanter
@@ -49,23 +58,45 @@ fun SettingsScreen(
     val permission = rememberCameraPermission(
         requestOnFirstShow = state is ConnectionState.Collecting.ScanningQr,
     )
+    // Asked whenever this screen is reached without it, not only while scanning. Tying it to
+    // the scanner left it unreachable for the user who needs it most: someone already
+    // connected to `192.168.x.x` who updates to Android 16 has every request dropped from
+    // then on, and the scanner sits behind disconnecting the connection that stopped working.
+    // Settings is where connections live, so the ask has a visible reason here.
+    //
+    // Held back only while the camera dialogue is the one on screen.
+    // `Activity.requestPermissions` refuses a second request while one is open — it logs "Can
+    // request only one set of permissions at a time" and delivers an empty result, which the
+    // launcher reads as a denial and the helper records as permanent, for a dialogue the user
+    // never saw.
+    val cameraDialogueIsOpen =
+        state is ConnectionState.Collecting.ScanningQr && !permission.isGranted
+    val localNetwork = rememberLocalNetworkPermission(requestOnFirstShow = !cameraDialogueIsOpen)
 
     SettingsContent(
         state = state,
         hasCameraPermission = permission.isGranted,
+        hasLocalNetworkPermission = localNetwork.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
-            onQrDetected = viewModel::onQrDetected,
-            onScannerError = viewModel::onScannerError,
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
-            permission = PermissionActions(
+            scanner = ScannerActions(
+                onQrDetected = viewModel::onQrDetected,
+                onScannerError = viewModel::onScannerError,
                 // Only ever the dialogue. The scanner fires this on its own when it opens
                 // without the grant, and routing it to system settings after a permanent
                 // denial would launch another app's screen with nobody having tapped anything.
-                onRequest = permission.request,
-                canAsk = permission.canAsk,
-                onOpenSettings = permission.openSettings,
+                permission = PermissionActions(
+                    onRequest = permission.request,
+                    canAsk = permission.canAsk,
+                    onOpenSettings = permission.openSettings,
+                ),
+            ),
+            localNetwork = PermissionActions(
+                onRequest = localNetwork.request,
+                canAsk = localNetwork.canAsk,
+                onOpenSettings = localNetwork.openSettings,
             ),
         ),
         modifier = modifier,
@@ -75,10 +106,18 @@ fun SettingsScreen(
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
 internal class ConnectionActions(
     val onConnect: (ConnectionMethod) -> Unit,
-    val onQrDetected: (String) -> Unit,
-    val onScannerError: () -> Unit,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
+    /** Everything the scanner needs, grouped: only one state uses any of it. */
+    val scanner: ScannerActions,
+    /** The local-network grant, for the failure screen to offer where it may be the cause. */
+    val localNetwork: PermissionActions,
+)
+
+/** The scanner's own callbacks and its camera grant. */
+internal class ScannerActions(
+    val onQrDetected: (String) -> QrReading,
+    val onScannerError: () -> Unit,
     val permission: PermissionActions,
 )
 
@@ -100,6 +139,7 @@ internal class PermissionActions(
 private fun SettingsContent(
     state: ConnectionState,
     hasCameraPermission: Boolean,
+    hasLocalNetworkPermission: Boolean,
     actions: ConnectionActions,
     modifier: Modifier = Modifier,
 ) {
@@ -119,10 +159,8 @@ private fun SettingsContent(
             )
             is ConnectionState.Collecting.ScanningQr -> ScanningBody(
                 hasCameraPermission = hasCameraPermission,
-                onQrDetected = actions.onQrDetected,
-                onScannerError = actions.onScannerError,
+                scanner = actions.scanner,
                 onCancel = actions.onCancel,
-                permission = actions.permission,
             )
             ConnectionState.CameraUnavailable -> CameraUnavailableBody(
                 onRetry = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
@@ -141,7 +179,21 @@ private fun SettingsContent(
                 connection = state.connection,
                 onDisconnect = actions.onDisconnect,
             )
-            is ConnectionState.Failed -> FailedBody(onRetry = { actions.onConnect(state.method) })
+            is ConnectionState.Failed -> FailedBody(
+                reason = state.reason,
+                // Only where the grant could have been the cause: the instance did not answer.
+                // A refusal is never this, and shown after every failure the advice is about
+                // the wrong thing most of the time — advice a user skips no longer works when
+                // it is right.
+                //
+                // Judged on the outcome, not on how the address is spelled. Split-horizon DNS
+                // is the ordinary way to self-host with TLS, so the address that needs this
+                // grant most often looks entirely public.
+                localNetwork = actions.localNetwork.takeIf {
+                    !hasLocalNetworkPermission && state.unreachable
+                },
+                onRetry = { actions.onConnect(state.method) },
+            )
         }
     }
 }
@@ -244,11 +296,10 @@ private fun NotConnectedBody(onConnect: () -> Unit) {
 @Composable
 private fun ScanningBody(
     hasCameraPermission: Boolean,
-    onQrDetected: (String) -> Unit,
-    onScannerError: () -> Unit,
+    scanner: ScannerActions,
     onCancel: () -> Unit,
-    permission: PermissionActions,
 ) {
+    val permission = scanner.permission
     if (!hasCameraPermission) {
         CameraPermissionBody(
             canAsk = permission.canAsk,
@@ -257,10 +308,21 @@ private fun ScanningBody(
         )
         return
     }
+    // The scanner's own verdict on the last code it saw, so that pointing the camera at a QR
+    // code always produces a visible reaction. Owned here rather than by the scanner because
+    // the cancel button below decides where the badge fits.
+    var lastReading by remember { mutableStateOf<ScanFeedback?>(null) }
+    ScanFeedbackTimeout(feedback = lastReading, onExpired = { lastReading = null })
+
     Box(modifier = Modifier.fillMaxSize()) {
         QrScannerView(
-            onQrDetected = onQrDetected,
-            onError = onScannerError,
+            onQrDetected = { raw ->
+                val reading = scanner.onQrDetected(raw)
+                // A new object every time, so holding a foreign code in frame keeps the badge
+                // alive instead of letting the first frame's timeout retire it.
+                lastReading = ScanFeedback(reading, (lastReading?.seq ?: 0) + 1)
+            },
+            onError = scanner.onScannerError,
             modifier = Modifier.fillMaxSize(),
         )
         Text(
@@ -272,14 +334,67 @@ private fun ScanningBody(
                 .fillMaxWidth()
                 .padding(24.dp),
         )
-        OutlinedButton(
-            onClick = onCancel,
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(24.dp),
         ) {
-            Text(text = stringResource(R.string.settings_cancel))
+            lastReading?.reading?.let { ScanFeedbackBadge(reading = it) }
+            OutlinedButton(onClick = onCancel) {
+                Text(text = stringResource(R.string.settings_cancel))
+            }
         }
+    }
+}
+
+/** The last decode plus a sequence number, so an unchanged verdict still counts as new. */
+private data class ScanFeedback(val reading: QrReading, val seq: Int)
+
+private const val FEEDBACK_VISIBLE_MILLIS = 2_000L
+
+/** Retires a badge that has stopped being refreshed — the code left the frame. */
+@Composable
+private fun ScanFeedbackTimeout(feedback: ScanFeedback?, onExpired: () -> Unit) {
+    val currentOnExpired by rememberUpdatedState(onExpired)
+    LaunchedEffect(feedback) {
+        if (feedback != null) {
+            delay(FEEDBACK_VISIBLE_MILLIS)
+            currentOnExpired()
+        }
+    }
+}
+
+/**
+ * Says that a QR code was seen, and whether it meant anything here.
+ *
+ * [QrReading.STALE] shows nothing: it is the tail of frames still carrying the code that was
+ * just accepted, and reporting it would contradict the pairing already under way.
+ */
+@Composable
+private fun ScanFeedbackBadge(reading: QrReading, modifier: Modifier = Modifier) {
+    val label = when (reading) {
+        QrReading.ACCEPTED -> R.string.settings_scan_recognised
+        QrReading.FOREIGN -> R.string.settings_scan_foreign
+        QrReading.STALE -> return
+    }
+    val colors = when (reading) {
+        QrReading.ACCEPTED -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        else -> CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+    Card(colors = colors, modifier = modifier.padding(bottom = 16.dp)) {
+        Text(
+            text = stringResource(label),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        )
     }
 }
 
@@ -304,13 +419,61 @@ private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
 }
 
 @Composable
-private fun FailedBody(onRetry: () -> Unit) {
+private fun FailedBody(
+    reason: String,
+    /** Non-null when a missing local-network grant is a plausible cause and can be asked for. */
+    localNetwork: PermissionActions?,
+    onRetry: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_failed),
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
         )
+        // Unlocalised on purpose: it is the client's own words about what it found, and
+        // translating it would mean inventing a fixed vocabulary of failures the client does
+        // not have. Better a technical sentence the instance's administrator can act on than a
+        // smooth one that says nothing.
+        Text(
+            text = reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        if (localNetwork != null) {
+            // The likeliest explanation for a timeout against a self-hosted instance, and one
+            // the reason above cannot give: a connection refused for want of this grant is
+            // dropped, not rejected, so what reaches the client is silence.
+            Text(
+                text = stringResource(R.string.settings_failed_local_network),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            // With a way to act on it. Naming a missing grant and offering nothing is the dead
+            // end this file criticises on the camera path — and once the system stops
+            // prompting, app settings is the only route left.
+            TextButton(
+                onClick = if (localNetwork.canAsk) {
+                    localNetwork.onRequest
+                } else {
+                    localNetwork.onOpenSettings
+                },
+            ) {
+                Text(
+                    text = stringResource(
+                        if (localNetwork.canAsk) {
+                            R.string.settings_grant_local_network
+                        } else {
+                            R.string.settings_open_app_settings
+                        },
+                    ),
+                )
+            }
+        }
         Button(onClick = onRetry, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_retry))
         }

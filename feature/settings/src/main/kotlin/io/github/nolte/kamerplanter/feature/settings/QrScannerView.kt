@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -26,8 +27,8 @@ import java.util.concurrent.Executors
 
 /**
  * Live device-camera QR scanner: a CameraX preview whose frames are analysed by ML Kit
- * barcode scanning. Every decoded QR string is handed to [onQrDetected]; parsing and the
- * pairing decision belong to [SettingsViewModel], not here.
+ * barcode scanning. Every decoded QR string is handed to [onQrDetected] on the main thread;
+ * parsing and the pairing decision belong to [SettingsViewModel], not here.
  *
  * The caller MUST have already obtained the CAMERA runtime permission — this composable
  * only binds the camera. CameraX + ML Kit are referenced only within `:feature:settings`.
@@ -39,6 +40,7 @@ internal fun QrScannerView(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
     // Keep the latest callbacks without rebinding the camera on every recomposition.
@@ -70,7 +72,13 @@ internal fun QrScannerView(
                         .also {
                             it.setAnalyzer(
                                 analysisExecutor,
-                                QrCodeAnalyzer(scanner) { raw -> currentOnQrDetected(raw) },
+                                // Hand the decode to the main thread. The analyzer runs on its
+                                // own executor, and what reads a decoded code — the connection
+                                // state machine and the scanner's own feedback — is main-thread
+                                // state.
+                                QrCodeAnalyzer(scanner) { raw ->
+                                    mainExecutor.execute { currentOnQrDetected(raw) }
+                                },
                             )
                         }
                     provider.unbindAll()
@@ -106,8 +114,9 @@ internal fun QrScannerView(
 
 /**
  * Feeds each camera frame to ML Kit and forwards the first decoded QR value. Runs on a
- * single-threaded executor, so [onQr] is never delivered concurrently — the ViewModel's
- * "only while scanning" guard is enough to fire pairing exactly once.
+ * single-threaded executor and posts [onQr] to the main thread, so deliveries stay ordered
+ * and never overlap — the ViewModel's "only while scanning" guard is enough to fire pairing
+ * exactly once.
  */
 private class QrCodeAnalyzer(
     private val scanner: BarcodeScanner,
@@ -124,8 +133,19 @@ private class QrCodeAnalyzer(
         val input = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
         scanner.process(input)
             .addOnSuccessListener { barcodes ->
-                barcodes.firstNotNullOfOrNull { it.rawValue }?.let(onQr)
+                barcodes.firstNotNullOfOrNull { it.rawValue }?.let { decoded ->
+                    // Logged because a scan that goes nowhere leaves no trace otherwise: the
+                    // parser drops what it cannot read and the screen keeps scanning, which is
+                    // right for a stray QR in frame and indistinguishable from a broken build
+                    // when it is the user's own pairing code. Shape only — a pairing payload
+                    // carries a one-time credential and must not reach the log.
+                    Log.i(TAG, "decoded a QR: ${decoded.length} chars, starts with '${decoded.take(1)}'")
+                    onQr(decoded)
+                }
             }
+            .addOnFailureListener { Log.w(TAG, "barcode scanning failed", it) }
             .addOnCompleteListener { imageProxy.close() }
     }
 }
+
+private const val TAG = "QrScanner"

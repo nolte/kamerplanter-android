@@ -35,14 +35,15 @@ class SettingsViewModelTest {
 
     private val dispatcher = UnconfinedTestDispatcher()
 
-    private val validQr = "kamerplanter://pair?url=https%3A%2F%2Fplants.example.org&code=ABC123"
+    // The payload a real instance encodes: the web UI writes JSON.stringify({ v, url, code }).
+    private val validQr = """{"v":1,"url":"https://plants.example.org","code":"ABC123"}"""
     private val request = ConnectionRequest.QrPairing(baseUrl = "https://plants.example.org", code = "ABC123")
     private val connection = Connection.QrPairing(
         baseUrl = "https://plants.example.org",
         tenantSlug = CANNED_TENANT.slug,
         identity = CANNED_IDENTITY,
     )
-    private val failQr = "kamerplanter://pair?url=https%3A%2F%2Fx&code=$CANNED_FAIL_CODE"
+    private val failQr = """{"v":1,"url":"https://x","code":"$CANNED_FAIL_CODE"}"""
 
     @Before
     fun setUp() {
@@ -171,6 +172,39 @@ class SettingsViewModelTest {
         viewModel.onQrDetected("just some scanned text")
 
         assertEquals(ConnectionState.Collecting.ScanningQr(), viewModel.state.value)
+    }
+
+    @Test
+    fun `a foreign qr is reported as seen so the scanner can say so`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        // The distinction the scanner's badge rests on: this is not the same as seeing
+        // nothing, and reporting it as such is what makes a payload-format mismatch visible
+        // instead of looking like a camera that never focused.
+        assertEquals(QrReading.FOREIGN, viewModel.onQrDetected("just some scanned text"))
+    }
+
+    @Test
+    fun `an accepted qr is reported as accepted`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        assertEquals(QrReading.ACCEPTED, viewModel.onQrDetected(validQr))
+    }
+
+    @Test
+    fun `a qr decoded after the scan ended is stale, not foreign`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+
+        // The frames still carrying the accepted code keep arriving. Calling those foreign
+        // would put "not a kamerplanter code" on screen over a pairing already under way.
+        assertEquals(QrReading.STALE, viewModel.onQrDetected(validQr))
     }
 
     @Test
@@ -545,6 +579,57 @@ class SettingsViewModelTest {
         store = FakeConnectionStore(Connection.QrPairing(baseUrl = baseUrl, tenantSlug = "demo")),
         credentials = InMemoryCredentialStore(Credential.Session("at", "rt", 0L)),
     )
+
+    /**
+     * The same link, scanned instead of followed, reaches the same offer.
+     *
+     * It used to start a connection attempt outright. The web UI shows the discovery QR beside
+     * the pairing QR, so a camera aimed at the pairing code can pick up the other one first —
+     * and a scan that silently replaced a working connection with another instance is the exact
+     * outcome the `Discovered` offer exists to prevent.
+     */
+    @Test
+    fun `a scanned discovery link becomes an offer, not an attempt`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+
+        val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+
+        assertEquals(QrReading.ACCEPTED, reading)
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.NEW),
+            viewModel.state.value,
+        )
+    }
+
+    /**
+     * The instance the scan was started for is not offered back.
+     *
+     * Accepting the offer returns to the scanner with that instance prefilled, and the web UI
+     * shows the discovery code beside the pairing code — so whichever the analyser decoded
+     * first won. Offering it again turned "yes, this one" into a loop that only pointing the
+     * camera away could leave.
+     */
+    @Test
+    fun `a discovery link for the instance already being paired is ignored`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+        // The user accepts the offer and lands back on the scanner, this instance prefilled.
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        advanceUntilIdle()
+
+        val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
+        advanceUntilIdle()
+
+        assertEquals(QrReading.STALE, reading)
+        assertTrue(
+            viewModel.state.value.toString(),
+            viewModel.state.value is ConnectionState.Collecting.ScanningQr,
+        )
+    }
 
     /** Nothing is connected, so the link is simply an offer. */
     @Test

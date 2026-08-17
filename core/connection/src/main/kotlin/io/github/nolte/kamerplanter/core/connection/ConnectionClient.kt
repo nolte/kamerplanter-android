@@ -71,7 +71,21 @@ sealed interface ConnectionResult {
     ) : ConnectionResult
 
     /** [reason] is a diagnostic string, not a user-facing message. */
-    data class Failure(val reason: String) : ConnectionResult
+    data class Failure(
+        val reason: String,
+        /**
+         * Whether the instance never answered, as opposed to answering with a refusal.
+         *
+         * Carried because the two need different advice and cannot be told apart from the text.
+         * The screen uses it to decide whether "local network access is missing" is worth
+         * raising: a refused pairing code is not that, and an attempt that produced no answer
+         * might be — including against an address that *looks* public. Split-horizon DNS is the
+         * ordinary way to self-host with TLS, so `https://garden.example.org` resolving to
+         * `192.168.x.x` is the common case rather than the exotic one, and judging the address
+         * by how it is spelled misses exactly that.
+         */
+        val unreachable: Boolean = false,
+    ) : ConnectionResult
 }
 
 /**

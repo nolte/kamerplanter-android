@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted here and refused in code, which is the opposite of the usual advice
+  and is deliberate.
+
+  A self-hosted kamerplanter on a home network is reached at an address that is not known when
+  this app is built — 192.168.x.x, a .local name, whatever the user's router hands out. This
+  configuration can only name domains, so there is no way to express "any private address" in
+  it. Narrowing it to a fixed list would lock out every instance not on that list.
+
+  The decision therefore lives in InstanceAddressPolicy, which every instance address is read
+  through and which CleartextGuard enforces on every outgoing request: plain http reaches a
+  private address and nothing else. Loosening this file without keeping those two in place
+  would allow cleartext to any host on the internet.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

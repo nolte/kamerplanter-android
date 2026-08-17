@@ -52,6 +52,10 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
 
     implementation(platform(libs.compose.bom))
+    // The pairing QR payload is a versioned JSON object, read by hand rather than
+    // deserialised: an unknown version has to be refused, not mapped onto a data class.
+    implementation(libs.kotlinx.serialization.json)
+
     // ContextCompat, used directly by the QR scanner's executor.
     implementation(libs.androidx.core.ktx)
     implementation(libs.compose.material3)

@@ -20,6 +20,10 @@ data class DiscoveryLink(
 /**
  * Reads the `https://<instance>/connect?v=1` link the backend documents this app as handling.
  *
+ * The scheme is whatever the instance's own web UI was reached through — the link is built from
+ * `window.location.origin` there — so a development instance emits `http://`. Which of those
+ * are acceptable is [InstanceAddressPolicy]'s decision, not this parser's.
+ *
  * Pure Kotlin rather than `android.net.Uri` so it is unit-testable on the JVM, in keeping with
  * [QrPayloadParser]. Anything that is not this exact shape yields `null`, and the caller treats
  * that as "not a link for us" rather than as an error worth showing.
@@ -42,8 +46,8 @@ object DiscoveryLinkParser {
 
     fun parse(raw: String): DiscoveryLink? {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
-        if (!uri.scheme.equals("https", ignoreCase = true)) return null
         val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        if (!InstanceAddressPolicy.permits(uri.scheme, host)) return null
         if (query(uri.rawQuery)[PARAM_VERSION] != SUPPORTED_VERSION) return null
 
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
@@ -55,7 +59,11 @@ object DiscoveryLinkParser {
         // cannot reach this today — but that is the platform contract's limit, not a reason for
         // the parser to lose the information when it does arrive.
         val prefix = segments.dropLast(1).joinToString("/")
-        val base = "https://$host${uri.explicitPort()}" + if (prefix.isEmpty()) "" else "/$prefix"
+        // The scheme is carried over, not assumed: a development instance is reached over
+        // `http`, and rewriting its address to `https` would send the app somewhere that does
+        // not answer.
+        val scheme = uri.scheme.lowercase()
+        val base = "$scheme://$host${uri.explicitPort()}" + if (prefix.isEmpty()) "" else "/$prefix"
         return DiscoveryLink(baseUrl = base)
     }
 
