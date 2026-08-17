@@ -14,6 +14,7 @@ import io.github.nolte.kamerplanter.core.network.generated.models.ServiceAccount
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
 import retrofit2.Retrofit
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -56,7 +57,14 @@ class NetworkConnectionClient(
         }.getOrElse { failure ->
             // A diagnostic, never a UI string — and never one that could echo the secret it
             // failed on, which is why nothing here interpolates the request itself.
-            ConnectionResult.Failure(failure.asReason(request.baseUrl))
+            //
+            // An IOException is the instance not answering; anything else is it answering
+            // something the app could not use. Only the first can be a missing local-network
+            // grant, and only this layer knows which happened.
+            ConnectionResult.Failure(
+                reason = failure.asReason(request.baseUrl),
+                unreachable = failure is IOException,
+            )
         }
 
     private suspend fun connectLightMode(request: ConnectionRequest.LightMode): ConnectionResult {
@@ -346,10 +354,23 @@ class NetworkConnectionClient(
         }
 
         /**
-         * Deliberately the exception's type and message rather than the whole throwable: a
-         * stack trace of a failed connection attempt can carry the request that produced it.
+         * The type, plus the message only where the message describes the transport.
+         *
+         * This string is shown to the user, so it may not echo what the failure failed on: a
+         * `JsonDecodingException` quotes the offending payload in its message, and a redeem
+         * response quoted back would put a session token on screen (R19). An [IOException]
+         * describes the connection instead — an address, a port, a timeout — and that is the
+         * most useful sentence this app produces: "failed to connect to …:443 from … after
+         * 10000ms" is what turned an unreachable instance from a guess into a measurement.
+         * Dropping every message to be safe would cost exactly the one worth keeping.
+         *
+         * Never the whole throwable: a stack trace of a failed attempt can carry the request
+         * that produced it.
          */
-        fun Throwable.diagnostic(): String = "${this::class.simpleName}: ${message.orEmpty()}"
+        fun Throwable.diagnostic(): String = when (this) {
+            is IOException -> "${this::class.simpleName}: ${message.orEmpty()}"
+            else -> this::class.simpleName.orEmpty()
+        }
 
         /**
          * The most useful short form of a cause that is safe to show. A status where there

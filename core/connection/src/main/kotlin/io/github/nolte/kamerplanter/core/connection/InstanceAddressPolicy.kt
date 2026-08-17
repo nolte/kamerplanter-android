@@ -28,6 +28,18 @@ object InstanceAddressPolicy {
     private const val SCHEME_HTTPS = "https"
     private const val SCHEME_HTTP = "http"
 
+    /**
+     * Whether an address is one only reachable from inside the user's own network.
+     *
+     * Public because a screen has to know: the hint about local-network access is help for a
+     * home instance and noise for a public one, and shown for every failure it is noise the
+     * user learns to skip.
+     */
+    fun isPrivate(rawUrl: String): Boolean {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
+        return uri.host?.takeIf { it.isNotBlank() }?.isPrivateAddress() ?: false
+    }
+
     /** Whether a whole instance URL may be used. */
     fun permits(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
@@ -61,12 +73,19 @@ private const val IPV4_MAX = 255
  */
 private fun String.isPrivateAddress(): Boolean {
     val host = trim().trimStart('[').trimEnd(']').lowercase()
+    // An IPv6 literal always contains a colon, and no hostname may. Checked first and used as
+    // the gate, because the IPv6 test is prefix matching: applied to any string it hands the
+    // cleartext exception to `fdroid.example.com`, `fc-nas.example.org` and anything else
+    // beginning with those two letters — routable hosts, reached in the clear, carrying a
+    // pairing credential. The rule is meant to be about literal addresses; this is what makes
+    // it one.
+    if (host.contains(':')) return host.isIpv6Private()
     return host == "localhost" ||
         PRIVATE_SUFFIXES.any { host.endsWith(it) } ||
-        host.isIpv6Private() ||
         host.ipv4Octets()?.isPrivateIpv4() == true
 }
 
+/** Whether an IPv6 literal — never a hostname; see the gate in [isPrivateAddress]. */
 private fun String.isIpv6Private(): Boolean =
     this == "::1" ||
         // fe80::/10 link-local, fc00::/7 unique-local — the IPv6 equivalents of the ranges below.
