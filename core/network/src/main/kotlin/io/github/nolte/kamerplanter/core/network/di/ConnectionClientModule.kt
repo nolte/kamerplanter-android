@@ -7,8 +7,10 @@ import dagger.hilt.components.SingletonComponent
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkPestDetectionClient
+import io.github.nolte.kamerplanter.core.network.NetworkPlantActionsClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantsClient
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantActionsClient
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import javax.inject.Singleton
 
@@ -32,6 +34,10 @@ internal interface ConnectionClientModule {
     @Binds
     @Singleton
     fun bindPlantsClient(impl: NetworkPlantsClient): PlantsClient
+
+    @Binds
+    @Singleton
+    fun bindPlantActionsClient(impl: NetworkPlantActionsClient): PlantActionsClient
 
     @Binds
     @Singleton

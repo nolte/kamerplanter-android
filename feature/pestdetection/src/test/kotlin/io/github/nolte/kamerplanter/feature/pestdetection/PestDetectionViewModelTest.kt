@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.feature.pestdetection
 
 import android.content.Context
 import android.view.View
+import androidx.lifecycle.SavedStateHandle
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.Detection
@@ -52,7 +53,48 @@ class PestDetectionViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun viewModel() = PestDetectionViewModel(detections, camera)
+    /**
+     * [plantKey] is what the flow was opened for: absent from the Capture tab, present when a
+     * plant's own page pushed it. The detection is filed against it either way, so the tests
+     * can drive both.
+     */
+    private fun viewModel(plantKey: String? = null) = PestDetectionViewModel(
+        detections,
+        camera,
+        SavedStateHandle(plantKey?.let { mapOf(PLANT_KEY_ARG to it) } ?: emptyMap()),
+    )
+
+    /**
+     * A detection opened from a plant is filed against that plant.
+     *
+     * The whole point of the second entry point: the same camera, reached from a plant's own
+     * page, must produce a finding the instance can attach to that plant rather than a
+     * free-floating one the user has to file by hand.
+     */
+    @Test
+    fun `a detection opened from a plant carries its key`() = runTest(dispatcher) {
+        val model = viewModel(plantKey = "plant-1")
+        model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
+
+        model.capture("de")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("plant-1"), detections.plantKeys)
+    }
+
+    /** Entered from the Capture tab there is no plant, and the upload must say so. */
+    @Test
+    fun `a detection opened from the capture tab carries no key`() = runTest(dispatcher) {
+        val model = viewModel()
+        model.state.settled()
+        model.chooseSource(CaptureSource.MICROSCOPE)
+
+        model.capture("de")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf(null), detections.plantKeys)
+    }
 
     // ── Gating ───────────────────────────────────────────────────────────────────────
 
@@ -580,6 +622,9 @@ class PestDetectionViewModelTest {
         /** The language of every upload that was actually made — empty means none was. */
         val uploads = mutableListOf<String>()
 
+        /** The plant each upload was filed against, `null` where it named none. */
+        val plantKeys = mutableListOf<String?>()
+
         override suspend fun readiness(): DetectionReadiness {
             readinessCalls++
             return readiness
@@ -596,6 +641,7 @@ class PestDetectionViewModelTest {
             language: String,
         ): DetectionOutcome {
             uploads += language
+            plantKeys += plantKey
             return outcome
         }
     }

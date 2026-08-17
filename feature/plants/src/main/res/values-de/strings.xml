@@ -2,22 +2,34 @@
 <resources>
     <string name="plants_loading">Deine Pflanzen werden geladen…</string>
 
+
+
     <string name="plants_not_connected_title">Nicht verbunden</string>
     <string name="plants_not_connected_body">Verbinde die App mit deiner kamerplanter-Instanz, um hier deine Pflanzen zu sehen.</string>
     <string name="plants_not_connected_action">Zu den Einstellungen</string>
 
+
+
     <string name="plants_empty_title">Noch keine Pflanzen</string>
     <string name="plants_empty_body">Sobald du Pflanzen in deiner kamerplanter-Instanz anlegst, erscheinen sie hier.</string>
+
+
 
     <string name="plants_failed_title">Pflanzen konnten nicht geladen werden</string>
     <string name="plants_failed_body">Die Instanz war nicht erreichbar. Prüfe, ob sie läuft, und versuche es erneut.</string>
     <string name="plants_failed_retry">Erneut versuchen</string>
 
+
+
     <string name="plants_rejected_title">Verbindung nicht mehr gültig</string>
     <string name="plants_rejected_body">Deine Instanz hat die gespeicherte Anmeldung abgelehnt. Verbinde dich erneut, um fortzufahren.</string>
 
+
+
     <string name="plants_photo_description">Foto von %1$s</string>
     <string name="plants_photo_missing_description">Kein Foto von %1$s</string>
+
+
 
     <string name="plants_care_watering">Gießen</string>
     <string name="plants_care_fertilizing">Düngen</string>
@@ -35,4 +47,40 @@
     <string name="plants_care_quarter_climate_check">Klimacheck der Saison</string>
     <string name="plants_care_overdue_since">Überfällig seit %1$s</string>
     <string name="plants_care_due_on">Fällig am %1$s</string>
+    <string name="plants_back">Zurück</string>
+    <string name="plants_detail_failed">Diese Pflanze konnte nicht geladen werden.</string>
+    <string name="plants_action_done">Erledigt</string>
+    <string name="plants_action_water">Gießen</string>
+    <string name="plants_action_note">Tagebuch</string>
+    <string name="plants_action_pests">Schädlinge</string>
+    <string name="plants_action_watered_done">Gießen eingetragen</string>
+    <string name="plants_action_care_done">Aufgabe eingetragen</string>
+    <string name="plants_action_note_done">Tagebucheintrag gespeichert</string>
+    <string name="plants_diary">Tagebuch</string>
+    <string name="plants_diary_empty">Noch nichts notiert.</string>
+    <string name="plants_note_title">Neuer Tagebucheintrag</string>
+    <string name="plants_note_hint">Was ist passiert?</string>
+    <string name="plants_note_save">Speichern</string>
+    <string name="plants_note_cancel">Abbrechen</string>
+    <string name="plants_open_description">%1$s öffnen</string>
+    <string name="plants_note_take_photo">Kamera</string>
+    <string name="plants_note_pick_photo">Galerie</string>
+    <string name="plants_note_capture_environment">Sensordaten erfassen</string>
+    <string name="plants_note_photo">Foto %1$d</string>
+    <string name="plants_note_remove_photo">Foto %1$d entfernen</string>
+    <string name="plants_metric_temperature">Temperatur</string>
+    <string name="plants_metric_humidity">Luftfeuchte</string>
+    <string name="plants_metric_soil_moisture">Bodenfeuchte</string>
+    <string name="plants_metric_light">Licht</string>
+    <string name="plants_dismiss">Schließen</string>
+    <string name="plants_note_microscope">Mikroskop</string>
+    <string name="plants_note_microscope_shutter">Aufnehmen</string>
+    <string name="plants_microscope_starting">Mikroskop startet …</string>
+    <string name="plants_microscope_unavailable">Kein Mikroskop angeschlossen.</string>
+    <string name="plants_microscope_error">Das Mikroskop konnte nicht gestartet werden.</string>
+    <string name="plants_microscope_awaiting_permission">Bitte den USB-Zugriff auf das Mikroskop bestätigen.</string>
+    <string name="plants_microscope_denied">Der USB-Zugriff wurde abgelehnt. Mikroskop abziehen und neu anstecken.</string>
+    <string name="plants_microscope_no_host">Dieses Telefon kann kein USB-Gerät betreiben.</string>
+    <string name="plants_microscope_capture_failed">Das Bild konnte nicht gelesen werden. Probe ruhig halten und erneut auslösen.</string>
+    <string name="plants_note_saving">Speichere …</string>
 </resources>

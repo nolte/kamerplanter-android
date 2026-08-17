@@ -24,15 +24,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
 import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeScreen
+import io.github.nolte.kamerplanter.feature.pestdetection.PLANT_KEY_ARG
 import io.github.nolte.kamerplanter.feature.pestdetection.PestDetectionScreen
+import io.github.nolte.kamerplanter.feature.plants.PlantDetailScreen
+import io.github.nolte.kamerplanter.feature.plants.PlantDetailViewModel
 import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
@@ -92,6 +97,17 @@ class MainActivity : ComponentActivity() {
 /** Pest detection, pushed onto whichever tab the user started it from. */
 private const val PEST_DETECTION_ROUTE = "pest-detection"
 
+/**
+ * The same destination, entered for a named plant.
+ *
+ * One route with an optional argument rather than two destinations: the screen is identical
+ * either way, and the only difference — whether a finding is filed against a plant — is
+ * exactly what an argument is for.
+ */
+private const val PEST_DETECTION_FOR_PLANT_ROUTE = "pest-detection/{$PLANT_KEY_ARG}"
+
+private const val PLANT_DETAIL_ROUTE = "plants/{${PlantDetailViewModel.PLANT_KEY_ARG}}"
+
 /** The final top-level destinations of the app shell (requirement R1). */
 enum class TopLevelDestination(
     val route: String,
@@ -136,11 +152,33 @@ fun KamerplanterApp(discoveries: Flow<Unit> = emptyFlow()) {
                     onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
                 )
             }
+            composable(
+                route = PEST_DETECTION_FOR_PLANT_ROUTE,
+                arguments = listOf(navArgument(PLANT_KEY_ARG) { type = NavType.StringType }),
+            ) {
+                PestDetectionScreen(
+                    onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+                )
+            }
             composable(TopLevelDestination.PLANTS.route) {
                 PlantsScreen(
                     // The disconnected and credential-rejected states both point here: the
                     // list cannot fix either, and Settings is where a connection is made.
                     onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+                    onOpenPlant = { navController.navigate("plants/$it") },
+                )
+            }
+            composable(
+                route = PLANT_DETAIL_ROUTE,
+                arguments = listOf(
+                    navArgument(PlantDetailViewModel.PLANT_KEY_ARG) { type = NavType.StringType },
+                ),
+            ) {
+                PlantDetailScreen(
+                    onBack = { navController.popBackStack() },
+                    // Pushed, not swapped: Back from the camera returns to the plant it was
+                    // opened for, which is where the finding belongs.
+                    onDetectPests = { navController.navigate("pest-detection/$it") },
                 )
             }
             composable(TopLevelDestination.SETTINGS.route) { SettingsScreen() }

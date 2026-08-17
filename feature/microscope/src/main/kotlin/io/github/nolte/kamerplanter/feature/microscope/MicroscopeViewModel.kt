@@ -5,10 +5,13 @@ import android.view.View
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,16 +25,19 @@ class MicroscopeViewModel @Inject constructor(
     private val captureError = MutableStateFlow<String?>(null)
     private val isCapturing = MutableStateFlow(false)
 
-    init {
-        viewModelScope.launch {
-            camera.buttonPresses.collect { button ->
-                when (button) {
-                    MicroscopeButton.Shutter -> capture()
-                    is MicroscopeButton.Unknown -> Unit
-                }
-            }
-        }
-    }
+    /**
+     * The device's shutter ring, for the screen to act on **while it is visible**.
+     *
+     * Collected by the screen rather than here. In `init` it ran for as long as this ViewModel
+     * existed, and a tab's ViewModel outlives its visit: pressing the ring from anywhere else
+     * in the app captured a frame into a screen nobody was looking at. Harmless while this was
+     * the only consumer — and not once a plant's diary grew a capture surface of its own, since
+     * the camera drops a second capture for one press (`captureLock.tryLock`). Whichever
+     * collector lost the race got nothing back, so the ring appeared to do nothing at all.
+     */
+    val shutterPresses: Flow<Unit> = camera.buttonPresses
+        .filter { it is MicroscopeButton.Shutter }
+        .map { }
 
     val uiState: StateFlow<MicroscopeUiState> = combine(
         camera.state,

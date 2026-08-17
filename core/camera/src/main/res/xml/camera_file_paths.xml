@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Where a freshly taken photo lands before it is uploaded.
+
+  The cache, not files/: the picture is a step in writing a diary entry, not a document the
+  app keeps. Once the bytes are read and sent, the file has no further purpose, and the
+  system may reclaim it whenever it likes.
+-->
+<paths>
+    <cache-path name="captures" path="captures/" />
+</paths>

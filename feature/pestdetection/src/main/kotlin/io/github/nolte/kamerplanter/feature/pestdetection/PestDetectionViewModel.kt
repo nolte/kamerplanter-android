@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.feature.pestdetection
 
 import android.content.Context
 import android.view.View
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,7 +34,16 @@ import javax.inject.Inject
 class PestDetectionViewModel @Inject constructor(
     private val detections: PestDetectionClient,
     private val camera: MicroscopeCamera,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    /**
+     * The plant a finding belongs to, or `null` when the flow was entered without one.
+     *
+     * Read from the navigation arguments rather than passed in, so the two entry points — the
+     * Capture tab and a plant's own page — differ only in the route they push.
+     */
+    private val plantKey: String? = savedStateHandle[PLANT_KEY_ARG]
 
     private val _state = MutableStateFlow<PestDetectionState>(PestDetectionState.CheckingInstance)
     val state: StateFlow<PestDetectionState> = _state.asStateFlow()
@@ -197,7 +207,9 @@ class PestDetectionViewModel @Inject constructor(
                 _state.value = PestDetectionState.Failed(ready.source.captureFailure())
                 return@launch
             }
-            when (val outcome = detections.detect(jpeg, plantKey = null, language = language)) {
+            // The plant this was opened for, where it was opened from one. Entered from the
+            // Capture tab there is none, and the instance files the finding without a plant.
+            when (val outcome = detections.detect(jpeg, plantKey = plantKey, language = language)) {
                 is DetectionOutcome.Completed ->
                     _state.value = PestDetectionState.Result(jpeg, outcome.detection)
                 DetectionOutcome.Unauthorized -> _state.value = PestDetectionState.Unauthorized
@@ -269,3 +281,6 @@ private fun RefusedReason.asFailure(): PestDetectionState.Failed = when (this) {
     // added without deciding what it means here.
     RefusedReason.CONSENT_MISSING -> PestDetectionState.Failed(R.string.pest_failed_consent)
 }
+
+/** The optional navigation argument naming the plant a detection is filed against. */
+const val PLANT_KEY_ARG: String = "plantKey"

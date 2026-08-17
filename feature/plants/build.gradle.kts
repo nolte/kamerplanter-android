@@ -30,6 +30,13 @@ android {
 dependencies {
     // Whether an instance is connected — the list is gated on it and shows nothing without
     // one. This module reads the connection; it never establishes one.
+    // Photo picking and the CAMERA grant for a diary entry's pictures. The same module the
+    // pest-detection flow takes its phone camera from, so the permission and the file provider
+    // it needs are declared once.
+    implementation(project(":core:camera"))
+    // The microscope, for its interface only — the UVC engine stays inside that module
+    // (ADR 0001). :feature:pestdetection depends on it for the same reason.
+    implementation(project(":feature:microscope"))
     implementation(project(":core:connection"))
 
     // For the PlantsClient seam and its app-owned types only. No Retrofit type, no generated
