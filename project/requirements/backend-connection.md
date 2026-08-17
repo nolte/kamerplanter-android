@@ -131,9 +131,15 @@ Self-consistency (`k ≥ 2`) was decisive twice, and both times pushed a dimensi
   a base URL and SHALL send it in the same `Authorization: Bearer` header the JWT uses.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: upstream §API Keys; teach-back
 - **R10** — WHEN the probed instance reports `mode` = light, the app SHALL offer a
-  credential-free connection carrying only the base URL, and SHALL NOT attempt any
-  `/api/v1/auth/…` call against it.
-  - _dimension_: `functional` · _status_: `confirmed` · _source_: Q3 = "Als vierten Pfad 'nur Base-URL' mitliefern"; upstream `main.py` `/api/health` returns `{status, version, mode}`
+  credential-free connection carrying the base URL **and the tenant it addresses**, and SHALL
+  NOT attempt any `/api/v1/auth/…` call against it.
+  - _dimension_: `functional` · _status_: `confirmed` · _source_: Q3 = "Als vierten Pfad 'nur Base-URL' mitliefern"; upstream `main.py` `/api/health` returns `{status, version, mode}`; the tenant half verified 2026-08-16 against a running light-mode instance
+  - _note_: this read "only the base URL" until 2026-08-16. A light instance serves
+    `GET /api/v1/tenants` unauthenticated and answers with its system tenant, while every
+    plant, diary and pest route lives under `/api/v1/t/{slug}/…` — so a connection without a
+    slug can address nothing, which is exactly what it did: the plant list was empty for every
+    light-mode instance. Credential-free and tenant-free are separate properties, and only the
+    first one holds.
 - **R11** — WHILE a light-mode connection is active, the OkHttp interceptor SHALL attach
   no `Authorization` header.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: Q3; upstream §Light Mode ("no login required")
@@ -319,10 +325,14 @@ Self-consistency (`k ≥ 2`) was decisive twice, and both times pushed a dimensi
   `GET /api/health` alone is the whole check.
 - **The `device_name` sent on redemption (R8) is unspecified.** The field is optional and
   capped at 64 characters; using the device model is `assumed`.
-- **Light-mode tenant semantics are unverified.** R10/R11 establish that a light instance
-  needs no credential, but whether it exposes tenant-scoped routes at all — and what R32
-  should then address — was not confirmed against the source. `assumed`: light mode is
-  effectively single-tenant and R15 does not apply there.
+- ~~**Light-mode tenant semantics are unverified.**~~ **Resolved 2026-08-16** against a
+  running light-mode instance. It exposes the tenant-scoped routes like any other: `GET
+  /api/v1/tenants` answers unauthenticated with its system tenant, and every plant route is
+  `/api/v1/t/{slug}/…`. The assumption recorded here — "light mode is effectively
+  single-tenant and R15 does not apply there" — was half right and wholly harmful: the
+  instance does ship a single tenant, but the app read that as *no* tenant, addressed nothing,
+  and showed an empty plant list. R15's adoption rule now applies to every method, and R10
+  carries the slug.
 - **Session-key discovery for R24 is unverified.** Ending a paired session needs the
   session's `key`; `GET /api/v1/users/me/sessions` is the plausible source, but the
   mapping from "this device's connection" to "this session key" was not confirmed.

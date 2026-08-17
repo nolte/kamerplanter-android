@@ -394,18 +394,34 @@ class NetworkPlantsClientTest {
         assertTrue(withContext(Dispatchers.Default) { client().loadPlants() } is PlantListOutcome.Unavailable)
     }
 
-    /** Light mode has no tenant, so there are no tenant-scoped plants to ask for. */
+    /**
+     * Light mode reads its tenant's plants like any other connection.
+     *
+     * This test used to assert the opposite — that a light-mode connection has nothing to ask
+     * for — which is what an empty plant list on a real light-mode instance turned out to be:
+     * not a server without plants, but a client that never sent the request. The instance
+     * serves `/api/v1/tenants` without a credential and scopes every plant route to a slug.
+     */
     @Test
-    fun `a light-mode connection has no plants to load`() = runTest {
+    fun `a light-mode connection loads its tenant's plants`() = runTest {
+        givenPlants(plant("p1"))
+        givenLocations("loc-1" to "Living room")
+        givenNoPhotos("p1")
         val lightMode = NetworkPlantsClient(
             apis = plantsApiFactory(),
-            connections = FakeConnectionStore(Connection.LightMode(server.url("/").toString())),
+            connections = FakeConnectionStore(
+                Connection.LightMode(server.url("/").toString(), tenantSlug = "demo"),
+            ),
+            // No credential, which is the whole point of the mode; the request still goes out.
             credentials = InMemoryCredentialStore(),
         )
 
-        assertTrue(
-            withContext(Dispatchers.Default) { lightMode.loadPlants() } is PlantListOutcome.Unavailable,
+        val outcome = withContext(Dispatchers.Default) { lightMode.loadPlants() }
+
+        assertEquals(
+            "Monstera",
+            (outcome as PlantListOutcome.Loaded).plants.single().displayName,
         )
-        assertTrue(requestedPaths.isEmpty())
+        assertTrue(requestedPaths.contains("/api/v1/t/demo/plant-instances"))
     }
 }

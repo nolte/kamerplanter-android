@@ -103,9 +103,4 @@ class PlantListViewModel @Inject constructor(
  * What identifies the instance-and-tenant a list belongs to. Two connections that address the
  * same plants need no reload; anything else does.
  */
-private fun Connection?.addresses(): String? = when (this) {
-    null -> null
-    is Connection.QrPairing -> "$baseUrl/$tenantSlug"
-    is Connection.ApiKey -> "$baseUrl/$tenantSlug"
-    is Connection.LightMode -> baseUrl
-}
+private fun Connection?.addresses(): String? = this?.let { "${it.baseUrl}/${it.tenantSlug}" }

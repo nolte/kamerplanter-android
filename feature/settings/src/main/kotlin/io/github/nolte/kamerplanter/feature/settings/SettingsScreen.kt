@@ -33,6 +33,7 @@ import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.delay
 
 /**
@@ -40,10 +41,9 @@ import kotlinx.coroutines.delay
  * backend. The screen owns the CAMERA runtime permission; the connection state machine
  * lives in [SettingsViewModel] and the backend is faked behind [ConnectionClient].
  *
- * The surface is still the dummy's QR-only one: the API-key form, the light-mode form and
- * the tenant picker are states the machine already carries but that
- * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8) gives their own
- * steps (R9, R10, R15, R26).
+ * The API-key form and the light-mode form are states the machine already carries but that
+ * [issue #8](https://github.com/nolte/kamerplanter-android/issues/8) gives their own steps
+ * (R9, R10, R26). The tenant picker (R15) is no longer among them.
  */
 @Composable
 fun SettingsScreen(
@@ -79,6 +79,7 @@ fun SettingsScreen(
         hasLocalNetworkPermission = localNetwork.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
+            onSelectTenant = viewModel::selectTenant,
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
             scanner = ScannerActions(
@@ -106,6 +107,7 @@ fun SettingsScreen(
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
 internal class ConnectionActions(
     val onConnect: (ConnectionMethod) -> Unit,
+    val onSelectTenant: (Tenant) -> Unit,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
     /** Everything the scanner needs, grouped: only one state uses any of it. */
@@ -172,7 +174,9 @@ private fun SettingsContent(
             // machine waits here until selectTenant() is called, and nothing calls it yet.
             // Without an escape the user would be stuck on a spinner for good the first time
             // an instance offers more than one tenant, so it says so and offers a way back.
-            is ConnectionState.SelectingTenant -> PendingTenantChoiceBody(
+            is ConnectionState.SelectingTenant -> TenantChoiceBody(
+                tenants = state.tenants,
+                onSelect = actions.onSelectTenant,
                 onCancel = actions.onCancel,
             )
             is ConnectionState.Connected -> ConnectedBody(
@@ -255,21 +259,53 @@ private fun DiscoveredBody(
 }
 
 /**
- * Shown while the machine rests in [ConnectionState.SelectingTenant] — the instance offered
- * several tenants and the picker that would resolve it does not exist yet (R15).
+ * The instance offered several tenants and the user picks one (R15).
  *
- * It states that plainly rather than spinning: a progress indicator would promise work that
- * is not happening, and the state does not resolve on its own. Cancelling returns to the
- * previous connection, or to disconnected, without storing anything.
+ * This screen used to say the picker did not exist yet, and the state machine kept light mode
+ * away from it on the grounds that light mode had no tenants. Both halves have given way:
+ * light mode does have them, so it reaches this state, and a state that only apologises is a
+ * dead end — an instance with two gardens could not be connected to at all, by any method.
+ * `selectTenant` was fully implemented in the ViewModel the whole time; only this was missing.
+ *
+ * Cancelling returns to the previous connection, or to disconnected, without storing anything.
  */
 @Composable
-private fun PendingTenantChoiceBody(onCancel: () -> Unit) {
-    CenteredColumn {
+private fun TenantChoiceBody(
+    tenants: List<Tenant>,
+    onSelect: (Tenant) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         Text(
-            text = stringResource(R.string.settings_tenant_choice_pending),
-            textAlign = TextAlign.Center,
+            text = stringResource(R.string.settings_tenant_choice_title),
+            style = MaterialTheme.typography.titleMedium,
         )
-        TextButton(onClick = onCancel, modifier = Modifier.padding(top = 16.dp)) {
+        Text(
+            text = stringResource(R.string.settings_tenant_choice_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+        )
+        tenants.forEach { tenant ->
+            OutlinedButton(
+                onClick = { onSelect(tenant) },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            ) {
+                // The display name, with the slug beneath it: two gardens can share a name,
+                // and the slug is what the connection actually stores and addresses.
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = tenant.displayName)
+                    if (tenant.displayName != tenant.slug) {
+                        Text(
+                            text = tenant.slug,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        TextButton(onClick = onCancel, modifier = Modifier.padding(top = 8.dp)) {
             Text(text = stringResource(R.string.settings_cancel))
         }
     }

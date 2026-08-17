@@ -11,7 +11,7 @@ import io.github.nolte.kamerplanter.core.connection.maskSecret
  * an unscoped credential is not a connection (R15), and the caller turns that into a
  * failure rather than persisting half of one.
  *
- * Light mode ignores [tenant] and [identity]: an instance without accounts has neither.
+ * Light mode needs a tenant like the other two, and returns `null` without one. It ignores
  *
  * Lives here rather than beside [Connection] in `:core:connection` because it reads a
  * [ConnectionRequest] — the in-flight, still-secret-bearing input of the pairing flow,
@@ -24,5 +24,6 @@ internal fun ConnectionRequest.connectionFor(tenant: Tenant?, identity: String?)
             tenant?.let { Connection.QrPairing(baseUrl, it.slug, identity) }
         is ConnectionRequest.ApiKey ->
             tenant?.let { Connection.ApiKey(baseUrl, it.slug, maskSecret(key)) }
-        is ConnectionRequest.LightMode -> Connection.LightMode(baseUrl)
+        is ConnectionRequest.LightMode ->
+            tenant?.let { Connection.LightMode(baseUrl, it.slug) }
     }

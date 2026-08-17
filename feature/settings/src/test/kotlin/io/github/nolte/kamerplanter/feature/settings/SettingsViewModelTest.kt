@@ -251,7 +251,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `light mode connects without a tenant`() = runTest(dispatcher) {
+    fun `light mode connects with the tenant the instance reports`() = runTest(dispatcher) {
         val store = FakeConnectionStore()
         val viewModel = viewModel(store = store)
 
@@ -259,7 +259,10 @@ class SettingsViewModelTest {
         viewModel.submit(ConnectionRequest.LightMode(baseUrl = "https://light.example.org"))
         advanceUntilIdle()
 
-        val expected = Connection.LightMode(baseUrl = "https://light.example.org")
+        val expected = Connection.LightMode(
+            baseUrl = "https://light.example.org",
+            tenantSlug = CANNED_TENANT.slug,
+        )
         assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
         assertEquals(expected, store.saved)
     }
@@ -799,8 +802,9 @@ private class FakeConnectionStore(initial: Connection? = null) : ConnectionStore
 
 /**
  * A [ConnectionClient] answering from a canned instance: [CANNED_FAIL_CODE] fails, anything
- * else verifies against the single [CANNED_TENANT], and light mode verifies with neither
- * tenant nor credential. No delay — the tests drive the scheduler themselves.
+ * else verifies against the single [CANNED_TENANT], and light mode verifies against that same
+ * tenant with no credential — a light-mode instance serves its tenants unauthenticated. No
+ * delay — the tests drive the scheduler themselves.
  */
 private class CannedConnectionClient : ConnectionClient {
     override suspend fun connect(request: ConnectionRequest): ConnectionResult = when (request) {
@@ -808,7 +812,7 @@ private class CannedConnectionClient : ConnectionClient {
         is ConnectionRequest.ApiKey -> verify(request.key, Credential.ApiKey(request.key))
         is ConnectionRequest.LightMode -> ConnectionResult.Verified(
             identity = null,
-            tenants = emptyList(),
+            tenants = listOf(CANNED_TENANT),
             credential = Credential.None,
         )
     }

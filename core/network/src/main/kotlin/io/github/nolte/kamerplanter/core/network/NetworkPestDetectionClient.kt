@@ -1,6 +1,5 @@
 package io.github.nolte.kamerplanter.core.network
 
-import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
 import io.github.nolte.kamerplanter.core.network.generated.apis.PestDetectionApi
@@ -136,10 +135,7 @@ class NetworkPestDetectionClient @Inject constructor(
 
     private suspend fun target(): Target? {
         val connection = connections.connection.first() ?: return null
-        // Light mode addresses no tenant, and every route here is tenant-scoped. Treated as
-        // "not connected" rather than as its own state: from this feature's side the two are
-        // the same thing — there is nothing to ask and nothing the user can do about it here.
-        val tenant = connection.tenantSlug ?: return null
+        val tenant = connection.tenantSlug
         val credential = credentials.load()
         return Target(apis.create(connection.baseUrl) { credential }, tenant)
     }
@@ -316,11 +312,3 @@ class NetworkPestDetectionClient @Inject constructor(
             ?.content
     }.getOrNull()
 }
-
-/** The tenant a connection addresses, where it has one; light mode has none. */
-private val Connection.tenantSlug: String?
-    get() = when (this) {
-        is Connection.QrPairing -> tenantSlug
-        is Connection.ApiKey -> tenantSlug
-        is Connection.LightMode -> null
-    }

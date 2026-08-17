@@ -48,7 +48,7 @@ class DataStoreConnectionStore @Inject constructor(
                     prefs[KEY_TENANT_SLUG] = connection.tenantSlug
                     prefs[KEY_KEY_HINT] = connection.keyHint
                 }
-                is Connection.LightMode -> Unit
+                is Connection.LightMode -> prefs[KEY_TENANT_SLUG] = connection.tenantSlug
             }
         }
     }
@@ -65,7 +65,11 @@ class DataStoreConnectionStore @Inject constructor(
                 tenantSlug?.let { Connection.QrPairing(baseUrl, it, prefs[KEY_IDENTITY]) }
             ConnectionMethod.API_KEY.name ->
                 tenantSlug?.let { Connection.ApiKey(baseUrl, it, prefs[KEY_KEY_HINT].orEmpty()) }
-            ConnectionMethod.LIGHT_MODE.name -> Connection.LightMode(baseUrl)
+            // Read like the others: a stored light-mode connection from before the slug
+            // existed has none, and is dropped rather than restored as one that can address
+            // nothing.
+            ConnectionMethod.LIGHT_MODE.name ->
+                tenantSlug?.let { Connection.LightMode(baseUrl, it) }
             else -> null
         }
     }

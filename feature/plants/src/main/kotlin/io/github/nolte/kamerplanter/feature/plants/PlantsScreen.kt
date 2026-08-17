@@ -1,5 +1,7 @@
 package io.github.nolte.kamerplanter.feature.plants
 
+import android.content.Context
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,9 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PriorityHigh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Yard
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -34,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +45,8 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import io.github.nolte.kamerplanter.core.network.CareAction
 import io.github.nolte.kamerplanter.core.network.PlantSummary
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * The Plants tab: the connected tenant's plant instances, one row each.
@@ -122,24 +126,41 @@ private fun PlantList(plants: List<PlantSummary>, imageLoader: ImageLoader?) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         items(items = plants, key = { it.key }) { plant ->
             PlantRow(plant, imageLoader)
-            HorizontalDivider()
+            // Inset to where the text starts (thumbnail plus its gap), so the divider reads as
+            // a break between entries rather than a rule drawn across the page.
+            HorizontalDivider(modifier = Modifier.padding(start = THUMBNAIL_SIZE + 32.dp))
         }
     }
 }
 
+/**
+ * One plant.
+ *
+ * The care badge sits under the text rather than beside it. Sharing the row cost the title
+ * roughly half its width, and with names like `AGLAO-0617-RB5` — the identifier the instance
+ * generates when a plant is not given one — every row ended in an ellipsis, so the list showed
+ * nine plants no two of which could be told apart. Below the text the badge has room for what
+ * it is actually for: which task, and whether it is late.
+ *
+ * The whole row is one node for a screen reader. As four siblings it was read as four
+ * unrelated fragments, and the badge — the only part that says anything is wrong — arrived
+ * last and unattached.
+ */
 @Composable
 private fun PlantRow(plant: PlantSummary, imageLoader: ImageLoader?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.Top,
     ) {
         PlantThumbnail(plant, imageLoader)
         Column(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = plant.displayName,
@@ -147,30 +168,32 @@ private fun PlantRow(plant: PlantSummary, imageLoader: ImageLoader?) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // Species and location are each optional, and a row for a plant with neither
-            // should not leave two blank lines behind.
-            plant.species?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            plant.location?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            // Species and location on one line, separated by a middle dot: they are both
+            // "which plant is this", they are each short, and two lines of grey under the
+            // title pushed the badge off the visible part of a dense row. Either may be
+            // absent, and a row with neither must not leave a blank line behind.
+            listOfNotNull(plant.species, plant.location)
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(SEPARATOR)
+                ?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            plant.careAction?.let {
+                CareBadge(action = it, modifier = Modifier.padding(top = 6.dp))
             }
         }
-        plant.careAction?.let { CareBadge(it) }
     }
 }
+
+internal const val SEPARATOR = " · "
+
+private val THUMBNAIL_SIZE = 56.dp
 
 @Composable
 private fun PlantThumbnail(plant: PlantSummary, imageLoader: ImageLoader?) {
@@ -184,7 +207,7 @@ private fun PlantThumbnail(plant: PlantSummary, imageLoader: ImageLoader?) {
     if (plant.thumbnailUrl == null || imageLoader == null) {
         Surface(
             modifier = Modifier
-                .size(56.dp)
+                .size(THUMBNAIL_SIZE)
                 .clip(shape),
             color = MaterialTheme.colorScheme.surfaceVariant,
         ) {
@@ -202,69 +225,123 @@ private fun PlantThumbnail(plant: PlantSummary, imageLoader: ImageLoader?) {
             contentDescription = description,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(56.dp)
+                .size(THUMBNAIL_SIZE)
                 .clip(shape),
         )
     }
 }
 
 /**
- * The "needs attention" flag.
+ * What this plant needs, and how late it is.
  *
- * Carries an icon and a content description as well as its colour: a badge distinguished by
- * colour alone disappears for a colour-blind reader and is silent to a screen reader.
+ * Both, because either alone misleads. The badge used to carry only the task, painted in the
+ * error colour whatever its urgency — so a tenant whose plants all had something scheduled saw
+ * an unbroken column of red, in which the two genuinely overdue plants were invisible. Half of
+ * these reminders are simply upcoming.
+ *
+ * A flat label rather than a chip: the previous version was an [androidx.compose.material3.AssistChip]
+ * with `enabled = false` and an empty `onClick`, which reads as a button, is styled as a
+ * button, and does nothing when pressed. This states a fact and looks like one.
  */
 @Composable
-private fun CareBadge(action: CareAction) {
-    val labelRes = action.labelRes()
-    val label = stringResource(labelRes)
-    // The generic label already says "needs attention", so prefixing it again would have a
-    // screen reader announce it twice. Only a specific kind gets the prefix.
-    val alert = if (labelRes == R.string.plants_care_other) {
-        label
+internal fun CareBadge(action: CareAction, modifier: Modifier = Modifier) {
+    val task = stringResource(action.labelRes())
+    val due = action.dueLabel()
+    val container = if (action.isOverdue) {
+        MaterialTheme.colorScheme.errorContainer
     } else {
-        stringResource(R.string.plants_care_description, label)
+        MaterialTheme.colorScheme.secondaryContainer
     }
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = { Text(label) },
-        leadingIcon = {
+    val content = if (action.isOverdue) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    // Never colour alone (WCAG 1.4.1): overdue also carries a different icon, and the due text
+    // says "overdue" in words. Someone who cannot tell the two containers apart still can.
+    val icon = if (action.isOverdue) Icons.Filled.PriorityHigh else Icons.Filled.Schedule
+    val spoken = if (due == null) task else "$task$SEPARATOR$due"
+
+    Surface(
+        color = container,
+        contentColor = content,
+        shape = RoundedCornerShape(8.dp),
+        // One node carrying what the icon, the colour and both texts convey together. A
+        // screen reader that read them separately would announce a task, then a date, and
+        // never the fact that the date has passed.
+        modifier = modifier.clearAndSetSemantics { contentDescription = spoken },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Icon(
-                imageVector = Icons.Filled.PriorityHigh,
+                imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(AssistChipDefaults.IconSize),
+                modifier = Modifier.size(16.dp),
             )
-        },
-        colors = AssistChipDefaults.assistChipColors(
-            disabledContainerColor = MaterialTheme.colorScheme.errorContainer,
-            disabledLabelColor = MaterialTheme.colorScheme.onErrorContainer,
-            disabledLeadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
-        // The chip is a status indicator, not a control, and clearAndSetSemantics also
-        // removes the icon's own semantics — so this one description has to carry what the
-        // icon and the colour convey to everyone else. "Water" alone would tell a screen
-        // reader the plant's name and then a bare verb, with nothing marking it as an alert.
-        modifier = Modifier.clearAndSetSemantics {
-            contentDescription = alert
-        },
-    )
+            Text(text = spoken, style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }
 
 /**
- * Maps the backend's `reminder_type` to a label.
+ * "Overdue since 11 Aug" or "Due 18 Aug", or nothing where the backend gave no date.
  *
- * The fallback is not defensive padding: this build knows the kinds the schema had when it
- * was generated, and a server one release ahead will name others. Rendering "Needs
- * attention" for an unknown kind keeps the row useful (R-COMPAT-3).
+ * The date was in the model from the start and never shown. It is the part that makes the
+ * badge worth reading: "water" is true of a plant watered yesterday and of one forgotten for a
+ * week, and only the date tells the owner which they are looking at.
  */
-private fun CareAction.labelRes(): Int = when (kind) {
-    "watering" -> R.string.plants_care_watering
-    "fertilizing" -> R.string.plants_care_fertilizing
-    "repotting" -> R.string.plants_care_repotting
-    "pest_check" -> R.string.plants_care_pest_check
-    else -> R.string.plants_care_other
+@Composable
+private fun CareAction.dueLabel(): String? {
+    val date = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    val template = if (isOverdue) R.string.plants_care_overdue_since else R.string.plants_care_due_on
+    return stringResource(template, date.asShortDate(LocalContext.current))
 }
+
+/**
+ * The date, abbreviated, and without the year when it is this one.
+ *
+ * Left in full, "Überfällig seit 10.08.2026" wrapped the badge onto a second line for most
+ * plants — four characters of year, on every row, saying what the reader already knows.
+ * [DateUtils] rather than a hand-built pattern because dropping a year from a date format is
+ * locale-specific work: the platform already knows where the year sits in each one.
+ */
+private fun LocalDate.asShortDate(context: Context): String {
+    val millis = atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    var flags = DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH
+    if (year == LocalDate.now().year) flags = flags or DateUtils.FORMAT_NO_YEAR
+    return DateUtils.formatDateTime(context, millis, flags)
+}
+
+/**
+ * The task in the user's language.
+ *
+ * All thirteen `reminder_type` values the backend defines, not the four that happened to be
+ * needed first. The other nine fell to the catch-all — and the catch-all reads "needs
+ * attention", which is both vaguer and more alarming than the named tasks it stood in for: a
+ * humidity check announced itself as more serious than an overdue watering. The catch-all
+ * stays for a type a later release adds (R-COMPAT-3), which is what it is for.
+ */
+private fun CareAction.labelRes(): Int = CARE_LABELS[kind] ?: R.string.plants_care_other
+
+/** Every `reminder_type` the backend defines, in the order its own enum lists them. */
+private val CARE_LABELS = mapOf(
+    "watering" to R.string.plants_care_watering,
+    "fertilizing" to R.string.plants_care_fertilizing,
+    "repotting" to R.string.plants_care_repotting,
+    "pest_check" to R.string.plants_care_pest_check,
+    "location_check" to R.string.plants_care_location_check,
+    "humidity_check" to R.string.plants_care_humidity_check,
+    "deadheading" to R.string.plants_care_deadheading,
+    "tuber_dig" to R.string.plants_care_tuber_dig,
+    "storage_check" to R.string.plants_care_storage_check,
+    "spring_uncover" to R.string.plants_care_spring_uncover,
+    "winter_protection" to R.string.plants_care_winter_protection,
+    "dormancy_health_check" to R.string.plants_care_dormancy_health_check,
+    "quarter_climate_check" to R.string.plants_care_quarter_climate_check,
+)
 
 @Composable
 private fun CenteredMessage(

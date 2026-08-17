@@ -26,6 +26,15 @@
     <string name="plants_care_repotting">Repot</string>
     <string name="plants_care_pest_check">Check for pests</string>
     <string name="plants_care_other">Needs attention</string>
-    <!-- Content description for the badge. %1$s is the action, e.g. "Water". -->
-    <string name="plants_care_description">Needs attention: %1$s</string>
+    <string name="plants_care_location_check">Check location</string>
+    <string name="plants_care_humidity_check">Check humidity</string>
+    <string name="plants_care_deadheading">Deadhead</string>
+    <string name="plants_care_tuber_dig">Lift tubers</string>
+    <string name="plants_care_storage_check">Check storage</string>
+    <string name="plants_care_spring_uncover">Uncover for spring</string>
+    <string name="plants_care_winter_protection">Add winter protection</string>
+    <string name="plants_care_dormancy_health_check">Check dormancy</string>
+    <string name="plants_care_quarter_climate_check">Seasonal climate check</string>
+    <string name="plants_care_overdue_since">Overdue since %1$s</string>
+    <string name="plants_care_due_on">Due %1$s</string>
 </resources>

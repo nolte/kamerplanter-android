@@ -318,9 +318,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** R15's adoption rule; light mode short-circuits it because it has no tenants (R10). */
+    /**
+     * R15's adoption rule, applied to every method.
+     *
+     * Light mode used to short-circuit it on the grounds that it has no tenants. It has: the
+     * instance serves them without a credential. Nothing about choosing between two of them
+     * depends on how the app authenticated, so the rule is simply the same one.
+     */
     private suspend fun resolveTenant(request: ConnectionRequest, result: ConnectionResult.Verified) {
-        val choiceNeeded = request.method != ConnectionMethod.LIGHT_MODE && result.tenants.size > 1
+        val choiceNeeded = result.tenants.size > 1
         if (choiceNeeded) {
             // Both the secret and the request wait here rather than in observable state (R19).
             pendingCredential = result.credential
@@ -331,11 +337,15 @@ class SettingsViewModel @Inject constructor(
             if (connection == null) {
                 pendingCredential = Credential.None
                 pendingRequest = null
-                _state.value = ConnectionState.Failed(
-                    request.method,
-                    "no tenant is scoped to this credential",
-                    request.baseUrl,
-                )
+                // Light mode sends no credential, so it cannot be the credential's fault.
+                // The old sentence was written for the two methods that carry one and sent a
+                // light-mode user looking for a key they never had.
+                val reason = if (request.method == ConnectionMethod.LIGHT_MODE) {
+                    "this instance reports no tenants, so it holds no plants to show"
+                } else {
+                    "no tenant is scoped to this credential"
+                }
+                _state.value = ConnectionState.Failed(request.method, reason, request.baseUrl)
             } else {
                 pendingRequest = null
                 establish(connection, result.credential)

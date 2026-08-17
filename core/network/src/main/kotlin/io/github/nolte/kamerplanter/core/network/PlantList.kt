@@ -35,8 +35,20 @@ data class CareAction(
     val kind: String,
     /** The backend's `urgency`; drives how prominent the badge is, never its only signal. */
     val urgency: String,
+    /** ISO `yyyy-MM-dd` as the backend writes it, or absent for a reminder with no date. */
     val dueDate: String?,
-)
+) {
+    /** Whether this one is late rather than merely scheduled. */
+    val isOverdue: Boolean get() = urgency == URGENCY_OVERDUE
+}
+
+/**
+ * The one `urgency` value the app treats specially.
+ *
+ * Everything else — `upcoming` today, whatever a later release adds — is a scheduled task and
+ * is shown calmly. Reading it the other way round would mean a new value arriving as an alarm.
+ */
+const val URGENCY_OVERDUE: String = "overdue"
 
 /**
  * The outcome of a load, in terms the UI can act on.

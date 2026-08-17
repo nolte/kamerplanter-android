@@ -74,12 +74,25 @@ class NetworkConnectionClient(
                 "instance is not in light mode (reports '${health.mode}'); it needs a credential",
             )
         }
-        // No accounts, so no identity, no tenants and no secret to hold (R10).
-        return ConnectionResult.Verified(
-            identity = null,
-            tenants = emptyList(),
-            credential = Credential.None,
-        )
+        // No accounts, so no identity and no secret to hold — but tenants all the same. The
+        // list is served unauthenticated here, and it has to be read: every route this app
+        // uses afterwards is scoped to a slug, so returning none left the app connected to an
+        // instance it could ask nothing about.
+        //
+        // Its failures are described here rather than by the shared reason table, which was
+        // written for the two methods that carry a credential: a 401 there reads "the instance
+        // refused this credential", a sentence about something light mode never sent.
+        return runCatchingCancellable { apis.create(request.baseUrl).tenants() }
+            .fold(
+                onSuccess = {
+                    ConnectionResult.Verified(
+                        identity = null,
+                        tenants = it,
+                        credential = Credential.None,
+                    )
+                },
+                onFailure = { ConnectionResult.Failure(it.lightModeTenantsReason()) },
+            )
     }
 
     private suspend fun connectQrPairing(request: ConnectionRequest.QrPairing): ConnectionResult {
@@ -321,6 +334,24 @@ class NetworkConnectionClient(
         const val HTTP_LOCKED = 423
         const val HTTP_UNPROCESSABLE = 422
         const val HTTP_TOO_MANY_REQUESTS = 429
+        const val HTTP_NOT_FOUND = 404
+
+        /**
+         * Why a light-mode instance's tenant list could not be read.
+         *
+         * A 404 is worth naming: this route is where an instance older than the app's
+         * expectations gives itself away, and "not found" alone would send the user looking at
+         * their network for a problem that is not there.
+         */
+        fun Throwable.lightModeTenantsReason(): String = when {
+            this is HttpFailure && status == HTTP_NOT_FOUND ->
+                "this instance offers no tenant list — it may be older than this app expects"
+            this is HttpFailure -> "the instance answered HTTP $status when asked for its tenants"
+            // Not `shortCause()`: for an empty body it falls through to the shared sentence
+            // about "the tenants this credential may address" — the very phrasing this
+            // function exists to keep off a path that sends no credential.
+            else -> "could not read the instance's tenants (${this::class.simpleName})"
+        }
 
         /**
          * The type, plus the message only where the message describes the transport.
