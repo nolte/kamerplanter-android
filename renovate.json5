@@ -35,19 +35,29 @@
       // KSP binds to the Kotlin compiler API. Bumping one without the other breaks the
       // Hilt code generation, so the two only ever move together. The `[.:]` boundary
       // keeps org.jetbrains.kotlinx (a runtime library on its own release train) out.
+      //
+      // separateMajorMinor is off because it is what would break the lockstep: Renovate
+      // prefixes the groupSlug with `major-` for a major update, so a Kotlin major beside
+      // a KSP minor would split into two branches — each red on its own, which is exactly
+      // what this group exists to prevent.
       groupName: 'kotlin toolchain',
       matchPackageNames: ['/^org\\.jetbrains\\.kotlin[.:]/', '/^com\\.google\\.devtools\\.ksp/'],
+      separateMajorMinor: false,
     },
     {
       // AGP and Gradle share a compatibility matrix (AGP 9 needs Gradle 9). Split across
       // two pull requests each one is red on its own; the second rule pulls the wrapper
-      // into the same group by name.
+      // into the same group by name. separateMajorMinor is off on both for the same
+      // reason as the kotlin toolchain above: an AGP major beside a wrapper minor must
+      // not land in two separate branches.
       groupName: 'android build toolchain',
       matchPackageNames: ['/^com\\.android[.:]/'],
+      separateMajorMinor: false,
     },
     {
       groupName: 'android build toolchain',
       matchManagers: ['gradle-wrapper'],
+      separateMajorMinor: false,
     },
     {
       // AndroidX minus the camera artifacts: compile plus unit tests is the whole check.
@@ -80,29 +90,23 @@
       addLabels: ['automerge'],
     },
     {
-      // A minor or patch bump is a deliberate upstream release, and the pull request's own
-      // CI run verifies the action it bumps — enough to automerge.
+      // Every action update — tag bump, digest move, pin — in one reviewed pull request.
+      // Deliberately WITHOUT the automerge label, for two reasons:
+      //
+      //  - A digest bump is not an upstream release: it is whatever SHA the tag points at
+      //    now, and a tag is mutable even from a trusted publisher (CVE-2025-30066). The
+      //    inherited `pinDigests: true` exists so each pin "ages as a reviewable pull
+      //    request instead of silently"; automerging would keep the pin immutable while
+      //    throwing away the review that catches a moved tag. minimumReleaseAge does not
+      //    help — it gates on release age, and a re-pointed tag is no new release at all.
+      //  - "the pull request's own CI run verifies it" holds for ci.yml only. The
+      //    reusable-workflow references in automerge.yaml and the four release workflows
+      //    are executed by no required check, so a renamed input in a future gh-plumbing
+      //    release would merge green and surface at the next release dispatch instead.
+      //
+      // One grouped pull request per cycle is a negligible review burden either way.
       groupName: 'github actions',
       matchManagers: ['github-actions'],
-      matchUpdateTypes: ['minor', 'patch'],
-      addLabels: ['automerge'],
-    },
-    {
-      // Digest and pin moves get their own group and NO automerge label, because a digest
-      // bump is not an upstream release: it is whatever SHA the tag points at now, and a
-      // tag is mutable even from a trusted publisher (CVE-2025-30066). The inherited
-      // `pinDigests: true` in gh-plumbing/common exists so each pin "ages as a reviewable
-      // pull request instead of silently" — automerging the digest would keep the pin
-      // immutable while throwing that review away, which is the half that catches a moved
-      // tag. minimumReleaseAge does not cover this: it gates on release age, and a tag
-      // re-pointed at an older commit presents as no new release at all.
-      //
-      // Separate groupName rather than an unlabelled rule inside 'github actions': a
-      // grouped pull request inherits the labels of every member, so a digest riding along
-      // with a minor bump would be automerged by the minor member's label.
-      groupName: 'github action digests',
-      matchManagers: ['github-actions'],
-      matchUpdateTypes: ['digest', 'pin'],
     },
     {
       // Touches no application code, but deliberately NOT automerged: `task lint` drives
@@ -128,12 +132,11 @@
     },
   ],
 
-  // NOTE: unlike `packageRules`, which Renovate concatenates preset-then-repo, an array
-  // like `customManagers` REPLACES the inherited one wholesale. The three managers in
-  // gh-plumbing/common (hacs/action, hassfest, nolte/vale-style) are therefore gone from
-  // this repo's resolved config. That costs nothing today — this repo has neither a
-  // .vale.ini nor a reusable-hacs-validate.yaml — but anyone adding Vale here must copy
-  // the vale-style manager into the list below rather than expect to inherit it.
+  // `customManagers` carries `mergeable: true` just like `packageRules`, so Renovate
+  // concatenates preset-then-repo: the three managers from gh-plumbing/common
+  // (hacs/action, hassfest, nolte/vale-style) stay active alongside the one below. Do not
+  // copy the vale-style manager in here when adding Vale to this repo — it is inherited,
+  // and a second copy would register the same regex twice against .vale.ini.
   customManagers: [
     {
       customType: 'regex',

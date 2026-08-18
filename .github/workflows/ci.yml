@@ -50,6 +50,8 @@ jobs:
         run: task assemble
 
   docs:
+    # Like the build job above, this job name is a required status check in
+    # .github/settings.yml — rename both together or the merge gate goes stale.
     name: Docs build
     runs-on: ubuntu-latest
     timeout-minutes: 10
