@@ -3,6 +3,16 @@
   // Portfolio-wide baseline, pinned to a gh-plumbing release tag so the
   // shared Renovate behaviour never drifts silently underneath this repo.
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
+
+  // Grouping cut (see the block of packageRules below): groups follow the
+  // VERIFICATION METHOD, not the ecosystem. Everything a reviewer checks with
+  // the same handgrip travels in one pull request; everything that needs its
+  // own check travels alone. Without this the ~36 update streams of this repo
+  // (23 version refs, 6 actions, the wrapper, pre-commit, the mkdocs stack)
+  // each open their own pull request.
+  minimumReleaseAge: '3 days',
+  prConcurrentLimit: 5,
+
   packageRules: [
     {
       // The UVC engine is never bumped mechanically — a bump is a source change plus a
@@ -20,6 +30,103 @@
         'com.github.nolte.AndroidUSBCamera:{/,}**',
       ],
       enabled: false,
+    },
+    {
+      // KSP binds to the Kotlin compiler API. Bumping one without the other breaks the
+      // Hilt code generation, so the two only ever move together. The `[.:]` boundary
+      // keeps org.jetbrains.kotlinx (a runtime library on its own release train) out.
+      groupName: 'kotlin toolchain',
+      matchPackageNames: ['/^org\\.jetbrains\\.kotlin[.:]/', '/^com\\.google\\.devtools\\.ksp/'],
+    },
+    {
+      // AGP and Gradle share a compatibility matrix (AGP 9 needs Gradle 9). Split across
+      // two pull requests each one is red on its own; the second rule pulls the wrapper
+      // into the same group by name.
+      groupName: 'android build toolchain',
+      matchPackageNames: ['/^com\\.android[.:]/'],
+    },
+    {
+      groupName: 'android build toolchain',
+      matchManagers: ['gradle-wrapper'],
+    },
+    {
+      // AndroidX minus the camera artifacts: compile plus unit tests is the whole check.
+      groupName: 'androidx',
+      matchPackageNames: ['/^androidx\\./', '!/^androidx\\.camera/'],
+    },
+    {
+      // Deliberately outside the androidx group: these drive the QR pairing scanner in
+      // feature/settings and the phone camera in feature/pestdetection, so a bump earns a
+      // retest on real hardware. One grouped pull request means one device test.
+      groupName: 'camera & vision',
+      matchPackageNames: ['/^androidx\\.camera/', '/^com\\.google\\.mlkit/'],
+    },
+    {
+      // Covered by the MockWebServer tests in core/network.
+      groupName: 'network',
+      matchPackageNames: ['/^com\\.squareup\\.(retrofit2|okhttp3)/'],
+    },
+    {
+      groupName: 'kotlinx',
+      matchPackageNames: ['/^org\\.jetbrains\\.kotlinx/'],
+    },
+    {
+      // Test path only: a green pipeline is the complete verdict, so these carry the
+      // `automerge` label that .github/workflows/automerge.yaml acts on. Majors stay out
+      // of the label and remain a human decision.
+      groupName: 'test dependencies',
+      matchPackageNames: ['/^junit[.:]/', '/^io\\.mockk/', '/^app\\.cash\\.turbine/'],
+      matchUpdateTypes: ['minor', 'patch'],
+      addLabels: ['automerge'],
+    },
+    {
+      // The pull request's own CI run IS the verification of the action it bumps.
+      groupName: 'github actions',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest', 'pin'],
+      addLabels: ['automerge'],
+    },
+    {
+      // Touches no application code, but deliberately NOT automerged: `task lint` drives
+      // Gradle directly and pre-commit only ever runs as a local git hook, so a hook bump
+      // reaches no check in CI at all. The mkdocs half is covered by the `Docs build` job
+      // — the group stays a single reviewed pull request until both halves are.
+      groupName: 'dev tooling',
+      matchManagers: ['pre-commit', 'pip_requirements'],
+    },
+    {
+      // Never grouped. A generator bump leaves checkApiClientUpToDate deliberately red
+      // until someone runs `./gradlew :core:network:generateApiClient` and commits the
+      // result — that red check is the intended signal. Inside a group it would block
+      // every passenger sharing the branch. See spec/api/openapi-client-integration/.
+      matchPackageNames: ['org.openapitools:openapi-generator-cli'],
+      groupName: null,
+    },
+    {
+      // Also never grouped: a detekt release ships new rules, so its pull request comes
+      // with new violations across the existing sources and wants its own review.
+      matchPackageNames: ['/^io\\.gitlab\\.arturbosch\\.detekt/'],
+      groupName: null,
+    },
+  ],
+
+  // NOTE: unlike `packageRules`, which Renovate concatenates preset-then-repo, an array
+  // like `customManagers` REPLACES the inherited one wholesale. The three managers in
+  // gh-plumbing/common (hacs/action, hassfest, nolte/vale-style) are therefore gone from
+  // this repo's resolved config. That costs nothing today — this repo has neither a
+  // .vale.ini nor a reusable-hacs-validate.yaml — but anyone adding Vale here must copy
+  // the vale-style manager into the list below rather than expect to inherit it.
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Age the Task binary version pinned in the setup-task step. The github-actions manager updates the action digest but never looks at its `version:` input, so without this manager the pinned Task release drifts silently while CI keeps reporting green.',
+      managerFilePatterns: ['/^\\.github/workflows/.+\\.ya?ml$/'],
+      matchStrings: [
+        'uses:\\s+go-task/setup-task@[0-9a-f]{40}[^\\n]*\\n\\s+with:\\n\\s+version:\\s+(?<currentValue>\\S+)',
+      ],
+      depNameTemplate: 'go-task/task',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.*)$',
     },
   ],
 }
