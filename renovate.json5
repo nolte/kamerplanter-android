@@ -80,11 +80,29 @@
       addLabels: ['automerge'],
     },
     {
-      // The pull request's own CI run IS the verification of the action it bumps.
+      // A minor or patch bump is a deliberate upstream release, and the pull request's own
+      // CI run verifies the action it bumps — enough to automerge.
       groupName: 'github actions',
       matchManagers: ['github-actions'],
-      matchUpdateTypes: ['minor', 'patch', 'digest', 'pin'],
+      matchUpdateTypes: ['minor', 'patch'],
       addLabels: ['automerge'],
+    },
+    {
+      // Digest and pin moves get their own group and NO automerge label, because a digest
+      // bump is not an upstream release: it is whatever SHA the tag points at now, and a
+      // tag is mutable even from a trusted publisher (CVE-2025-30066). The inherited
+      // `pinDigests: true` in gh-plumbing/common exists so each pin "ages as a reviewable
+      // pull request instead of silently" — automerging the digest would keep the pin
+      // immutable while throwing that review away, which is the half that catches a moved
+      // tag. minimumReleaseAge does not cover this: it gates on release age, and a tag
+      // re-pointed at an older commit presents as no new release at all.
+      //
+      // Separate groupName rather than an unlabelled rule inside 'github actions': a
+      // grouped pull request inherits the labels of every member, so a digest riding along
+      // with a minor bump would be automerged by the minor member's label.
+      groupName: 'github action digests',
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['digest', 'pin'],
     },
     {
       // Touches no application code, but deliberately NOT automerged: `task lint` drives
