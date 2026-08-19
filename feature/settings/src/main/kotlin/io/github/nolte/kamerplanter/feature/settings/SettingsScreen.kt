@@ -412,6 +412,13 @@ private fun ScanFeedbackBadge(reading: QrReading, modifier: Modifier = Modifier)
     val label = when (reading) {
         QrReading.ACCEPTED -> R.string.settings_scan_recognised
         QrReading.FOREIGN -> R.string.settings_scan_foreign
+        // Both of these are the user's own code, held correctly. Saying "not a kamerplanter
+        // code" would send them looking for another one; the fault is elsewhere, and the
+        // sentence has to point at it.
+        QrReading.TOO_NEW -> R.string.settings_scan_too_new
+        QrReading.TOO_OLD -> R.string.settings_scan_too_old
+        QrReading.ADDRESS_NOT_ENCRYPTED -> R.string.settings_scan_address_not_encrypted
+        QrReading.ADDRESS_UNUSABLE -> R.string.settings_scan_address_unusable
         QrReading.STALE -> return
     }
     val colors = when (reading) {

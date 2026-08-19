@@ -158,9 +158,10 @@ class SettingsViewModel @Inject constructor(
      * Fed every barcode ML Kit decodes, and answers what became of it.
      *
      * A payload this build cannot read is dropped so scanning continues (R44) — a stray QR in
-     * frame must not end the scan — but it is reported as [QrReading.FOREIGN] rather than
-     * dropped in silence, because "no kamerplanter code here" and "the camera sees nothing"
-     * are the same picture to the person holding the phone.
+     * frame must not end the scan — but it is always reported, because "no kamerplanter code
+     * here" and "the camera sees nothing" are the same picture to the person holding the
+     * phone. Which report depends on what was refused: a stranger's code is
+     * [QrReading.FOREIGN], while one of ours that this build cannot use says so and says why.
      *
      * [QrScannerView] delivers on the main thread, so the read of `ScanningQr` and the move
      * out of it are one uninterrupted step. The compare-and-set form is kept anyway: it costs
@@ -172,8 +173,11 @@ class SettingsViewModel @Inject constructor(
         return when (val payload = QrPayloadParser.parse(raw)) {
             null -> QrReading.FOREIGN
             is QrPayload.Pairing -> {
-                verify(scanning, payload.request)
-                QrReading.ACCEPTED
+                // The compare-and-set decides the answer here too. A frame still in flight
+                // after `cancel()` — this runs on ML Kit's analyzer thread, cancel on the main
+                // one — starts no pairing, and saying "recognised" for it is the very
+                // indistinguishability this return value exists to remove.
+                if (verify(scanning, payload.request)) QrReading.ACCEPTED else QrReading.STALE
             }
             // A link is an address, not a decision. It reaches the same offer a `/connect`
             // deep link does — including the warning that continuing replaces a working
@@ -189,9 +193,22 @@ class SettingsViewModel @Inject constructor(
                 if (scanning.prefilledBaseUrl?.sameInstanceAs(payload.baseUrl) == true) {
                     QrReading.STALE
                 } else {
-                    _state.compareAndSet(scanning, offerOf(payload.baseUrl, established?.baseUrl))
-                    QrReading.ACCEPTED
+                    // The compare-and-set decides the answer rather than being ignored. A lost
+                    // one means the scan changed nothing — `cancel()` landed first, or a
+                    // waiting link already moved the state — and reporting "recognised" for it
+                    // is exactly the indistinguishability this return value exists to remove.
+                    val moved = _state.compareAndSet(
+                        scanning,
+                        offerOf(payload.baseUrl, established?.baseUrl),
+                    )
+                    if (moved) QrReading.ACCEPTED else QrReading.STALE
                 }
+            }
+            is QrPayload.Refused -> when (payload.reason) {
+                RefusedReason.PAYLOAD_TOO_NEW -> QrReading.TOO_NEW
+                RefusedReason.PAYLOAD_TOO_OLD -> QrReading.TOO_OLD
+                RefusedReason.ADDRESS_NOT_ENCRYPTED -> QrReading.ADDRESS_NOT_ENCRYPTED
+                RefusedReason.ADDRESS_UNUSABLE -> QrReading.ADDRESS_UNUSABLE
             }
         }
     }
@@ -296,9 +313,14 @@ class SettingsViewModel @Inject constructor(
      * this safe to call off the main thread: a caller that loses the race does nothing at
      * all — no state write, no stashed secret, no backend call — so a cancellation that
      * landed first stands instead of being overwritten.
+     *
+     * Returns whether it won, because the scanner has to say something back and "recognised"
+     * would be a lie for a scan that started nothing. This is the branch carrying the one-time
+     * credential, and it swallowed the lost race silently while the discovery branch beside it
+     * reported one.
      */
-    private fun verify(from: ConnectionState, request: ConnectionRequest) {
-        if (!_state.compareAndSet(from, ConnectionState.Verifying(request.method))) return
+    private fun verify(from: ConnectionState, request: ConnectionRequest): Boolean {
+        if (!_state.compareAndSet(from, ConnectionState.Verifying(request.method))) return false
         pendingCredential = Credential.None
         pendingRequest = request
         viewModelScope.launch {
@@ -316,6 +338,7 @@ class SettingsViewModel @Inject constructor(
                 is ConnectionResult.Verified -> resolveTenant(request, result)
             }
         }
+        return true
     }
 
     /**

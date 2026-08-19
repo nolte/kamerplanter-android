@@ -12,6 +12,12 @@
   through and which CleartextGuard enforces on every outgoing request: plain http reaches a
   private address and nothing else. Loosening this file without keeping those two in place
   would allow cleartext to any host on the internet.
+
+  The substitution reaches exactly as far as that one OkHttp client. This setting is
+  process-wide; the guard is not. Every caller today derives from the injected client through
+  newBuilder(), so all of them are covered — but a WebView, a direct HttpURLConnection or a
+  third-party library would go out in the clear to any host, with nothing to stop it. Whoever
+  adds a second HTTP stack has to carry the guard onto it.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">

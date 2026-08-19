@@ -37,13 +37,34 @@ object InstanceAddressPolicy {
      */
     fun isPrivate(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        return uri.host?.takeIf { it.isNotBlank() }?.isPrivateAddress() ?: false
+        return uri.hostOrAuthority()?.isPrivateAddress() ?: false
+    }
+
+    /**
+     * Why an address may not be used, or `null` when it may.
+     *
+     * Lives here, beside [permits], because the two must agree and did not: the scanner
+     * decided the reason by matching the raw string's prefix while the policy decided the
+     * refusal on a parsed URI, so a leading space made a plainly unencrypted address report as
+     * unusable. One parse, one answer.
+     *
+     * The two reasons exist because the advice differs. "This instance is reached without
+     * encryption" is help exactly once — for an address that does name a reachable host over
+     * plain `http`. For `http:///pair`, which names no host at all, TLS is not what went
+     * wrong and saying so sends the reader looking in the wrong place.
+     */
+    fun refusalFor(rawUrl: String): AddressRefusal? {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return AddressRefusal.UNUSABLE
+        val host = uri.hostOrAuthority()
+        if (permits(uri.scheme, host)) return null
+        val namesHost = host != null && uri.scheme?.lowercase() == SCHEME_HTTP
+        return if (namesHost) AddressRefusal.NOT_ENCRYPTED else AddressRefusal.UNUSABLE
     }
 
     /** Whether a whole instance URL may be used. */
     fun permits(rawUrl: String): Boolean {
         val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
-        return permits(uri.scheme, uri.host)
+        return permits(uri.scheme, uri.hostOrAuthority())
     }
 
     /** Whether a scheme/host pair may be used, for callers that already parsed the URL. */
@@ -55,6 +76,23 @@ object InstanceAddressPolicy {
             else -> false
         }
     }
+}
+
+/** Why [InstanceAddressPolicy] will not use an address. */
+enum class AddressRefusal {
+
+    /** Plain `http` to a routable host: understood, and not safe for a credential. */
+    NOT_ENCRYPTED,
+
+    /**
+     * Nothing a connection could be opened to: no host, a scheme that is not http(s), or a
+     * port that is not a port.
+     *
+     * The port case is easy to forget and was — a mistyped `:8O00` names a perfectly good
+     * http instance, so wording this refusal as "no https or http instance" sends the reader
+     * to check the scheme, which is the one thing that was right.
+     */
+    UNUSABLE,
 }
 
 /** Suffixes reserved for names that only resolve inside a local network. */
