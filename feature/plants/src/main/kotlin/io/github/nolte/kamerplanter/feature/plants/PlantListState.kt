@@ -21,10 +21,41 @@ sealed interface PlantListState {
      */
     data object NotConnected : PlantListState
 
-    /** The instance answered, and this tenant holds no (non-removed) plants. */
+    /** The instance answered, and this tenant holds no plants at all. */
     data object Empty : PlantListState
 
-    data class Content(val plants: List<PlantSummary>) : PlantListState
+    /**
+     * The tenant's plants, and what the user has narrowed them down to.
+     *
+     * [plants] is everything the instance returned, [visible] what survives [filter]. Both,
+     * because the filter row has to keep working when nothing matches: a state that carried
+     * only the visible rows would leave the user looking at an empty screen with no way back
+     * to the full list.
+     *
+     * "Nothing matches" therefore lives inside this state rather than beside it — it is a
+     * filtered list that happens to be empty, not a different screen — while [Empty] stays
+     * separate because a tenant with no plants has nothing to filter.
+     */
+    data class Content(
+        val plants: List<PlantSummary>,
+        val filter: PlantFilter = PlantFilter(),
+    ) : PlantListState {
+
+        val visible: List<PlantSummary> get() = plants.applyFilter(filter)
+
+        /** What the filter row can offer, over the plants the removed toggle admits. */
+        val options: PlantFilterOptions get() = plants.filterOptions(filter.includeRemoved)
+
+        /**
+         * Every plant this tenant holds has been removed, and nothing was narrowed.
+         *
+         * Its own case because the way out is the opposite of the usual one: there is no
+         * filter to clear, and offering "clear filters" here would be a button that changes
+         * nothing. What helps is the removed toggle — the default that hid them is doing
+         * exactly what it should, and the user just has to be told so.
+         */
+        val onlyRemoved: Boolean get() = visible.isEmpty() && !filter.isActive && plants.isNotEmpty()
+    }
 
     /**
      * The load failed in a way a retry might fix.

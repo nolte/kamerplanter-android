@@ -84,4 +84,20 @@
     <string name="plants_microscope_no_host">This phone cannot host a USB device.</string>
     <string name="plants_microscope_capture_failed">The frame could not be read. Hold the sample still and try again.</string>
     <string name="plants_note_saving">Saving…</string>
+    <!-- Filter row above the list (#9). -->
+    <string name="plants_filter_search_hint">Search name or species</string>
+    <string name="plants_filter_search_clear">Clear the search</string>
+    <string name="plants_filter_location">Location</string>
+    <string name="plants_filter_species">Species</string>
+    <string name="plants_filter_phase">Phase</string>
+    <string name="plants_filter_needs_attention">Needs attention</string>
+    <string name="plants_filter_show_removed">Show removed</string>
+    <string name="plants_filter_any">All</string>
+    <string name="plants_filter_clear">Clear filters</string>
+    <string name="plants_filter_no_matches_title">No plants match</string>
+    <string name="plants_filter_no_matches_body">Nothing here fits what you are looking for. Change the search or clear the filters to see all your plants again.</string>
+    <!-- Marks a plant the garden no longer holds; only ever shown when removed plants are asked for. -->
+    <string name="plants_removed">Removed</string>
+    <string name="plants_only_removed_title">Nothing growing here</string>
+    <string name="plants_only_removed_body">Every plant on this instance has been removed. Show removed plants to look at them anyway.</string>
 </resources>
