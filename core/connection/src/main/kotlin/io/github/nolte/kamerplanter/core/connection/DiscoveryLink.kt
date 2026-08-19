@@ -30,22 +30,11 @@ data class DiscoveryLink(
  */
 object DiscoveryLinkParser {
 
-    /**
-     * The payload version this app understands.
-     *
-     * Shared version space with the pairing QR (R7): a version this build has never heard of
-     * describes a payload it cannot read, and reading it anyway is how a client ends up acting
-     * on a field that has changed meaning. Refused rather than interpreted — including when
-     * absent, because the contract specifies it and a link without one is either not
-     * kamerplanter's or is from a shape this app was not written against.
-     */
-    private const val SUPPORTED_VERSION = "1"
-
     private const val PATH_SEGMENT = "connect"
     private const val PARAM_VERSION = "v"
 
     /**
-     * The version a `/connect` link declares, for a link that is otherwise one of ours.
+     * The version a `/connect` link declares, for anything shaped like one of ours.
      *
      * Offered so a caller can tell "a link from a release this app predates" from "not our
      * link at all". [parse] answers `null` to both, and the scanner words that as somebody
@@ -53,45 +42,69 @@ object DiscoveryLinkParser {
      * pairing code and "not a kamerplanter code" for its discovery link, depending on which
      * the camera decoded first. Both hang on the same dialogue.
      *
-     * `null` when the shape is not a `/connect` link at a usable address at all; the version
-     * is not read from something that was never ours.
+     * Deliberately does NOT ask [InstanceAddressPolicy] whether the address may be used. It
+     * did, and that rebuilt the same contradiction one class down: a self-hosted instance on
+     * plain `http` emits an `http://` link from its own web UI, so its pairing code answered
+     * "reached without encryption" while its link — on that identical address — answered "not
+     * a kamerplanter code". Whether an address is allowed is a separate question from whose
+     * link it is, and the caller asks it separately.
+     *
+     * `null` when the shape is not a `/connect` link at all, and when the link declares no
+     * readable version — the contract specifies one.
      */
-    fun declaredVersion(raw: String): Int? {
-        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
-        val host = uri.hostOrAuthority() ?: return null
-        if (!InstanceAddressPolicy.permits(uri.scheme, host)) return null
-        if (uri.path.orEmpty().split('/').filter { it.isNotBlank() }.lastOrNull() != PATH_SEGMENT) {
-            return null
-        }
-        return query(uri.rawQuery)[PARAM_VERSION]?.toIntOrNull()
-    }
+    fun declaredVersion(raw: String): Int? = raw.shape()?.version
 
     fun parse(raw: String): DiscoveryLink? {
-        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+        val shape = raw.shape() ?: return null
+        if (shape.version != PayloadVersion.SUPPORTED) return null
+        if (!InstanceAddressPolicy.permits(shape.uri.scheme, shape.host)) return null
+
+        // The scheme is carried over, not assumed: a development instance is reached over
+        // `http`, and rewriting its address to `https` would send the app somewhere that does
+        // not answer.
+        val scheme = shape.uri.scheme.lowercase()
+        val prefix = if (shape.prefix.isEmpty()) "" else "/${shape.prefix}"
+        return DiscoveryLink(baseUrl = "$scheme://${shape.host}${shape.uri.explicitPort()}$prefix")
+    }
+
+    /**
+     * Everything both readers above need, read once.
+     *
+     * They used to be hand-copied twins — same URI parse, same host lookup, same path rule,
+     * same query decode — and had already drifted apart: one compared the version as text and
+     * the other as a number, and only one consulted the address policy. That is the drift this
+     * very file documents as how half the underscore fix shipped, so the two now differ only
+     * in what they decide, never in what they read.
+     */
+    private fun String.shape(): LinkShape? {
+        val uri = runCatching { URI(trim()) }.getOrNull() ?: return null
         // Read through the shared helper: `java.net.URI` refuses to name a host containing an
         // underscore, and this parser reading it differently from InstanceAddressPolicy is how
         // one instance's pairing code was accepted while its `/connect` link was called
         // foreign — both codes hang on the same dialogue.
         val host = uri.hostOrAuthority() ?: return null
-        if (!InstanceAddressPolicy.permits(uri.scheme, host)) return null
-        if (query(uri.rawQuery)[PARAM_VERSION] != SUPPORTED_VERSION) return null
-
         val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
         if (segments.lastOrNull() != PATH_SEGMENT) return null
-
         // Everything before the `connect` segment belongs to the instance: kamerplanter can be
         // hosted under a path prefix, and dropping it would send the app to the wrong address.
         // The manifest filter only matches `/connect` at the root, so a prefixed instance
         // cannot reach this today — but that is the platform contract's limit, not a reason for
         // the parser to lose the information when it does arrive.
-        val prefix = segments.dropLast(1).joinToString("/")
-        // The scheme is carried over, not assumed: a development instance is reached over
-        // `http`, and rewriting its address to `https` would send the app somewhere that does
-        // not answer.
-        val scheme = uri.scheme.lowercase()
-        val base = "$scheme://$host${uri.explicitPort()}" + if (prefix.isEmpty()) "" else "/$prefix"
-        return DiscoveryLink(baseUrl = base)
+        return LinkShape(
+            uri = uri,
+            host = host,
+            prefix = segments.dropLast(1).joinToString("/"),
+            version = query(uri.rawQuery)[PARAM_VERSION]?.toIntOrNull(),
+        )
     }
+
+    /** A `/connect` link taken apart, before anything has been decided about it. */
+    private data class LinkShape(
+        val uri: URI,
+        val host: String,
+        val prefix: String,
+        val version: Int?,
+    )
 
     private fun query(rawQuery: String?): Map<String, String> {
         if (rawQuery.isNullOrBlank()) return emptyMap()

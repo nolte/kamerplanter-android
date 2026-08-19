@@ -76,17 +76,34 @@ class QrPayloadParserTest {
     }
 
     /**
-     * A newer payload is refused as ours even when its fields have moved.
+     * A newer payload is refused as ours as long as one field still looks like ours.
      *
-     * Renaming a field is what a version bump is *for*, so demanding this build's fields
-     * before comparing the version defeats the mechanism: the payload would fall through as a
-     * stranger's code, which is the outcome the version exists to prevent.
+     * Renaming a field is what a version bump is *for*, so demanding the complete v1 shape
+     * before comparing the version would defeat the mechanism. Recognising one known name is
+     * the compromise: enough for a v2 that adds or renames alongside what exists, and — unlike
+     * the guessed list of plausible future names this replaced — not enough to claim a
+     * stranger's code (see the test below).
      */
     @Test
-    fun `a newer payload is claimed as ours even when its fields have changed`() {
+    fun `a newer payload is claimed as ours when a known field remains`() {
         assertEquals(
             QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
-            QrPayloadParser.parse("""{"v":2,"origin":"https://garten.example.org","token":"x"}"""),
+            QrPayloadParser.parse("""{"v":2,"url":"https://garten.example.org","secret":"x"}"""),
+        )
+    }
+
+    /**
+     * Generic field names are not evidence, however plausible they look.
+     *
+     * A list of names a future format *might* use (`server`, `token`, `origin`…) shipped
+     * briefly and claimed anybody's QR code: a foreign payload was answered with "update the
+     * app" for a code that was never kamerplanter's. Falling through as a stranger's code is
+     * the honest answer when nothing here says otherwise.
+     */
+    @Test
+    fun `plausible-looking foreign field names are not claimed as ours`() {
+        assertNull(
+            QrPayloadParser.parse("""{"v":2,"server":"https://other.example","token":"x"}"""),
         )
     }
 
@@ -214,13 +231,27 @@ class QrPayloadParserTest {
     }
 
     /**
-     * The discovery link's own rules still apply — but an unknown version is now refused *as
-     * ours*, which the test above covers. What stays foreign is a link whose address the app
-     * may not use at all: there is no instance there to be too new or too old.
+     * A link at a refused address answers exactly as the pairing payload at that address does.
+     *
+     * This used to come back `null` — "not a kamerplanter code" — while the pairing code from
+     * the same instance said "reached without encryption". A self-hoster on plain `http` gets
+     * both codes on one web-UI dialogue, and the analyser takes whichever frame it decodes
+     * first, so the badge alternated between the two as the camera moved.
      */
     @Test
-    fun `refuses a discovery link it cannot use`() {
-        assertNull(QrPayloadParser.parse("http://garten.example.org/connect?v=1"))
+    fun `a discovery link at a refused address is refused as ours`() {
+        val instance = "http://garten.example.org"
+
+        assertEquals(
+            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ENCRYPTED),
+            QrPayloadParser.parse("$instance/connect?v=1"),
+        )
+        // The point is that the two agree: whichever frame the analyser decodes first, the
+        // badge says the same thing about the same instance.
+        assertEquals(
+            QrPayloadParser.parse("""{"v":1,"url":"$instance","code":"Qm5kR2xo"}"""),
+            QrPayloadParser.parse("$instance/connect?v=1"),
+        )
     }
 
     /** Anything else fails as "keep scanning", never as an exception (R44). */

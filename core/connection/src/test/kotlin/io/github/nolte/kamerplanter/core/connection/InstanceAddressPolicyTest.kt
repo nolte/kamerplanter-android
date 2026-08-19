@@ -114,4 +114,50 @@ class InstanceAddressPolicyTest {
         assertTrue(InstanceAddressPolicy.permits("http://[fe80::1]"))
         assertFalse(InstanceAddressPolicy.permits("http://[2001:db8::1]"))
     }
+
+    /**
+     * A leftover colon must never reach the IPv6 prefix test.
+     *
+     * The underscore fallback salvaged whatever `java.net.URI` declined to parse, so a host
+     * could still contain a colon — and a colon is what tells [InstanceAddressPolicy] it is
+     * looking at an IPv6 literal, after which `fd…`/`fe8…` mean unique-local and link-local.
+     * `fd_nas.example.com:80:1` therefore read as a private address: a routable host, judged
+     * local, permitted in the clear, and handed a one-time pairing credential.
+     */
+    @Test
+    fun `a routable host is never mistaken for an IPv6 literal`() {
+        assertFalse(InstanceAddressPolicy.permits("http://fd_nas.example.com:80:1"))
+        assertFalse(InstanceAddressPolicy.isPrivate("http://fd_nas.example.com:80:1"))
+        assertFalse(InstanceAddressPolicy.permits("http://fd00::abcd"))
+        assertFalse(InstanceAddressPolicy.permits("http://fe80_x.example.org:1:2"))
+    }
+
+    /**
+     * Percent-encoding must not be decoded into a delimiter the scanned text never contained.
+     *
+     * `java.net.URI.getAuthority()` decodes, so `%40` became a `@` and everything before it
+     * was dropped as userinfo: an address naming `192.168.0.1` was accepted and silently
+     * rewritten to the host after it. Every other parser (OkHttp, WHATWG) refuses this shape,
+     * and so does the app again.
+     */
+    @Test
+    fun `an encoded at-sign does not rewrite the host`() {
+        assertFalse(InstanceAddressPolicy.permits("https://192.168.0.1%40evil.example"))
+        assertFalse(InstanceAddressPolicy.isPrivate("https://192.168.0.1%40evil.example"))
+    }
+
+    /**
+     * A port that is not a port makes the address unusable, not port-less.
+     *
+     * Mapping it to "no port" sent the request to the scheme's default — a different machine
+     * than the address names. The letter O in `8O00` is the ordinary way to write this typo.
+     */
+    @Test
+    fun `an unusable port is refused rather than dropped`() {
+        assertFalse(InstanceAddressPolicy.permits("http://mein_nas.local:8O00"))
+        assertFalse(InstanceAddressPolicy.permits("https://example.org:99999999999"))
+        assertFalse(InstanceAddressPolicy.permits("http://mein_nas.local:0"))
+        // The ordinary case this fallback exists for keeps working.
+        assertTrue(InstanceAddressPolicy.permits("http://mein_nas.local:8000"))
+    }
 }

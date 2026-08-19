@@ -1,14 +1,15 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.AddressRefusal
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
 import io.github.nolte.kamerplanter.core.connection.InstanceAddressPolicy
+import io.github.nolte.kamerplanter.core.connection.PayloadVersion
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import java.net.URI
 
 /**
  * What a scanned kamerplanter QR code turns out to be.
@@ -95,31 +96,9 @@ enum class RefusedReason {
  */
 object QrPayloadParser {
 
-    /**
-     * The payload version this app understands.
-     *
-     * Present from v1 so a scanner can refuse a payload it predates rather than mis-parse it
-     * (R7). A version this build has never heard of describes a shape it cannot read, and
-     * reading one anyway is how a client acts on a field that has changed meaning — with a
-     * one-time credential in it.
-     */
-    private const val SUPPORTED_VERSION = 1
-
     private const val FIELD_VERSION = "v"
     private const val FIELD_URL = "url"
     private const val FIELD_CODE = "code"
-
-    /** The first payload version kamerplanter published; nothing below it is one. */
-    private const val FIRST_VERSION = 1
-
-    /**
-     * Field names a later payload version might plausibly use for the same two things.
-     *
-     * A guess, and stated as one. It only decides whether an unreadable code is reported as
-     * "too new for this app" or as a stranger's — both of which are honest, and the second of
-     * which is the safe way to be wrong.
-     */
-    private val FUTURE_FIELD_HINTS = setOf("origin", "instance", "server", "token", "pairing")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -152,15 +131,17 @@ object QrPayloadParser {
         // payload at all — v1 is where the format starts. Claiming it would tell someone
         // scanning a foreign `{"v":0,…}` code to go and update their instance, which is the
         // same misdiagnosis this parser exists to end, pointing the other way.
-        if (version < FIRST_VERSION) return null
-        if (version < SUPPORTED_VERSION) return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+        if (version < PayloadVersion.FIRST) return null
+        if (version < PayloadVersion.SUPPORTED) {
+            return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+        }
 
         // Newer than this build: claimed as ours, but only on evidence. A version bump may
         // rename fields — that is what versions are for, so this cannot demand *this* build's
         // field names — while a bare `{"v":9}` from somebody else's app is not a kamerplanter
         // code and must not be reported as one. A pairing payload names an instance and
         // carries a credential; something recognisable as either is the anchor.
-        if (version > SUPPORTED_VERSION) {
+        if (version > PayloadVersion.SUPPORTED) {
             return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW).takeIf { fields.looksLikePairing() }
         }
 
@@ -180,38 +161,63 @@ object QrPayloadParser {
     }
 
     /**
-     * Whether the address is unencrypted-but-understood, or not one this app can use at all.
+     * A `/connect` link this build will not act on; `null` when it is not one of ours.
      *
-     * Read through [URI], on the same parse the policy used to refuse it. Matching the raw
-     * string's prefix instead let the two disagree: a leading space made a plainly
-     * unencrypted address read as unusable, and `http:///pair` — no host — was reported as an
-     * encryption problem, which it is not.
+     * Version first, address second, and both answered the way the pairing payload answers
+     * them. The version is asked first because an app that cannot read the payload cannot
+     * judge the address it names either.
+     *
+     * The address half is the reason this reaches here at all: [DiscoveryLinkParser.parse]
+     * returns `null` both for a link it may not use and for a link that is not ours, and only
+     * this layer can tell the user which. A self-hoster's plain-`http` instance emits an
+     * `http://` link from its own web UI, so without this the pairing code on that dialogue
+     * said "reached without encryption" while the link beside it said "not a kamerplanter
+     * code" — contradicting itself as the camera picked frames.
      */
-    /** A `/connect` link whose version this build does not read; `null` when it is not one. */
     private fun String.asRefusedLink(): QrPayload? =
         when (val version = DiscoveryLinkParser.declaredVersion(this)) {
             null -> null
-            in Int.MIN_VALUE until FIRST_VERSION -> null
-            in FIRST_VERSION until SUPPORTED_VERSION ->
+            in Int.MIN_VALUE until PayloadVersion.FIRST -> null
+            in PayloadVersion.FIRST until PayloadVersion.SUPPORTED ->
                 QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
-            SUPPORTED_VERSION -> null
+            // A version this build reads, and `parse` still refused it: at this point the shape
+            // is confirmed, so what is left is the address.
+            PayloadVersion.SUPPORTED -> QrPayload.Refused(addressRefusal())
             else -> QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW)
         }
 
-    private fun String.addressRefusal(): RefusedReason {
-        val scheme = runCatching { URI(trim()).scheme }.getOrNull()?.lowercase()
-        return if (scheme == "http") RefusedReason.ADDRESS_NOT_ENCRYPTED else RefusedReason.ADDRESS_UNUSABLE
-    }
+    /**
+     * The policy's reason, worded for this screen.
+     *
+     * Asked rather than re-derived: this used to decide by matching the raw string's prefix
+     * while [InstanceAddressPolicy] refused on a parsed URI, and the two disagreed — a leading
+     * space made a plainly unencrypted address read as unusable, and `http:///pair`, which
+     * names no host, was reported as an encryption problem it does not have.
+     */
+    private fun String.addressRefusal(): RefusedReason =
+        when (InstanceAddressPolicy.refusalFor(this)) {
+            AddressRefusal.NOT_ENCRYPTED -> RefusedReason.ADDRESS_NOT_ENCRYPTED
+            // `null` cannot occur — the caller only asks about an address already refused —
+            // and if it ever does, the answer that promises the least is the right one.
+            AddressRefusal.UNUSABLE, null -> RefusedReason.ADDRESS_UNUSABLE
+        }
 
     /**
      * Whether an object of an unknown version is recognisably a pairing payload.
      *
-     * Deliberately loose: it may not require this build's field names, since renaming them is
-     * exactly what a version bump is allowed to do. It only asks whether anything here names
-     * an instance or carries a credential.
+     * Asks for the field names this build knows, and nothing more. A version bump is allowed
+     * to rename them, so this can be wrong — but only in the harmless direction: a v2 that
+     * renamed BOTH fields falls through as a stranger's code, which is what the scanner said
+     * before any of this and is honest about what the app can tell.
+     *
+     * The alternative was worse and shipped briefly: a list of names a future format might
+     * plausibly use (`server`, `token`, `origin`…). Those are generic enough to appear in
+     * anybody's QR code, so a foreign `{"v":2,"server":…,"token":…}` was claimed as
+     * kamerplanter's and the user told to update their instance for a code that was never
+     * ours — the same misdiagnosis this parser exists to end, pointing outward.
      */
     private fun JsonObject.looksLikePairing(): Boolean =
-        keys.any { it == FIELD_URL || it == FIELD_CODE || it in FUTURE_FIELD_HINTS }
+        keys.any { it == FIELD_URL || it == FIELD_CODE }
 
     private fun JsonObject.text(name: String): String? =
         (this[name] as? JsonPrimitive)
