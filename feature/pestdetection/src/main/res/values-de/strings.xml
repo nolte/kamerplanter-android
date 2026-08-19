@@ -71,4 +71,31 @@
     <string name="pest_failed_unsupported_type">Deine Instanz nimmt nur JPEG- und PNG-Fotos an, und dieses ist keins von beiden.</string>
     <string name="pest_failed_not_permitted">Dein Konto darf in diesem Mandanten keine Schädlingserkennung ausführen.</string>
     <string name="pest_failed_consent">Deine Auswahl konnte nicht gespeichert werden. Versuch es nochmal.</string>
+
+    <string name="pest_feedback_prompt">War das richtig?</string>
+    <string name="pest_feedback_correct">Richtig</string>
+    <string name="pest_feedback_wrong">Falsch</string>
+    <string name="pest_feedback_beneficial">Das ist ein Nützling</string>
+    <string name="pest_feedback_recorded">Danke — auf deiner Instanz vermerkt.</string>
+    <string name="pest_feedback_said_correct">Du hast diesen Fund bestätigt.</string>
+    <string name="pest_feedback_said_wrong">Du hast diesen Fund als falsch markiert.</string>
+    <string name="pest_feedback_said_beneficial">Du hast das als Nützling markiert.</string>
+    <string name="pest_feedback_not_permitted">Deine Instanz erlaubt dieser Verbindung keine Rückmeldungen.</string>
+    <string name="pest_feedback_failed">Die Rückmeldung konnte nicht vermerkt werden. Versuche es erneut.</string>
+
+    <string name="pest_inspection_create">Kontrolle anlegen</string>
+    <string name="pest_inspection_created">Kontrolle für diese Pflanze angelegt.</string>
+    <string name="pest_inspection_not_permitted">Deine Instanz erlaubt dieser Verbindung keine Kontrollen.</string>
+    <string name="pest_inspection_failed">Die Kontrolle konnte nicht angelegt werden. Versuche es erneut.</string>
+
+    <string name="pest_history_open">Frühere Prüfungen</string>
+    <string name="pest_history_title">Frühere Prüfungen</string>
+    <string name="pest_history_close">Schließen</string>
+    <string name="pest_history_empty">Für diese Pflanze wurde noch keine Schädlingsprüfung vermerkt.</string>
+    <string name="pest_history_loading">Frühere Prüfungen werden geladen…</string>
+    <string name="pest_history_failed">Die früheren Prüfungen konnten nicht geladen werden.</string>
+    <string name="pest_history_unauthorized">Deine Instanz hat die gespeicherte Anmeldung abgelehnt.</string>
+    <string name="pest_history_not_permitted">Deine Instanz erlaubt dieser Verbindung keinen Blick in frühere Prüfungen.</string>
+    <string name="pest_history_abstained">Keine sichere Erkennung</string>
+    <string name="pest_history_findings">%1$d Fund(e)</string>
 </resources>

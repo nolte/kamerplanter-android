@@ -6,9 +6,15 @@ import androidx.lifecycle.SavedStateHandle
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.Detection
+import io.github.nolte.kamerplanter.core.network.DetectionFeedback
+import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
+import io.github.nolte.kamerplanter.core.network.Finding
+import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.RecordedFeedback
 import io.github.nolte.kamerplanter.core.network.RefusedReason
 import io.github.nolte.kamerplanter.feature.microscope.CapturedFrame
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeButton
@@ -595,14 +601,231 @@ class PestDetectionViewModelTest {
         assertEquals(CaptureSource.MICROSCOPE, model.chosenSource.value)
     }
 
-    private fun detection() = Detection(
-        key = "det-1",
+    // --- feedback, inspections and past checks (#10) ---------------------------------------
+
+    /**
+     * The instance's answer is what goes on screen, not the app's assumption about it. A
+     * verdict rendered from the request would disagree with the instance the moment anything
+     * about the POST went differently than hoped.
+     */
+    @Test
+    fun `a verdict is recorded and read back from the instance`() {
+        val confirmed = detection(
+            findings = listOf(finding()),
+            feedback = listOf(
+                RecordedFeedback(
+                    findingLabel = "aphid",
+                    confirmed = true,
+                    actualLabel = null,
+                    wasBeneficial = false,
+                ),
+            ),
+        )
+        detections.feedbackOutcome = FeedbackOutcome.Recorded(confirmed)
+        val model = capturedResult(detection = detection(findings = listOf(finding())))
+
+        model.recordFeedback("aphid", FeedbackVerdict.CORRECT)
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertEquals("det-1", detections.feedback.single().first)
+        assertEquals(true, detections.feedback.single().second.confirmed)
+        assertEquals(confirmed, state.detection)
+        assertEquals(R.string.pest_feedback_recorded, state.notice)
+        assertNull(state.recordingFor)
+    }
+
+    /**
+     * "Wrong" and "it is a beneficial" are different things to tell an instance, and only the
+     * second one prevents someone spraying a predatory mite next season.
+     */
+    @Test
+    fun `a beneficial is reported as one rather than as a plain mistake`() {
+        detections.feedbackOutcome = FeedbackOutcome.Recorded(detection())
+        val model = capturedResult(detection = detection(findings = listOf(finding())))
+
+        model.recordFeedback("aphid", FeedbackVerdict.BENEFICIAL)
+        model.state.settled()
+
+        val sent = detections.feedback.single().second
+        assertEquals(false, sent.confirmed)
+        assertTrue(sent.wasBeneficial)
+        // Never guessed at: the app knows the answer was wrong, not what the animal was.
+        assertNull(sent.actualLabel)
+    }
+
+    /** A detection the instance did not keep has no key, and nothing to attach a verdict to. */
+    @Test
+    fun `a detection without a key is not commented on`() {
+        val model = capturedResult(detection = detection(key = null, findings = listOf(finding())))
+
+        model.recordFeedback("aphid", FeedbackVerdict.CORRECT)
+        model.state.settled()
+
+        assertTrue(detections.feedback.isEmpty())
+    }
+
+    /** Commenting can be refused on its own, and the findings stay where they are. */
+    @Test
+    fun `a refused verdict is said beside the findings, not instead of them`() {
+        detections.feedbackOutcome = FeedbackOutcome.NotPermitted
+        val original = detection(findings = listOf(finding()))
+        val model = capturedResult(detection = original)
+
+        model.recordFeedback("aphid", FeedbackVerdict.WRONG)
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertEquals(R.string.pest_feedback_not_permitted, state.notice)
+        assertEquals(original, state.detection)
+    }
+
+    /** A credential the instance no longer accepts is not a notice — it ends the flow. */
+    @Test
+    fun `a refused credential during feedback returns to the reconnect state`() {
+        detections.feedbackOutcome = FeedbackOutcome.Unauthorized
+        val model = capturedResult(detection = detection(findings = listOf(finding())))
+
+        model.recordFeedback("aphid", FeedbackVerdict.CORRECT)
+
+        assertEquals(PestDetectionState.Unauthorized, model.state.settled())
+    }
+
+    /**
+     * The POST outlives the screen it was started from. Writing its answer back into a state
+     * the user has already left would put a finished detection on top of a viewfinder.
+     */
+    @Test
+    fun `a verdict answered after the user moved on is dropped`() {
+        detections.feedbackOutcome = FeedbackOutcome.Recorded(detection())
+        val model = capturedResult(detection = detection(findings = listOf(finding())))
+
+        model.recordFeedback("aphid", FeedbackVerdict.CORRECT)
+        model.captureAgain()
+        val state = model.state.settled()
+
+        assertTrue(state.toString(), state is PestDetectionState.Ready)
+    }
+
+    @Test
+    fun `an inspection is filed against the plant the check was opened from`() {
+        detections.inspectionOutcome = InspectionOutcome.Created("insp-9")
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.fileInspection()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertEquals("det-1" to "plant-7", detections.inspections.single())
+        assertTrue(state.inspectionFiled)
+        assertEquals(R.string.pest_inspection_created, state.notice)
+    }
+
+    /**
+     * Filing needs a permission that detecting does not, so a user who may photograph a pest
+     * often may not file it. That is a sentence to read, not a crash.
+     */
+    @Test
+    fun `an inspection the credential may not create is explained, not thrown`() {
+        detections.inspectionOutcome = InspectionOutcome.NotPermitted
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.fileInspection()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertEquals(R.string.pest_inspection_not_permitted, state.notice)
+        assertFalse(state.inspectionFiled)
+    }
+
+    /** Nothing to file against: a check from the Capture tab names no plant. */
+    @Test
+    fun `an unbound detection files no inspection`() {
+        val model = capturedResult(plantKey = null)
+
+        model.fileInspection()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertTrue(detections.inspections.isEmpty())
+        assertFalse(state.plantBound)
+    }
+
+    @Test
+    fun `past checks are loaded for the plant`() {
+        detections.historyOutcome = DetectionHistoryOutcome.Loaded(listOf(detection()))
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.showHistory()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("plant-7", detections.historyRequests.single())
+        assertEquals(
+            DetectionHistoryState.Shown(listOf(detection())),
+            model.history.value,
+        )
+    }
+
+    /** Looking something up must not cost the capture the user came to make. */
+    @Test
+    fun `opening past checks leaves the flow where it was`() {
+        detections.historyOutcome = DetectionHistoryOutcome.Loaded(emptyList())
+        val model = capturedResult(plantKey = "plant-7")
+        val before = model.state.value
+
+        model.showHistory()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(before, model.state.value)
+    }
+
+    @Test
+    fun `a history the credential may not read says so`() {
+        detections.historyOutcome = DetectionHistoryOutcome.NotPermitted
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.showHistory()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            DetectionHistoryState.Failed(R.string.pest_history_not_permitted),
+            model.history.value,
+        )
+    }
+
+    private fun detection(
+        key: String? = "det-1",
+        findings: List<Finding> = emptyList(),
+        feedback: List<RecordedFeedback> = emptyList(),
+    ) = Detection(
+        key = key,
         isConfident = true,
-        findings = emptyList(),
+        findings = findings,
         disclaimer = "Only an estimate.",
         suggestedNextStep = "Look again",
         tilesProcessed = 4,
+        feedback = feedback,
     )
+
+    private fun finding(label: String = "aphid") = Finding(
+        label = label,
+        commonName = "Aphid",
+        category = "pest",
+        confidence = 0.9,
+        mode = "direct",
+        boundingBox = null,
+        isBeneficial = false,
+    )
+
+    /** Gets a result on screen the short way: readiness, source, shutter, capture. */
+    private fun capturedResult(
+        plantKey: String? = null,
+        detection: Detection = detection(),
+    ): PestDetectionViewModel {
+        detections.outcome = DetectionOutcome.Completed(detection)
+        val model = viewModel(plantKey = plantKey)
+        model.state.settled()
+        model.chooseSource(CaptureSource.PHONE)
+        model.phoneShutter = FakeShutter(byteArrayOf(9))
+        model.capture("en")
+        model.state.settled()
+        return model
+    }
 
     /** Runs the pending work and returns the state it left behind. */
     private fun StateFlow<PestDetectionState>.settled(): PestDetectionState {
@@ -643,6 +866,36 @@ class PestDetectionViewModelTest {
             uploads += language
             plantKeys += plantKey
             return outcome
+        }
+
+        var feedbackOutcome: FeedbackOutcome = FeedbackOutcome.Failed("not set")
+        var inspectionOutcome: InspectionOutcome = InspectionOutcome.Failed("not set")
+        var historyOutcome: DetectionHistoryOutcome = DetectionHistoryOutcome.Loaded(emptyList())
+
+        /** Every verdict that actually reached the instance, with the detection it was on. */
+        val feedback = mutableListOf<Pair<String, DetectionFeedback>>()
+        val inspections = mutableListOf<Pair<String, String>>()
+        val historyRequests = mutableListOf<String>()
+
+        override suspend fun submitFeedback(
+            detectionKey: String,
+            feedback: DetectionFeedback,
+        ): FeedbackOutcome {
+            this.feedback += detectionKey to feedback
+            return feedbackOutcome
+        }
+
+        override suspend fun createInspection(
+            detectionKey: String,
+            plantKey: String,
+        ): InspectionOutcome {
+            inspections += detectionKey to plantKey
+            return inspectionOutcome
+        }
+
+        override suspend fun history(plantKey: String, limit: Int): DetectionHistoryOutcome {
+            historyRequests += plantKey
+            return historyOutcome
         }
     }
 

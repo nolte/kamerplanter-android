@@ -6,6 +6,7 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.PestDetectionApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PrivacyApi
 import io.github.nolte.kamerplanter.core.network.generated.models.ConsentGrantRequest
 import io.github.nolte.kamerplanter.core.network.generated.models.ConsentResponse
+import io.github.nolte.kamerplanter.core.network.generated.models.FeedbackRequest
 import io.github.nolte.kamerplanter.core.network.generated.models.FindingSchema
 import io.github.nolte.kamerplanter.core.network.generated.models.PestDetectionResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.PestDetectionStatusResponse
@@ -130,6 +131,84 @@ class NetworkPestDetectionClient @Inject constructor(
         }.getOrElse { failure -> failure.asDetectionFailure() }
     }
 
+    override suspend fun submitFeedback(
+        detectionKey: String,
+        feedback: DetectionFeedback,
+    ): FeedbackOutcome = runCatchingCancellable {
+        val target = target() ?: return FeedbackOutcome.Failed(NOT_CONNECTED)
+        val updated = target.retrofit.create(PestDetectionApi::class.java)
+            .submitFeedbackApiV1TTenantSlugPestsDetectionsDetectionKeyFeedbackPost(
+                detectionKey = detectionKey,
+                tenantSlug = target.tenant,
+                feedbackRequest = FeedbackRequest(
+                    confirmed = feedback.confirmed,
+                    findingLabel = feedback.findingLabel,
+                    actualLabel = feedback.actualLabel,
+                    wasBeneficial = feedback.wasBeneficial,
+                ),
+            )
+            .bodyOrThrow()
+        FeedbackOutcome.Recorded(updated.asDetection())
+    }.getOrElse { failure ->
+        when {
+            failure !is HttpFailure -> FeedbackOutcome.Failed(failure::class.simpleName.orEmpty())
+            failure.status == UNAUTHORIZED -> FeedbackOutcome.Unauthorized
+            failure.status == FORBIDDEN -> FeedbackOutcome.NotPermitted
+            else -> FeedbackOutcome.Failed("the instance answered HTTP ${failure.status}")
+        }
+    }
+
+    override suspend fun createInspection(
+        detectionKey: String,
+        plantKey: String,
+    ): InspectionOutcome = runCatchingCancellable {
+        val target = target() ?: return InspectionOutcome.Failed(NOT_CONNECTED)
+        val created = target.retrofit.create(PestDetectionApi::class.java)
+            .createInspectionApiV1TTenantSlugPestsDetectionsDetectionKeyCreateInspectionPost(
+                detectionKey = detectionKey,
+                tenantSlug = target.tenant,
+                plantKey = plantKey,
+            )
+            .bodyOrThrow()
+        InspectionOutcome.Created(created.inspectionKey)
+    }.getOrElse { failure ->
+        when {
+            failure !is HttpFailure -> InspectionOutcome.Failed(failure::class.simpleName.orEmpty())
+            failure.status == UNAUTHORIZED -> InspectionOutcome.Unauthorized
+            // The expected refusal rather than an exotic one: filing an inspection needs the
+            // IPM-treatment create permission, which running a detection does not. A user who
+            // may photograph a pest often may not file it, and that is a sentence to read, not
+            // a crash to report.
+            failure.status == FORBIDDEN -> InspectionOutcome.NotPermitted
+            else -> InspectionOutcome.Failed("the instance answered HTTP ${failure.status}")
+        }
+    }
+
+    override suspend fun history(plantKey: String, limit: Int): DetectionHistoryOutcome =
+        runCatchingCancellable {
+            val target = target() ?: return DetectionHistoryOutcome.Failed(NOT_CONNECTED)
+            val past = target.retrofit.create(PestDetectionApi::class.java)
+                .detectionHistoryApiV1TTenantSlugPestsPlantsPlantKeyHistoryGet(
+                    plantKey = plantKey,
+                    tenantSlug = target.tenant,
+                    limit = limit,
+                )
+                .bodyOrThrow()
+            DetectionHistoryOutcome.Loaded(past.map { it.asDetection() })
+        }.getOrElse { failure ->
+            when {
+                failure !is HttpFailure ->
+                    DetectionHistoryOutcome.Failed(failure::class.simpleName.orEmpty())
+                failure.status == UNAUTHORIZED -> DetectionHistoryOutcome.Unauthorized
+                failure.status == FORBIDDEN -> DetectionHistoryOutcome.NotPermitted
+                // An instance predating the endpoint has no history to show, which is the same
+                // thing an empty list says and reads better than an error about a server that
+                // is answering perfectly well.
+                failure.status == NOT_FOUND -> DetectionHistoryOutcome.Loaded(emptyList())
+                else -> DetectionHistoryOutcome.Failed("the instance answered HTTP ${failure.status}")
+            }
+        }
+
     /** What a call needs: the instance to talk to and the tenant its routes are scoped to. */
     private class Target(val retrofit: Retrofit, val tenant: String)
 
@@ -214,6 +293,17 @@ class NetworkPestDetectionClient @Inject constructor(
             disclaimer = disclaimer,
             suggestedNextStep = suggestedNextStep,
             tilesProcessed = tilesProcessed,
+            recordedAt = createdAt,
+            feedback = feedback.orEmpty().map {
+                RecordedFeedback(
+                    findingLabel = it.findingLabel,
+                    confirmed = it.confirmed,
+                    actualLabel = it.actualLabel,
+                    // Absent means nobody said it was one — the field is the instance's own
+                    // optional, and a missing answer is not a beneficial.
+                    wasBeneficial = it.wasBeneficial == true,
+                )
+            },
         )
 
         fun FindingSchema.asFinding() = Finding(
@@ -267,6 +357,9 @@ class NetworkPestDetectionClient @Inject constructor(
             status == UNAUTHORIZED -> DetectionOutcome.Unauthorized
             else -> DetectionOutcome.Unavailable("the instance answered HTTP $status")
         }
+
+        /** Said the same way wherever a call finds no instance to make it against. */
+        const val NOT_CONNECTED = "the app is not connected to an instance"
 
         const val UNAUTHORIZED = 401
         const val FORBIDDEN = 403

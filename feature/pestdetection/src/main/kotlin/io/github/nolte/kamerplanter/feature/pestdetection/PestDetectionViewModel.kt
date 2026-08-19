@@ -1,15 +1,17 @@
 package io.github.nolte.kamerplanter.feature.pestdetection
 
-import android.content.Context
-import android.view.View
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
+import io.github.nolte.kamerplanter.core.network.DetectionFeedback
+import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
+import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
 import io.github.nolte.kamerplanter.core.network.RefusedReason
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
@@ -56,6 +58,20 @@ class PestDetectionViewModel @Inject constructor(
      * with no device attached is a shutter that cannot fire.
      */
     val cameraState: StateFlow<MicroscopeState> = camera.state
+
+    private val _history = MutableStateFlow<DetectionHistoryState>(DetectionHistoryState.Hidden)
+
+    /**
+     * The plant's past detections, when the user has asked for them.
+     *
+     * Beside [state] rather than in it: the list is opened over whatever the flow is currently
+     * showing and closed again without disturbing it, and a capture in progress must not be
+     * thrown away because somebody looked something up.
+     */
+    val history: StateFlow<DetectionHistoryState> = _history.asStateFlow()
+
+    /** Whether past checks and an inspection can be offered at all — both need a plant. */
+    val isPlantBound: Boolean = plantKey != null
 
     private val _chosenSource = MutableStateFlow<CaptureSource?>(null)
 
@@ -123,21 +139,16 @@ class PestDetectionViewModel @Inject constructor(
         )
     }
 
-    /** Starts USB monitoring; the screen calls this while it is visible. */
-    fun start() = camera.start()
-
-    fun stop() = camera.stop()
-
-    fun createPreviewView(context: Context): View = camera.createPreviewView(context)
-
     /**
-     * Restarts USB monitoring after a refused grant or a failed stream.
+     * The microscope, for the composables that monitor and preview it.
      *
-     * Those two states are the only ones nothing leaves on its own: a denied USB dialogue is
-     * not asked again, and a stream that failed to open is not retried. Everything else —
-     * attaching a device, answering the dialogue — arrives as an event.
+     * Handed over rather than wrapped in pass-through methods: starting monitoring, binding a
+     * preview and restarting after a refused USB grant are the camera's own vocabulary, and
+     * four methods here that only forwarded them made this class look as if it had a say in
+     * any of it. The app-owned interface is what crosses the boundary, so ADR 0001's rule
+     * still holds — no UVC engine type leaves `:feature:microscope`.
      */
-    fun retryCamera() = camera.restart()
+    val microscope: MicroscopeCamera get() = camera
 
     /** Asks the instance whether it can run a detection, and what stands in the way if not. */
     fun checkInstance() {
@@ -211,7 +222,11 @@ class PestDetectionViewModel @Inject constructor(
             // Capture tab there is none, and the instance files the finding without a plant.
             when (val outcome = detections.detect(jpeg, plantKey = plantKey, language = language)) {
                 is DetectionOutcome.Completed ->
-                    _state.value = PestDetectionState.Result(jpeg, outcome.detection)
+                    _state.value = PestDetectionState.Result(
+                        frame = jpeg,
+                        detection = outcome.detection,
+                        plantBound = isPlantBound,
+                    )
                 DetectionOutcome.Unauthorized -> _state.value = PestDetectionState.Unauthorized
                 is DetectionOutcome.Unavailable ->
                     _state.value = PestDetectionState.Failed(R.string.pest_failed_unreachable)
@@ -227,6 +242,108 @@ class PestDetectionViewModel @Inject constructor(
                     }
             }
         }
+    }
+
+    /**
+     * Records what the user says about one finding.
+     *
+     * The instance answers with the detection as it now holds it, and that is what goes on
+     * screen: a verdict shown because the app assumed the POST worked is a verdict that
+     * disagrees with the instance the moment anything went wrong.
+     *
+     * Ignored for a detection the instance did not persist — no key, nothing to comment on —
+     * and while another verdict is in flight, so two taps cannot race into one row.
+     */
+    fun recordFeedback(findingLabel: String, verdict: FeedbackVerdict) {
+        val shown = _state.value as? PestDetectionState.Result ?: return
+        val detectionKey = shown.detection.key ?: return
+        if (shown.recordingFor != null) return
+        _state.value = shown.copy(recordingFor = findingLabel, notice = null)
+        viewModelScope.launch {
+            val feedback = DetectionFeedback(
+                findingLabel = findingLabel,
+                confirmed = verdict == FeedbackVerdict.CORRECT,
+                // Never invented: the app knows the recognizer was wrong, not what the animal
+                // was, and filling this in from the category would teach the instance a label
+                // nobody looked at.
+                actualLabel = null,
+                wasBeneficial = verdict == FeedbackVerdict.BENEFICIAL,
+            )
+            val outcome = detections.submitFeedback(detectionKey, feedback)
+            // Re-read rather than reusing `shown`: an upload or a "capture again" may have
+            // replaced the whole state while the POST was out, and writing a stale result back
+            // would put a finished detection on top of a viewfinder.
+            val current = _state.value as? PestDetectionState.Result ?: return@launch
+            if (current.detection.key != detectionKey) return@launch
+            _state.value = when (outcome) {
+                is FeedbackOutcome.Recorded -> current.copy(
+                    detection = outcome.detection,
+                    recordingFor = null,
+                    notice = R.string.pest_feedback_recorded,
+                )
+                FeedbackOutcome.NotPermitted ->
+                    current.copy(recordingFor = null, notice = R.string.pest_feedback_not_permitted)
+                FeedbackOutcome.Unauthorized -> PestDetectionState.Unauthorized
+                is FeedbackOutcome.Failed ->
+                    current.copy(recordingFor = null, notice = R.string.pest_feedback_failed)
+            }
+        }
+    }
+
+    /**
+     * Files this detection as an IPM inspection on the plant it was run for.
+     *
+     * Offered only on the plant-bound path, because that is the only one the endpoint accepts.
+     * Creating one needs a permission that running a detection does not, so a refusal is an
+     * ordinary answer here and reads as a sentence beside the findings.
+     */
+    fun fileInspection() {
+        val shown = _state.value as? PestDetectionState.Result ?: return
+        val detectionKey = shown.detection.key ?: return
+        val plant = plantKey ?: return
+        if (shown.filingInspection || shown.inspectionFiled) return
+        _state.value = shown.copy(filingInspection = true, notice = null)
+        viewModelScope.launch {
+            val outcome = detections.createInspection(detectionKey, plant)
+            val current = _state.value as? PestDetectionState.Result ?: return@launch
+            if (current.detection.key != detectionKey) return@launch
+            _state.value = when (outcome) {
+                is InspectionOutcome.Created -> current.copy(
+                    filingInspection = false,
+                    inspectionFiled = true,
+                    notice = R.string.pest_inspection_created,
+                )
+                InspectionOutcome.NotPermitted -> current.copy(
+                    filingInspection = false,
+                    notice = R.string.pest_inspection_not_permitted,
+                )
+                InspectionOutcome.Unauthorized -> PestDetectionState.Unauthorized
+                is InspectionOutcome.Failed ->
+                    current.copy(filingInspection = false, notice = R.string.pest_inspection_failed)
+            }
+        }
+    }
+
+    /** Loads and shows the plant's past detections. A no-op without a plant to ask about. */
+    fun showHistory() {
+        val plant = plantKey ?: return
+        if (_history.value is DetectionHistoryState.Loading) return
+        _history.value = DetectionHistoryState.Loading
+        viewModelScope.launch {
+            _history.value = when (val outcome = detections.history(plant)) {
+                is DetectionHistoryOutcome.Loaded -> DetectionHistoryState.Shown(outcome.detections)
+                DetectionHistoryOutcome.Unauthorized ->
+                    DetectionHistoryState.Failed(R.string.pest_history_unauthorized)
+                DetectionHistoryOutcome.NotPermitted ->
+                    DetectionHistoryState.Failed(R.string.pest_history_not_permitted)
+                is DetectionHistoryOutcome.Failed ->
+                    DetectionHistoryState.Failed(R.string.pest_history_failed)
+            }
+        }
+    }
+
+    fun hideHistory() {
+        _history.value = DetectionHistoryState.Hidden
     }
 
     /**
