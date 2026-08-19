@@ -22,6 +22,22 @@ data class PlantSummary(
     val thumbnailUrl: String?,
     /** The open care action, when the dashboard reports one for this plant. */
     val careAction: CareAction?,
+    /**
+     * The instance's own name for the growth phase, or `null` where it reports none.
+     *
+     * Carried as the backend's string rather than an enum: a phase vocabulary belongs to the
+     * grower's setup, not to this app, and a phase it has never heard of must still be
+     * filterable.
+     */
+    val phase: String? = null,
+    /**
+     * Whether the plant has been removed from the garden.
+     *
+     * Carried rather than filtered out at the source. Removed plants were dropped in the
+     * client, which made "show them anyway" impossible to offer — the list could not opt back
+     * into data it never received.
+     */
+    val isRemoved: Boolean = false,
 )
 
 /**
@@ -81,8 +97,10 @@ interface PlantsClient {
      * Every plant instance the tenant holds, already joined with locations, cover photos and
      * open care actions, sorted by display name.
      *
-     * Removed instances are left out: `GET /plant-instances` returns them too, and a list
-     * that shows dead plants alongside living ones answers the wrong question.
+     * Removed instances are included and marked as such rather than dropped here. A list that
+     * shows dead plants alongside living ones answers the wrong question — but that is the
+     * screen's decision to make, and it cannot offer "show them anyway" over data it was
+     * never given.
      */
     suspend fun loadPlants(): PlantListOutcome
 }

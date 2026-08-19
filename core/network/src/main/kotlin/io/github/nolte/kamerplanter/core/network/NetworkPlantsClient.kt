@@ -93,19 +93,15 @@ class NetworkPlantsClient(
         // list. Locations and the care dashboard are enrichment — a row without a resolved
         // location name is still a usable row, and one without a badge is merely one whose
         // care state is unknown, which beats showing nothing at all (R-COMPAT-4).
+        //
+        // Removed instances come back from this endpoint too, and are carried through rather
+        // than dropped here: the screen marks them and offers "show removed", which it could
+        // not do over data it was never given. They do consume page slots — the endpoint has
+        // no parameter to leave them out — so a tenant with more removed plants than
+        // PAGE_SIZE would push living ones off the page. Rare enough to accept.
         val plants = retrofit.create(PlantInstancesApi::class.java)
             .listPlantsApiV1TTenantSlugPlantInstancesGet(tenantSlug = tenant, offset = 0, limit = PAGE_SIZE)
             .bodyOrThrow()
-            // Removed instances come back from this endpoint too. A list that mixes dead
-            // plants into living ones answers the wrong question, and without a filter row
-            // there is nowhere to opt back in.
-            //
-            // Filtered client-side because the endpoint offers no parameter for it, which
-            // means removed plants consume page slots: a tenant with more than PAGE_SIZE of
-            // them would show an empty list indistinguishable from having no plants. Rare
-            // enough to accept for now, and it disappears the moment the endpoint grows the
-            // filters #9 wants anyway.
-            .filter { it.removedOn == null }
 
         // Only the sites the plants actually sit in — resolving a tenant's full site list
         // would fetch locations nothing on this screen refers to.
@@ -150,6 +146,8 @@ class NetworkPlantsClient(
                         location = plant.locationKey?.let(locations::get),
                         thumbnailUrl = covers[plant.key],
                         careAction = care[plant.key],
+                        phase = plant.currentPhase?.takeIf { it.isNotBlank() },
+                        isRemoved = plant.removedOn != null,
                     )
                 }
                 // No order is specified by the endpoint, and a list has to have one. By name

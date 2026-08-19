@@ -225,6 +225,62 @@ class PlantListViewModelTest {
 
         assertTrue(viewModel.state.value is PlantListState.Loading)
     }
+
+    /**
+     * Narrowing is a view on data already held, and the endpoint could not do it anyway: it
+     * accepts `offset` and `limit` and nothing else. A filter that re-fetched would cost a
+     * round trip per keystroke and answer with the same rows.
+     */
+    @Test
+    fun `narrowing filters what is loaded without asking again`() = runTest(dispatcher) {
+        val client = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA, FERN)))
+        val viewModel = viewModel(client = client)
+        advanceUntilIdle()
+
+        viewModel.filterBy(PlantFilter(query = "fern"))
+        advanceUntilIdle()
+
+        val state = viewModel.state.value as PlantListState.Content
+        assertEquals(listOf(FERN), state.visible)
+        assertEquals("the whole set stays available to widen back into", 2, state.plants.size)
+        assertEquals(1, client.loads)
+    }
+
+    /**
+     * A reload arrives on its own — a plant watered on its own page announces itself — and it
+     * must not silently widen the list back out under the user.
+     */
+    @Test
+    fun `a reload keeps the narrowing`() = runTest(dispatcher) {
+        val changes = PlantDataChanges()
+        val client = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA, FERN)))
+        val viewModel = viewModel(client = client, changes = changes)
+        advanceUntilIdle()
+        viewModel.filterBy(PlantFilter(query = "fern"))
+
+        changes.notifyChanged()
+        advanceUntilIdle()
+
+        assertEquals(2, client.loads)
+        assertEquals(listOf(FERN), (viewModel.state.value as PlantListState.Content).visible)
+    }
+
+    /** The other tenant's plants sit elsewhere and are called something else. */
+    @Test
+    fun `switching instance drops the narrowing`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(CONNECTED)
+        val client = StubPlantsClient(PlantListOutcome.Loaded(listOf(MONSTERA, FERN)))
+        val viewModel = viewModel(client = client, store = store)
+        advanceUntilIdle()
+        viewModel.filterBy(PlantFilter(query = "fern", needsAttention = true))
+
+        store.set(CONNECTED.copy(tenantSlug = "other"))
+        advanceUntilIdle()
+
+        val state = viewModel.state.value as PlantListState.Content
+        assertEquals(PlantFilter(), state.filter)
+        assertEquals(listOf(MONSTERA, FERN), state.visible)
+    }
 }
 
 // --- doubles -------------------------------------------------------------------------
@@ -239,6 +295,15 @@ private val MONSTERA = PlantSummary(
     displayName = "Monstera",
     species = "Swiss cheese plant",
     location = "Living room",
+    thumbnailUrl = null,
+    careAction = null,
+)
+
+private val FERN = PlantSummary(
+    key = "plant-9",
+    displayName = "Fern",
+    species = "Boston fern",
+    location = "Bathroom",
     thumbnailUrl = null,
     careAction = null,
 )

@@ -83,4 +83,18 @@
     <string name="plants_microscope_no_host">Dieses Telefon kann kein USB-Gerät betreiben.</string>
     <string name="plants_microscope_capture_failed">Das Bild konnte nicht gelesen werden. Probe ruhig halten und erneut auslösen.</string>
     <string name="plants_note_saving">Speichere …</string>
+    <string name="plants_filter_search_hint">Nach Name oder Art suchen</string>
+    <string name="plants_filter_search_clear">Suche leeren</string>
+    <string name="plants_filter_location">Ort</string>
+    <string name="plants_filter_species">Art</string>
+    <string name="plants_filter_phase">Phase</string>
+    <string name="plants_filter_needs_attention">Braucht Aufmerksamkeit</string>
+    <string name="plants_filter_show_removed">Entfernte anzeigen</string>
+    <string name="plants_filter_any">Alle</string>
+    <string name="plants_filter_clear">Filter zurücksetzen</string>
+    <string name="plants_filter_no_matches_title">Keine Pflanze passt</string>
+    <string name="plants_filter_no_matches_body">Hierzu passt nichts. Ändere die Suche oder setze die Filter zurück, um wieder alle Pflanzen zu sehen.</string>
+    <string name="plants_removed">Entfernt</string>
+    <string name="plants_only_removed_title">Hier wächst nichts mehr</string>
+    <string name="plants_only_removed_body">Alle Pflanzen dieser Instanz wurden entfernt. Schalte „Entfernte anzeigen“ ein, um sie trotzdem zu sehen.</string>
 </resources>

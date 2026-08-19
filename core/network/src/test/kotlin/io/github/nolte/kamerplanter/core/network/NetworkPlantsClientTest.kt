@@ -14,6 +14,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -110,6 +111,7 @@ class NetworkPlantsClientTest {
         removedOn: String? = null,
         locationKey: String? = "loc-1",
         siteKey: String? = "site-1",
+        currentPhase: String? = null,
     ) = """
         {"key":"$key","instance_id":"$instanceId","plant_name":${name?.let { "\"$it\"" } ?: "null"},
          "planted_on":"2026-03-14","removed_on":${removedOn?.let { "\"$it\"" } ?: "null"},
@@ -117,6 +119,7 @@ class NetworkPlantsClientTest {
          "container_volume_liters":12.5,
          "location_key":${locationKey?.let { "\"$it\"" } ?: "null"},
          "site_key":${siteKey?.let { "\"$it\"" } ?: "null"},
+         "current_phase":${currentPhase?.let { "\"$it\"" } ?: "null"},
          "species":{"scientific_name":"Monstera deliciosa","common_names":["Swiss cheese plant"]}}
     """.trimIndent()
 
@@ -190,9 +193,14 @@ class NetworkPlantsClientTest {
         assertEquals("1f0b2c", loaded().single().displayName)
     }
 
-    /** Removed instances come back from the endpoint; a living-plants list must not show them. */
+    /**
+     * Removed instances come back from the endpoint, and are marked rather than dropped.
+     *
+     * The list hides them by default, which is a decision it takes on data it holds: dropping
+     * them here would leave its "show removed" toggle with nothing to show.
+     */
     @Test
-    fun `hides removed instances`() = runTest {
+    fun `marks removed instances instead of dropping them`() = runTest {
         givenPlants(
             plant("p1", name = "Alive"),
             plant("p2", name = "Gone", removedOn = "2026-01-01"),
@@ -200,7 +208,24 @@ class NetworkPlantsClientTest {
         givenLocations()
         givenNoPhotos("p1", "p2")
 
-        assertEquals(listOf("Alive"), loaded().map { it.displayName })
+        val rows = loaded().associateBy { it.displayName }
+
+        assertEquals(setOf("Alive", "Gone"), rows.keys)
+        assertFalse(rows.getValue("Alive").isRemoved)
+        assertTrue(rows.getValue("Gone").isRemoved)
+    }
+
+    /** The phase drives a filter, so an instance that reports one has to hand it over. */
+    @Test
+    fun `carries the growth phase the instance reports`() = runTest {
+        givenPlants(plant("p1", name = "Alive", currentPhase = "growth"), plant("p2"))
+        givenLocations()
+        givenNoPhotos("p1", "p2")
+
+        val rows = loaded().associateBy { it.key }
+
+        assertEquals("growth", rows.getValue("p1").phase)
+        assertNull(rows.getValue("p2").phase)
     }
 
     @Test
