@@ -19,3 +19,8 @@ branches:
         strict: true
         contexts:
           - Build, lint & test
+          # The docs job ran on every pull request but gated nothing: an
+          # automerged pull request could land on develop with a red MkDocs
+          # build. Listing it here closes that gap and is what lets the
+          # mkdocs dependency stream be trusted (see renovate.json5).
+          - Docs build
