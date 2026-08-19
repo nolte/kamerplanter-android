@@ -14,13 +14,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +49,7 @@ import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 import io.github.nolte.kamerplanter.core.camera.sampleSizeFor
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.Finding
+import io.github.nolte.kamerplanter.core.network.RecordedFeedback
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -89,26 +93,20 @@ fun PestDetectionScreen(
     val wantsMicroscope = wantsCamera && chosenSource != CaptureSource.PHONE
     if (wantsMicroscope) {
         DisposableEffect(Unit) {
-            viewModel.start()
-            onDispose { viewModel.stop() }
+            viewModel.microscope.start()
+            onDispose { viewModel.microscope.stop() }
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         floatingActionButton = {
-            // Only where a shutter can actually fire: a device has to be streaming, and the
-            // instance has to have said it will look at the frame.
-            val ready = state as? PestDetectionState.Ready
-            if (ready != null && wantsCamera && ready.canFire(camera)) {
-                ExtendedFloatingActionButton(onClick = { viewModel.capture(language) }) {
-                    Text(
-                        stringResource(
-                            if (ready.isUploading) R.string.pest_capturing else R.string.pest_capture,
-                        ),
-                    )
-                }
-            }
+            Shutter(
+                state = state,
+                camera = camera,
+                enabled = wantsCamera,
+                onCapture = { viewModel.capture(language) },
+            )
         },
     ) { innerPadding ->
         val content = Modifier
@@ -118,23 +116,142 @@ fun PestDetectionScreen(
             PestDetectionContent(
                 state = state,
                 camera = camera,
-                actions = PestDetectionActions(
-                    onOpenSettings = onOpenSettings,
-                    onGrantConsent = viewModel::grantConsent,
-                    onRetry = viewModel::checkInstance,
-                    onCaptureAgain = viewModel::captureAgain,
-                    capture = CaptureActions(
-                        createPreviewView = viewModel::createPreviewView,
-                        onRetryCamera = viewModel::retryCamera,
-                        onChooseSource = viewModel::chooseSource,
-                        onPhoneShutterReady = { viewModel.phoneShutter = it },
-                    ),
-                ),
+                isPlantBound = viewModel.isPlantBound,
+                actions = viewModel.actions(onOpenSettings),
                 modifier = content,
             )
         } else {
             MissingCameraPermission(permission, content)
         }
+    }
+
+    // Over whatever the flow is showing, and closed without disturbing it: looking up the last
+    // check must not cost a viewfinder that is already streaming or a result on screen.
+    val history by viewModel.history.collectAsStateWithLifecycle()
+    if (history != DetectionHistoryState.Hidden) {
+        PastChecks(state = history, onClose = viewModel::hideHistory)
+    }
+}
+
+/**
+ * What this plant has been checked for before.
+ *
+ * A dialog rather than a destination: it is context for a decision being made right now — is
+ * this the same thing as last month, and did anyone confirm it — and pushing a screen for it
+ * would take the user away from the capture they came to make.
+ */
+@Composable
+private fun PastChecks(state: DetectionHistoryState, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = {
+            TextButton(onClick = onClose) { Text(stringResource(R.string.pest_history_close)) }
+        },
+        title = { Text(stringResource(R.string.pest_history_title)) },
+        text = {
+            when (state) {
+                DetectionHistoryState.Hidden,
+                DetectionHistoryState.Loading,
+                -> Text(stringResource(R.string.pest_history_loading))
+                is DetectionHistoryState.Failed -> Text(stringResource(state.message))
+                is DetectionHistoryState.Shown -> if (state.detections.isEmpty()) {
+                    // A plant nobody has checked yet is not an error, and it is the ordinary
+                    // state of most plants.
+                    Text(stringResource(R.string.pest_history_empty))
+                } else {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        state.detections.forEach { PastCheck(it) }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * One past check: when, and what came of it.
+ *
+ * The date is printed as the instance wrote it. Parsing it into a device-formatted one would
+ * mean guessing at a shape this build has not been promised, and a row that says nothing
+ * because a timestamp did not parse is worse than one that says more than it needs to.
+ */
+@Composable
+private fun PastCheck(detection: Detection) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        detection.recordedAt?.let {
+            Text(text = it, style = MaterialTheme.typography.labelMedium)
+        }
+        val summary = if (detection.isConfident) {
+            stringResource(R.string.pest_history_findings, detection.findings.size)
+        } else {
+            stringResource(R.string.pest_history_abstained)
+        }
+        Text(text = summary, style = MaterialTheme.typography.bodyMedium)
+        // The names themselves, because "2 findings" answers nothing a gardener asked.
+        detection.findings.take(HISTORY_NAMES).forEach {
+            Text(
+                text = it.commonName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** How many names a past check lists before the dialog would start scrolling for one row. */
+private const val HISTORY_NAMES = 3
+
+/**
+ * Everything the content can ask for, bound to this ViewModel.
+ *
+ * Assembled here rather than inline in the screen so the screen reads as what it lays out,
+ * and so the wiring is one thing to check when an action is added.
+ */
+@Composable
+private fun PestDetectionViewModel.actions(onOpenSettings: () -> Unit) = PestDetectionActions(
+    onOpenSettings = onOpenSettings,
+    onGrantConsent = ::grantConsent,
+    onRetry = ::checkInstance,
+    onCaptureAgain = ::captureAgain,
+    result = ResultActions(
+        onFeedback = ::recordFeedback,
+        onFileInspection = ::fileInspection,
+        onShowHistory = ::showHistory,
+    ),
+    capture = CaptureActions(
+        createPreviewView = microscope::createPreviewView,
+        // Restarted rather than left dead: a refused USB dialogue is not asked again on its
+        // own, and a stream that failed to open is not retried.
+        onRetryCamera = microscope::restart,
+        onChooseSource = ::chooseSource,
+        onPhoneShutterReady = { phoneShutter = it },
+    ),
+)
+
+/**
+ * The capture button, shown only where it could actually fire.
+ *
+ * A device has to be streaming and the instance has to have said it will look at the frame —
+ * a shutter offered before either is a button whose only outcome is an error screen.
+ */
+@Composable
+private fun Shutter(
+    state: PestDetectionState,
+    camera: MicroscopeState,
+    enabled: Boolean,
+    onCapture: () -> Unit,
+) {
+    val ready = state as? PestDetectionState.Ready ?: return
+    if (!enabled || !ready.canFire(camera)) return
+    ExtendedFloatingActionButton(onClick = onCapture) {
+        Text(
+            stringResource(
+                if (ready.isUploading) R.string.pest_capturing else R.string.pest_capture,
+            ),
+        )
     }
 }
 
@@ -144,13 +261,23 @@ private class PestDetectionActions(
     val onGrantConsent: () -> Unit,
     val onRetry: () -> Unit,
     val onCaptureAgain: () -> Unit,
+    val result: ResultActions,
     val capture: CaptureActions,
+)
+
+/** What can be done with a detection once it is on screen. */
+private class ResultActions(
+    val onFeedback: (findingLabel: String, verdict: FeedbackVerdict) -> Unit,
+    val onFileInspection: () -> Unit,
+    val onShowHistory: () -> Unit,
 )
 
 @Composable
 private fun PestDetectionContent(
     state: PestDetectionState,
     camera: MicroscopeState,
+    /** Whether this flow was entered from a plant — what past checks and inspections need. */
+    isPlantBound: Boolean,
     actions: PestDetectionActions,
     modifier: Modifier = Modifier,
 ) {
@@ -204,13 +331,18 @@ private fun PestDetectionContent(
         is PestDetectionState.ConsentRequired ->
             ConsentPrompt(state, actions.onGrantConsent, modifier)
 
-        is PestDetectionState.Ready ->
-            CaptureStep(state, camera, actions.capture, modifier)
+        is PestDetectionState.Ready -> CaptureStep(
+            state = state,
+            camera = camera,
+            actions = actions.capture,
+            modifier = modifier,
+            onShowHistory = actions.result.onShowHistory.takeIf { isPlantBound },
+        )
 
         is PestDetectionState.Result -> DetectionResult(
-            frame = state.frame,
-            detection = state.detection,
+            state = state,
             onCaptureAgain = actions.onCaptureAgain,
+            actions = actions.result,
             modifier = modifier,
         )
 
@@ -301,11 +433,13 @@ private fun SettingsPrompt(
 
 @Composable
 private fun DetectionResult(
-    frame: ByteArray,
-    detection: Detection,
+    state: PestDetectionState.Result,
     onCaptureAgain: () -> Unit,
+    actions: ResultActions,
     modifier: Modifier = Modifier,
 ) {
+    val frame = state.frame
+    val detection = state.detection
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -321,27 +455,7 @@ private fun DetectionResult(
             findings = if (detection.outcome() == DetectionShape.FINDINGS) detection.findings else emptyList(),
         )
 
-        // Three outcomes, not two, and the difference between the last two is the whole point.
-        // "I could not tell" and "I looked and there is nothing" are opposite answers: reading
-        // the first as the second would tell someone their plant is fine when the recognizer
-        // declined to say so.
-        when (detection.outcome()) {
-            DetectionShape.FINDINGS -> {
-                Text(
-                    text = stringResource(R.string.pest_result_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                detection.findings.forEach { FindingCard(it) }
-            }
-            DetectionShape.ABSTAINED -> Verdict(
-                title = stringResource(R.string.pest_abstained_title),
-                body = stringResource(R.string.pest_abstained_body),
-            )
-            DetectionShape.NOTHING_FOUND -> Verdict(
-                title = stringResource(R.string.pest_nothing_found_title),
-                body = stringResource(R.string.pest_nothing_found_body),
-            )
-        }
+        WhatTheInstanceSaw(state = state, onFeedback = actions.onFeedback)
 
         Text(
             text = detection.suggestedNextStep,
@@ -360,9 +474,98 @@ private fun DetectionResult(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Button(onClick = onCaptureAgain, modifier = Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.pest_result_again))
+        ResultFooter(state = state, onCaptureAgain = onCaptureAgain, actions = actions)
+    }
+}
+
+/**
+ * What can be done about a detection, under what it says.
+ *
+ * Split out so [DetectionResult] stays a rendering of the instance's answer and this stays
+ * the list of what follows from it.
+ */
+@Composable
+private fun ResultFooter(
+    state: PestDetectionState.Result,
+    onCaptureAgain: () -> Unit,
+    actions: ResultActions,
+) {
+    // What just happened, beside the findings rather than instead of them. None of these end
+    // the flow: a refused verdict leaves the detection exactly as it was.
+    state.notice?.let {
+        Text(
+            text = stringResource(it),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    // Only on the plant-bound path, and only for a detection the instance kept: the endpoint
+    // files an inspection against a plant, using a key it only issues for a persisted
+    // detection.
+    if (state.plantBound && state.detection.key != null) {
+        OutlinedButton(
+            onClick = actions.onFileInspection,
+            enabled = !state.filingInspection && !state.inspectionFiled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.pest_inspection_create))
         }
+        TextButton(onClick = actions.onShowHistory, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.pest_history_open))
+        }
+    }
+
+    Button(onClick = onCaptureAgain, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.pest_result_again))
+    }
+}
+
+/**
+ * The findings, or the sentence that stands in for them.
+ *
+ * Three outcomes, not two, and the difference between the last two is the whole point. "I
+ * could not tell" and "I looked and there is nothing" are opposite answers: reading the first
+ * as the second would tell someone their plant is fine when the recognizer declined to say so.
+ */
+@Composable
+private fun WhatTheInstanceSaw(
+    state: PestDetectionState.Result,
+    onFeedback: (findingLabel: String, verdict: FeedbackVerdict) -> Unit,
+) {
+    val detection = state.detection
+    when (detection.outcome()) {
+        DetectionShape.FINDINGS -> {
+            Text(
+                text = stringResource(R.string.pest_result_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            detection.findings.forEach { finding ->
+                FindingCard(
+                    finding = finding,
+                    // Only where the instance kept the detection. Without a key there is
+                    // nothing to attach a verdict to, and offering the buttons would be
+                    // offering an action that cannot be taken.
+                    feedback = if (detection.key == null) {
+                        null
+                    } else {
+                        FindingFeedback(
+                            recorded = state.verdictOn(finding.label),
+                            isRecording = state.recordingFor == finding.label,
+                            onVerdict = { onFeedback(finding.label, it) },
+                        )
+                    },
+                )
+            }
+        }
+        DetectionShape.ABSTAINED -> Verdict(
+            title = stringResource(R.string.pest_abstained_title),
+            body = stringResource(R.string.pest_abstained_body),
+        )
+        DetectionShape.NOTHING_FOUND -> Verdict(
+            title = stringResource(R.string.pest_nothing_found_title),
+            body = stringResource(R.string.pest_nothing_found_body),
+        )
     }
 }
 
@@ -373,8 +576,20 @@ private fun Verdict(title: String, body: String) {
     Text(text = body)
 }
 
+/**
+ * The verdict controls for one finding, or `null` where none can be offered.
+ *
+ * Grouped rather than passed as three parameters, so a card that shows no controls says so by
+ * holding nothing instead of by three defaults that have to agree with each other.
+ */
+private class FindingFeedback(
+    val recorded: RecordedFeedback?,
+    val isRecording: Boolean,
+    val onVerdict: (FeedbackVerdict) -> Unit,
+)
+
 @Composable
-private fun FindingCard(finding: Finding) {
+private fun FindingCard(finding: Finding, feedback: FindingFeedback? = null) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -416,8 +631,67 @@ private fun FindingCard(finding: Finding) {
                     color = MaterialTheme.colorScheme.tertiary,
                 )
             }
+            feedback?.let { FeedbackRow(it) }
         }
     }
+}
+
+/**
+ * "Was this right?", and the three answers.
+ *
+ * Once something has been said, the row states it instead of asking again — the instance is
+ * the one holding the verdict, and re-offering the buttons over an answer it already has
+ * invites the user to send the same thing twice.
+ *
+ * "It is a beneficial" is a third button rather than a second tap on "wrong", because it is
+ * what the instance most needs to hear: a beneficial reported as a pest is the one mistake
+ * this feature must not repeat.
+ */
+@Composable
+private fun FeedbackRow(feedback: FindingFeedback) {
+    val recorded = feedback.recorded
+    if (recorded != null) {
+        Text(
+            text = stringResource(recorded.saidRes()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Text(
+        text = stringResource(R.string.pest_feedback_prompt),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FeedbackVerdict.entries.forEach { verdict ->
+            TextButton(
+                onClick = { feedback.onVerdict(verdict) },
+                enabled = !feedback.isRecording,
+            ) {
+                Text(stringResource(verdict.labelRes()))
+            }
+        }
+    }
+}
+
+private fun FeedbackVerdict.labelRes(): Int = when (this) {
+    FeedbackVerdict.CORRECT -> R.string.pest_feedback_correct
+    FeedbackVerdict.WRONG -> R.string.pest_feedback_wrong
+    FeedbackVerdict.BENEFICIAL -> R.string.pest_feedback_beneficial
+}
+
+/**
+ * What the recorded verdict says, read back from the instance's own fields.
+ *
+ * `wasBeneficial` is checked before `confirmed`, because the two are not exclusive in the
+ * payload: a verdict that says both would otherwise read as a plain confirmation and lose the
+ * part that matters.
+ */
+private fun RecordedFeedback.saidRes(): Int = when {
+    wasBeneficial -> R.string.pest_feedback_said_beneficial
+    confirmed -> R.string.pest_feedback_said_correct
+    else -> R.string.pest_feedback_said_wrong
 }
 
 /**

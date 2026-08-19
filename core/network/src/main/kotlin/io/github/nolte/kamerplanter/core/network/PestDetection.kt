@@ -70,7 +70,104 @@ data class Detection(
     val suggestedNextStep: String,
     /** How many tiles the backend ran inference on; shown as detail, not as a headline. */
     val tilesProcessed: Int,
+    /**
+     * When the instance recorded this detection, as it writes it; `null` where it says nothing.
+     *
+     * Carried as the backend's own string rather than parsed into a date here: the type this
+     * would parse into belongs to the screen that formats it, and a timestamp shape this build
+     * cannot read must not cost the rest of the detection (R-COMPAT-3).
+     */
+    val recordedAt: String? = null,
+    /**
+     * What has already been said about these findings, by whoever said it.
+     *
+     * Part of the detection rather than a separate lookup because the instance answers with it
+     * — on the detection itself, on every feedback POST and on each entry of the history — and
+     * a screen that offers "confirm" for a finding already confirmed is asking a question it
+     * has the answer to.
+     */
+    val feedback: List<RecordedFeedback> = emptyList(),
 )
+
+/** A verdict a human already recorded on one finding. */
+data class RecordedFeedback(
+    /** The finding this was said about, matched by the recognizer's own [Finding.label]. */
+    val findingLabel: String,
+    val confirmed: Boolean,
+    /** What it actually was, where the person naming it knew. */
+    val actualLabel: String?,
+    val wasBeneficial: Boolean,
+)
+
+/**
+ * A human's verdict on one finding, on its way to the instance.
+ *
+ * Three actions in one shape, because the endpoint takes one: "that is right" is
+ * `confirmed = true`; "that is wrong" is `confirmed = false`, optionally with what it really
+ * was; "that is a beneficial" is `confirmed = false` plus [wasBeneficial], which is the case
+ * worth telling apart — a recognizer that calls a predatory mite a pest is the failure this
+ * feature must not repeat, and the instance can only learn that if the app says which of the
+ * two kinds of wrong it was.
+ */
+data class DetectionFeedback(
+    val findingLabel: String,
+    val confirmed: Boolean,
+    val actualLabel: String? = null,
+    val wasBeneficial: Boolean = false,
+)
+
+/** What came of recording a verdict. */
+sealed interface FeedbackOutcome {
+
+    /**
+     * Recorded, with the detection as the instance now holds it.
+     *
+     * The updated detection rather than an acknowledgement: the endpoint answers with the
+     * whole thing, and taking it means the screen shows what was actually stored instead of
+     * what the app hoped it stored.
+     */
+    data class Recorded(val detection: Detection) : FeedbackOutcome
+
+    data object Unauthorized : FeedbackOutcome
+
+    /** The credential may run detections but not comment on them. */
+    data object NotPermitted : FeedbackOutcome
+
+    data class Failed(val reason: String) : FeedbackOutcome
+}
+
+/** What came of turning a finding into an IPM inspection. */
+sealed interface InspectionOutcome {
+
+    /** [inspectionKey] is what the instance filed it as, where it names one. */
+    data class Created(val inspectionKey: String?) : InspectionOutcome
+
+    /**
+     * The credential may not create IPM treatment records.
+     *
+     * Its own case because it is the ordinary one: creating an inspection needs a permission
+     * that running a detection does not, so a user who can photograph a pest may well not be
+     * able to file it — which is a sentence, not a crash.
+     */
+    data object NotPermitted : InspectionOutcome
+
+    data object Unauthorized : InspectionOutcome
+
+    data class Failed(val reason: String) : InspectionOutcome
+}
+
+/** What came of asking for a plant's past detections. */
+sealed interface DetectionHistoryOutcome {
+
+    /** Newest first, as the instance orders them. */
+    data class Loaded(val detections: List<Detection>) : DetectionHistoryOutcome
+
+    data object Unauthorized : DetectionHistoryOutcome
+
+    data object NotPermitted : DetectionHistoryOutcome
+
+    data class Failed(val reason: String) : DetectionHistoryOutcome
+}
 
 /**
  * Whether the connected instance can run a detection at all — asked before the camera opens.
@@ -242,4 +339,32 @@ interface PestDetectionClient {
      * @param language the language the labels and the disclaimer come back in.
      */
     suspend fun detect(jpeg: ByteArray, plantKey: String?, language: String): DetectionOutcome
+
+    /**
+     * Records what a human says about one finding of [detectionKey].
+     *
+     * Only ever called for a detection the instance gave a key — a detection it did not
+     * persist cannot be commented on.
+     */
+    suspend fun submitFeedback(detectionKey: String, feedback: DetectionFeedback): FeedbackOutcome
+
+    /**
+     * Files [detectionKey] as an IPM inspection on [plantKey].
+     *
+     * Both keys, because the endpoint takes both: a detection run without a plant has no
+     * inspection to create, which is why the screen offers this only on the plant-bound path.
+     */
+    suspend fun createInspection(detectionKey: String, plantKey: String): InspectionOutcome
+
+    /** Past detections for a plant, so a repeat check has context. */
+    suspend fun history(plantKey: String, limit: Int = HISTORY_LIMIT): DetectionHistoryOutcome
 }
+
+/**
+ * How many past detections to ask for.
+ *
+ * The endpoint's own default, stated here rather than left implicit: a screen showing "past
+ * checks" needs a bound it can explain, and twenty is enough for a plant's season without
+ * making the detail page wait on a long list.
+ */
+const val HISTORY_LIMIT: Int = 20

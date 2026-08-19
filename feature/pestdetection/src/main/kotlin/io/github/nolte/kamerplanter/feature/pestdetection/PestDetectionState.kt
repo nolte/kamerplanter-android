@@ -3,6 +3,7 @@ package io.github.nolte.kamerplanter.feature.pestdetection
 import androidx.annotation.StringRes
 import io.github.nolte.kamerplanter.core.network.ConsentTerms
 import io.github.nolte.kamerplanter.core.network.Detection
+import io.github.nolte.kamerplanter.core.network.RecordedFeedback
 
 /**
  * What the pest-detection screen can be showing.
@@ -80,16 +81,63 @@ sealed interface PestDetectionState {
      * image, so this is the only copy that exists, and a findings list without the picture it
      * refers to is unreadable.
      */
-    data class Result(val frame: ByteArray, val detection: Detection) : PestDetectionState {
+    data class Result(
+        val frame: ByteArray,
+        val detection: Detection,
+        /**
+         * Whether this detection is bound to a plant.
+         *
+         * What decides if an inspection can be offered at all: the endpoint files one against
+         * a plant, and a detection run from the Capture tab has none. Carried in the state
+         * rather than read from the route by the screen, so the screen renders what it is
+         * given.
+         */
+        val plantBound: Boolean = false,
+        /** The finding whose verdict is on its way; the others stay usable meanwhile. */
+        val recordingFor: String? = null,
+        val filingInspection: Boolean = false,
+        /** Filed once, and the action does not come back: a second inspection is not a fix. */
+        val inspectionFiled: Boolean = false,
+        /**
+         * A sentence about what just happened — recorded, filed, or refused.
+         *
+         * A resource id rather than text, and separate from [PestDetectionState.Failed]
+         * because none of these end the flow: the result stays on screen with its findings,
+         * and "you may not file inspections" is something to read beside them rather than
+         * instead of them.
+         */
+        @StringRes val notice: Int? = null,
+    ) : PestDetectionState {
+
+        /** What a human already said about [label], where anybody has. */
+        fun verdictOn(label: String): RecordedFeedback? =
+            detection.feedback.lastOrNull { it.findingLabel == label }
 
         // Generated equals/hashCode would compare the array by identity, which makes two
         // states holding the same frame unequal and re-triggers recomposition. Compared by
         // content instead, and the array is never mutated after capture.
         override fun equals(other: Any?): Boolean =
-            this === other ||
-                (other is Result && detection == other.detection && frame.contentEquals(other.frame))
+            this === other || (
+                other is Result &&
+                    detection == other.detection &&
+                    plantBound == other.plantBound &&
+                    recordingFor == other.recordingFor &&
+                    filingInspection == other.filingInspection &&
+                    inspectionFiled == other.inspectionFiled &&
+                    notice == other.notice &&
+                    frame.contentEquals(other.frame)
+                )
 
-        override fun hashCode(): Int = 31 * frame.contentHashCode() + detection.hashCode()
+        override fun hashCode(): Int {
+            var result = frame.contentHashCode()
+            result = 31 * result + detection.hashCode()
+            result = 31 * result + plantBound.hashCode()
+            result = 31 * result + recordingFor.hashCode()
+            result = 31 * result + filingInspection.hashCode()
+            result = 31 * result + inspectionFiled.hashCode()
+            result = 31 * result + notice.hashCode()
+            return result
+        }
     }
 
     /**
@@ -110,4 +158,43 @@ enum class CaptureSource {
 
     /** The attached USB microscope — the animal itself, at magnification. */
     MICROSCOPE,
+}
+
+/** What a human says about one finding. */
+enum class FeedbackVerdict {
+
+    /** The recognizer got it right. */
+    CORRECT,
+
+    /** It got it wrong, and the user is not saying what it actually was. */
+    WRONG,
+
+    /**
+     * It named a pest, and the animal is a beneficial.
+     *
+     * Told apart from [WRONG] because acting on the two differs by more than a label: a
+     * beneficial sprayed as a pest is the one outcome this feature must never produce, and the
+     * instance can only learn that from feedback that says so.
+     */
+    BENEFICIAL,
+}
+
+/**
+ * What a plant's past detections look like on screen.
+ *
+ * Its own state beside [PestDetectionState] rather than inside it: the history is opened over
+ * a result or over the viewfinder, and folding it into the flow's state would mean every
+ * capture state needed a variant that also happens to be showing a list.
+ */
+sealed interface DetectionHistoryState {
+
+    /** Not asked for. */
+    data object Hidden : DetectionHistoryState
+
+    data object Loading : DetectionHistoryState
+
+    /** Newest first, as the instance ordered them; empty is a legitimate answer. */
+    data class Shown(val detections: List<Detection>) : DetectionHistoryState
+
+    data class Failed(@StringRes val message: Int) : DetectionHistoryState
 }

@@ -38,6 +38,9 @@ class NetworkPestDetectionClientTest {
     private val consentsPath = "/api/v1/privacy/consents"
     private val detectPath = "/api/v1/t/demo/pests/detect"
     private val plantDetectPath = "/api/v1/t/demo/pests/plants/p1/detect"
+    private val feedbackPath = "/api/v1/t/demo/pests/detections/det-1/feedback"
+    private val inspectionPath = "/api/v1/t/demo/pests/detections/det-1/create-inspection"
+    private val historyPath = "/api/v1/t/demo/pests/plants/p1/history"
 
     @Before
     fun setUp() {
@@ -546,5 +549,90 @@ class NetworkPestDetectionClientTest {
         val outcome = client().detect(jpeg(), plantKey = null, language = "en")
 
         assertTrue(outcome.toString(), outcome is DetectionOutcome.Unavailable)
+    }
+
+    // ── Feedback, inspections and past checks (#10) ──────────────────────────────────
+
+    /**
+     * The instance answers a verdict with the whole detection, and that is what comes back:
+     * the recorded feedback is on it, so the screen shows what was stored rather than what
+     * the app sent.
+     */
+    @Test
+    fun `a recorded verdict comes back as the detection now stands`() = runTest {
+        responses[feedbackPath] = detection(
+            findings = """[{"label":"aphid","common_name":"Aphid","category":"pest",
+                "confidence":0.9,"mode":"direct"}]""",
+        ).dropLast(1) + ""","feedback":[{"confirmed":true,"finding_label":"aphid"}]}"""
+
+        val outcome = client().submitFeedback(
+            "det-1",
+            DetectionFeedback(findingLabel = "aphid", confirmed = true),
+        )
+
+        val recorded = (outcome as FeedbackOutcome.Recorded).detection.feedback.single()
+        assertEquals("aphid", recorded.findingLabel)
+        assertTrue(recorded.confirmed)
+        // `was_beneficial` absent is nobody having said it was one, not an unknown.
+        assertFalse(recorded.wasBeneficial)
+    }
+
+    /** Commenting can be refused on its own, and re-pairing would not widen the scope. */
+    @Test
+    fun `a forbidden verdict is not permitted rather than unauthorized`() = runTest {
+        statuses[feedbackPath] = 403
+
+        val outcome = client().submitFeedback(
+            "det-1",
+            DetectionFeedback(findingLabel = "aphid", confirmed = false),
+        )
+
+        assertEquals(FeedbackOutcome.NotPermitted, outcome)
+    }
+
+    @Test
+    fun `an inspection carries the plant it is filed against`() = runTest {
+        responses[inspectionPath] = """{"inspection_key":"insp-9","detected_pest_keys":["aphid"]}"""
+
+        val outcome = client().createInspection("det-1", "p1")
+
+        assertEquals(InspectionOutcome.Created("insp-9"), outcome)
+        val query = synchronized(requests) { requests.map { it.path.orEmpty() } }
+            .single { it.startsWith(inspectionPath) }
+        assertTrue(query, query.endsWith("plant_key=p1"))
+    }
+
+    /**
+     * Filing needs the IPM-treatment create permission, which running a detection does not.
+     * Reported as anything but "you may not do this", it would read as a broken instance.
+     */
+    @Test
+    fun `an inspection the credential may not create is its own answer`() = runTest {
+        statuses[inspectionPath] = 403
+
+        assertEquals(InspectionOutcome.NotPermitted, client().createInspection("det-1", "p1"))
+    }
+
+    @Test
+    fun `past checks come back newest-first as the instance ordered them`() = runTest {
+        responses[historyPath] = "[${detection()},${detection(isConfident = false)}]"
+
+        val outcome = client().history("p1")
+
+        val past = (outcome as DetectionHistoryOutcome.Loaded).detections
+        assertEquals(2, past.size)
+        assertTrue(past.first().isConfident)
+        assertFalse(past.last().isConfident)
+    }
+
+    /**
+     * An instance predating the endpoint has no history, which is what an empty list says.
+     * An error here would send its owner to check a server that answered perfectly well.
+     */
+    @Test
+    fun `an instance without the history endpoint has no history, not a failure`() = runTest {
+        statuses[historyPath] = 404
+
+        assertEquals(DetectionHistoryOutcome.Loaded(emptyList()), client().history("p1"))
     }
 }
