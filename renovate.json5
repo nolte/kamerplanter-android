@@ -3,6 +3,19 @@
   // Portfolio-wide baseline, pinned to a gh-plumbing release tag so the
   // shared Renovate behaviour never drifts silently underneath this repo.
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
+
+  // Let a release settle before it is offered. Renovate's vulnerabilityAlerts path
+  // overrides this to zero, so a known-vulnerable dependency is still offered at once.
+  minimumReleaseAge: '3 days',
+  // Below the inherited default of 10: with `strict: true` on develop every merge
+  // makes the remaining branches stale, so a smaller window is less rebase churn.
+  prConcurrentLimit: 5,
+
+  // Grouping cut: the groups below follow the VERIFICATION METHOD, not the ecosystem.
+  // Everything a reviewer checks with the same handgrip travels in one pull request;
+  // everything that needs its own check travels alone. Without this, each of the dozens
+  // of update streams in this repo opens its own pull request.
+
   packageRules: [
     {
       // The UVC engine is never bumped mechanically — a bump is a source change plus a
@@ -20,6 +33,186 @@
         'com.github.nolte.AndroidUSBCamera:{/,}**',
       ],
       enabled: false,
+    },
+    {
+      // KSP binds to the Kotlin compiler API. Bumping one without the other breaks the
+      // Hilt code generation, so the two only ever move together. The `[.:]` boundary
+      // keeps org.jetbrains.kotlinx (a runtime library on its own release train) out.
+      //
+      // separateMajorMinor is off because it is what would break the lockstep: Renovate
+      // prefixes the groupSlug with `major-` for a major update, so a Kotlin major beside
+      // a KSP minor would split into two branches — each red on its own, which is exactly
+      // what this group exists to prevent.
+      //
+      // What the group does NOT prevent is a partial branch in the meantime: KSP releases
+      // trail Kotlin by days, so the branch can open with Kotlin alone and be red until
+      // its partner arrives and Renovate updates the same branch. That is expected and
+      // self-healing — one branch that goes green beats two that never do.
+      groupName: 'kotlin toolchain',
+      matchPackageNames: ['/^org\\.jetbrains\\.kotlin[.:]/', '/^com\\.google\\.devtools\\.ksp/'],
+      separateMajorMinor: false,
+    },
+    {
+      // AGP and Gradle share a compatibility matrix (AGP 9 needs Gradle 9). Split across
+      // two pull requests each one is red on its own; the second rule pulls the wrapper
+      // into the same group by name. separateMajorMinor is off on both for the same
+      // reason as the kotlin toolchain above: an AGP major beside a wrapper minor must
+      // not land in two separate branches.
+      groupName: 'android build toolchain',
+      matchPackageNames: ['/^com\\.android[.:]/'],
+      separateMajorMinor: false,
+    },
+    {
+      groupName: 'android build toolchain',
+      matchManagers: ['gradle-wrapper'],
+      separateMajorMinor: false,
+    },
+    {
+      // AndroidX minus the camera and Hilt artifacts: compile plus unit tests is the
+      // whole check. Both exclusions have their own group below.
+      groupName: 'androidx',
+      matchPackageNames: ['/^androidx\\./', '!/^androidx\\.camera/', '!/^androidx\\.hilt/'],
+    },
+    {
+      // Deliberately outside the androidx group: these drive the QR pairing scanner in
+      // feature/settings and the phone camera in feature/pestdetection, so a bump earns a
+      // retest on real hardware. One grouped pull request means one device test.
+      groupName: 'camera & vision',
+      matchPackageNames: ['/^androidx\\.camera/', '/^com\\.google\\.mlkit/'],
+    },
+    {
+      // Retrofit and OkHttp are covered by the MockWebServer tests in core/network.
+      //
+      // Coil travels with them for coupling rather than for that check: coil-network-okhttp
+      // is an OkHttp client, so an OkHttp major without the matching Coil release breaks
+      // exactly there, and splitting the two would put the break and its fix in different
+      // branches. Its own verification is narrower — Coil is used in feature/plants and no
+      // test exercises it, so a Coil bump is checked by compilation and by looking at the
+      // plant list. Worth knowing before waving this group through on a green pipeline.
+      groupName: 'network',
+      matchPackageNames: [
+        '/^com\\.squareup\\.(retrofit2|okhttp3)/',
+        '/^io\\.coil-kt/',
+      ],
+    },
+    {
+      groupName: 'kotlinx',
+      matchPackageNames: ['/^org\\.jetbrains\\.kotlinx/'],
+    },
+    {
+      // Hilt is the coupling the kotlin toolchain rule above cites as its own reason
+      // ("breaks the Hilt code generation") — and nothing grouped Hilt itself. The Dagger
+      // artifacts, the Hilt Gradle plugin and androidx.hilt:hilt-navigation-compose share
+      // one generated-code contract; hilt-navigation-compose compiles against what the
+      // Dagger compiler emits. Left in the androidx group it would move away from the
+      // compiler it is generated against, in a branch that carries a dozen passengers.
+      //
+      // No separateMajorMinor here, unlike the toolchain groups above: the Dagger artifacts
+      // and the plugin already share one version ref, so nothing splits when a major lands,
+      // and turning it off would only strip the `major-` branch that a Dagger major deserves.
+      groupName: 'hilt',
+      matchPackageNames: ['/^com\\.google\\.dagger/', '/^androidx\\.hilt/'],
+    },
+    {
+      // Test path only. Grouping covers EVERY update type on purpose: a major of one test
+      // library still travels with its siblings (in its own `major-` branch, which
+      // separateMajorMinor gives it), because the reviewer's handgrip does not change with
+      // the version digit — only the automerge decision does.
+      groupName: 'test dependencies',
+      matchPackageNames: ['/^junit[.:]/', '/^io\\.mockk/', '/^app\\.cash\\.turbine/'],
+    },
+    {
+      // The label, and only the label, is restricted to minor and patch: a green pipeline
+      // is the complete verdict there, so these automerge via .github/workflows/automerge.yaml.
+      // Majors stay a human decision. Two rules rather than one because matchUpdateTypes
+      // scopes the WHOLE rule — folded together, a test-dependency major would silently
+      // lose its group as well as its label. Keep the package list in step with the rule
+      // above; they are one decision written twice.
+      matchPackageNames: ['/^junit[.:]/', '/^io\\.mockk/', '/^app\\.cash\\.turbine/'],
+      matchUpdateTypes: ['minor', 'patch'],
+      addLabels: ['automerge'],
+    },
+    {
+      // Every action update — tag bump, digest move, pin — in one reviewed pull request.
+      // Deliberately WITHOUT the automerge label, for two reasons:
+      //
+      //  - A digest bump is not an upstream release: it is whatever SHA the tag points at
+      //    now, and a tag is mutable even from a trusted publisher (CVE-2025-30066). The
+      //    inherited `pinDigests: true` exists so each pin "ages as a reviewable pull
+      //    request instead of silently"; automerging would keep the pin immutable while
+      //    throwing away the review that catches a moved tag. minimumReleaseAge does not
+      //    help — it gates on release age, and a re-pointed tag is no new release at all.
+      //  - "the pull request's own CI run verifies it" holds for ci.yml only. The
+      //    reusable-workflow references in automerge.yaml and the four release workflows
+      //    are executed by no required check, so a renamed input in a future gh-plumbing
+      //    release would merge green and surface at the next release dispatch instead.
+      //
+      // One grouped pull request per cycle is a negligible review burden either way.
+      groupName: 'github actions',
+      matchManagers: ['github-actions'],
+    },
+    {
+      // Touches no application code, but deliberately NOT automerged: `task lint` drives
+      // Gradle directly and pre-commit only ever runs as a local git hook, so a hook bump
+      // reaches no check in CI at all. The mkdocs half is covered by the `Docs build` job
+      // — the group stays a single reviewed pull request until both halves are.
+      groupName: 'dev tooling',
+      matchManagers: ['pre-commit', 'pip_requirements'],
+    },
+    {
+      // Never grouped. A generator bump leaves checkApiClientUpToDate deliberately red
+      // until someone runs `./gradlew :core:network:generateApiClient` and commits the
+      // result — that red check is the intended signal. Inside a group it would block
+      // every passenger sharing the branch. See spec/api/openapi-client-integration/.
+      //
+      // No rule above or in the inherited preset groups this artifact today (Renovate's
+      // monorepo presets carry no openapi-generator entry), so this is a guard against a
+      // future broad rule, not an override of a current one. It only holds while it stays
+      // LAST: packageRules are last-match-wins, so a group rule appended below would win.
+      matchPackageNames: ['org.openapitools:openapi-generator-cli'],
+      groupName: null,
+    },
+    {
+      // Also never grouped: a detekt release ships new rules, so its pull request comes
+      // with new violations across the existing sources and wants its own review. Same
+      // guard-not-override caveat as the rule above — checked against Renovate's monorepo
+      // data, which has no detekt entry — and it must likewise stay at the end.
+      matchPackageNames: ['/^io\\.gitlab\\.arturbosch\\.detekt/'],
+      groupName: null,
+    },
+  ],
+
+  // `customManagers` carries `mergeable: true` just like `packageRules`, so Renovate
+  // concatenates preset-then-repo: the three managers from gh-plumbing/common
+  // (hacs/action, hassfest, nolte/vale-style) stay active alongside the one below. Do not
+  // copy the vale-style manager in here when adding Vale to this repo — it is inherited,
+  // and a second copy would register the same regex twice against .vale.ini.
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Age the Task binary version pinned in the workflows. The github-actions manager updates the setup-task digest but never looks at the Task release it installs, so without this manager the pin drifts silently while CI keeps reporting green.',
+      managerFilePatterns: ['/^\\.github/workflows/.+\\.ya?ml$/'],
+      // Two shapes, because the workflows hold two. The annotated `env:` in ci.yml is the
+      // single source for that file; any other workflow that pins Task inline is matched by
+      // the second pattern.
+      //
+      // The step-shaped pattern used to be the only one, and it was written tightly enough to
+      // break on nothing: it required `with:` on the very next line and `version:` as its
+      // first key. Reordering that block — legal YAML, CI still green — silently stopped the
+      // updates this manager exists to produce, with no error from Renovate to notice it by.
+      // (No precedent for the annotation in the inherited preset, incidentally: the hacs and
+      // hassfest managers there match the `uses:` line itself. This is a repo-local choice.)
+      matchStringsStrategy: 'any',
+      matchStrings: [
+        '#\\s*renovate:\\s*datasource=github-releases\\s+depName=go-task/task\\s*\\n\\s*TASK_VERSION:\\s*[\'"]?(?<currentValue>[^\'"\\s]+)',
+        // A literal version in a setup-task step, whatever order its inputs are in. The
+        // leading `[^$]` keeps it off `${{ env.TASK_VERSION }}`, which is a reference to the
+        // annotated pin above and not a version at all.
+        'uses:\\s+go-task/setup-task@[^\\n]*\\n(?:\\s+[\\w-]+:[^\\n]*\\n)*?\\s+version:\\s*[\'"]?(?<currentValue>[^\'"\\s$][^\'"\\s]*)',
+      ],
+      depNameTemplate: 'go-task/task',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.*)$',
     },
   ],
 }
