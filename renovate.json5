@@ -4,14 +4,17 @@
   // shared Renovate behaviour never drifts silently underneath this repo.
   extends: ['github>nolte/gh-plumbing//renovate-configs/common#v2.0.0'],
 
-  // Grouping cut (see the block of packageRules below): groups follow the
-  // VERIFICATION METHOD, not the ecosystem. Everything a reviewer checks with
-  // the same handgrip travels in one pull request; everything that needs its
-  // own check travels alone. Without this the ~36 update streams of this repo
-  // (23 version refs, 6 actions, the wrapper, pre-commit, the mkdocs stack)
-  // each open their own pull request.
+  // Let a release settle before it is offered. Renovate's vulnerabilityAlerts path
+  // overrides this to zero, so a known-vulnerable dependency is still offered at once.
   minimumReleaseAge: '3 days',
+  // Below the inherited default of 10: with `strict: true` on develop every merge
+  // makes the remaining branches stale, so a smaller window is less rebase churn.
   prConcurrentLimit: 5,
+
+  // Grouping cut: the groups below follow the VERIFICATION METHOD, not the ecosystem.
+  // Everything a reviewer checks with the same handgrip travels in one pull request;
+  // everything that needs its own check travels alone. Without this, each of the dozens
+  // of update streams in this repo opens its own pull request.
 
   packageRules: [
     {
@@ -40,6 +43,11 @@
       // prefixes the groupSlug with `major-` for a major update, so a Kotlin major beside
       // a KSP minor would split into two branches — each red on its own, which is exactly
       // what this group exists to prevent.
+      //
+      // What the group does NOT prevent is a partial branch in the meantime: KSP releases
+      // trail Kotlin by days, so the branch can open with Kotlin alone and be red until
+      // its partner arrives and Renovate updates the same branch. That is expected and
+      // self-healing — one branch that goes green beats two that never do.
       groupName: 'kotlin toolchain',
       matchPackageNames: ['/^org\\.jetbrains\\.kotlin[.:]/', '/^com\\.google\\.devtools\\.ksp/'],
       separateMajorMinor: false,
@@ -60,9 +68,10 @@
       separateMajorMinor: false,
     },
     {
-      // AndroidX minus the camera artifacts: compile plus unit tests is the whole check.
+      // AndroidX minus the camera and Hilt artifacts: compile plus unit tests is the
+      // whole check. Both exclusions have their own group below.
       groupName: 'androidx',
-      matchPackageNames: ['/^androidx\\./', '!/^androidx\\.camera/'],
+      matchPackageNames: ['/^androidx\\./', '!/^androidx\\.camera/', '!/^androidx\\.hilt/'],
     },
     {
       // Deliberately outside the androidx group: these drive the QR pairing scanner in
@@ -72,19 +81,46 @@
       matchPackageNames: ['/^androidx\\.camera/', '/^com\\.google\\.mlkit/'],
     },
     {
-      // Covered by the MockWebServer tests in core/network.
+      // Covered by the MockWebServer tests in core/network. Coil travels here rather than
+      // in its own stream because coil-network-okhttp is an OkHttp client: an OkHttp major
+      // without the matching Coil release breaks exactly there, and splitting the two
+      // would put the break and its fix in different branches.
       groupName: 'network',
-      matchPackageNames: ['/^com\\.squareup\\.(retrofit2|okhttp3)/'],
+      matchPackageNames: [
+        '/^com\\.squareup\\.(retrofit2|okhttp3)/',
+        '/^io\\.coil-kt/',
+      ],
     },
     {
       groupName: 'kotlinx',
       matchPackageNames: ['/^org\\.jetbrains\\.kotlinx/'],
     },
     {
-      // Test path only: a green pipeline is the complete verdict, so these carry the
-      // `automerge` label that .github/workflows/automerge.yaml acts on. Majors stay out
-      // of the label and remain a human decision.
+      // Hilt is the coupling the kotlin toolchain rule above cites as its own reason
+      // ("breaks the Hilt code generation") — and nothing grouped Hilt itself. The Dagger
+      // artifacts, the Hilt Gradle plugin and androidx.hilt:hilt-navigation-compose share
+      // one generated-code contract; hilt-navigation-compose compiles against what the
+      // Dagger compiler emits. Left in the androidx group it would move away from the
+      // compiler it is generated against, in a branch that carries a dozen passengers.
+      groupName: 'hilt',
+      matchPackageNames: ['/^com\\.google\\.dagger/', '/^androidx\\.hilt/'],
+      separateMajorMinor: false,
+    },
+    {
+      // Test path only. Grouping covers EVERY update type on purpose: a major of one test
+      // library still travels with its siblings (in its own `major-` branch, which
+      // separateMajorMinor gives it), because the reviewer's handgrip does not change with
+      // the version digit — only the automerge decision does.
       groupName: 'test dependencies',
+      matchPackageNames: ['/^junit[.:]/', '/^io\\.mockk/', '/^app\\.cash\\.turbine/'],
+    },
+    {
+      // The label, and only the label, is restricted to minor and patch: a green pipeline
+      // is the complete verdict there, so these automerge via .github/workflows/automerge.yaml.
+      // Majors stay a human decision. Two rules rather than one because matchUpdateTypes
+      // scopes the WHOLE rule — folded together, a test-dependency major would silently
+      // lose its group as well as its label. Keep the package list in step with the rule
+      // above; they are one decision written twice.
       matchPackageNames: ['/^junit[.:]/', '/^io\\.mockk/', '/^app\\.cash\\.turbine/'],
       matchUpdateTypes: ['minor', 'patch'],
       addLabels: ['automerge'],
@@ -121,12 +157,19 @@
       // until someone runs `./gradlew :core:network:generateApiClient` and commits the
       // result — that red check is the intended signal. Inside a group it would block
       // every passenger sharing the branch. See spec/api/openapi-client-integration/.
+      //
+      // No rule above or in the inherited preset groups this artifact today (Renovate's
+      // monorepo presets carry no openapi-generator entry), so this is a guard against a
+      // future broad rule, not an override of a current one. It only holds while it stays
+      // LAST: packageRules are last-match-wins, so a group rule appended below would win.
       matchPackageNames: ['org.openapitools:openapi-generator-cli'],
       groupName: null,
     },
     {
       // Also never grouped: a detekt release ships new rules, so its pull request comes
-      // with new violations across the existing sources and wants its own review.
+      // with new violations across the existing sources and wants its own review. Same
+      // guard-not-override caveat as the rule above — checked against Renovate's monorepo
+      // data, which has no detekt entry — and it must likewise stay at the end.
       matchPackageNames: ['/^io\\.gitlab\\.arturbosch\\.detekt/'],
       groupName: null,
     },
@@ -140,10 +183,15 @@
   customManagers: [
     {
       customType: 'regex',
-      description: 'Age the Task binary version pinned in the setup-task step. The github-actions manager updates the action digest but never looks at its `version:` input, so without this manager the pinned Task release drifts silently while CI keeps reporting green.',
+      description: 'Age the Task binary version pinned in the workflows. The github-actions manager updates the setup-task digest but never looks at the Task release it installs, so without this manager the pin drifts silently while CI keeps reporting green.',
       managerFilePatterns: ['/^\\.github/workflows/.+\\.ya?ml$/'],
+      // Anchored on the `# renovate:` annotation directly above the value, the same way
+      // the inherited hacs/hassfest managers work. The first version of this matched the
+      // setup-task step itself — uses-line, then `with:`, then `version:` as its first
+      // key — which made a harmless reordering of that block silently stop the updates
+      // this manager exists to produce, with no error from Renovate to notice it by.
       matchStrings: [
-        'uses:\\s+go-task/setup-task@[0-9a-f]{40}[^\\n]*\\n\\s+with:\\n\\s+version:\\s+(?<currentValue>\\S+)',
+        '#\\s*renovate:\\s*datasource=github-releases\\s+depName=go-task/task\\s*\\n\\s*TASK_VERSION:\\s*[\'"]?(?<currentValue>[^\'"\\s]+)',
       ],
       depNameTemplate: 'go-task/task',
       datasourceTemplate: 'github-releases',

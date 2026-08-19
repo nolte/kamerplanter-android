@@ -8,14 +8,24 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned once for every job below. The annotation is what the custom manager in
+  # renovate.json5 matches on — it deliberately anchors to this comment rather than to
+  # the shape of the setup-task step, so reordering `with:` keys cannot silently kill
+  # the update stream and leave the pin drifting while CI stays green.
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 3.52.0
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    # This job name is a required status check in .github/settings.yml —
-    # rename both together or the merge gate goes stale.
+    # This job name is a required status check in .github/settings.yml — rename both
+    # together or the merge gate goes stale. For the same reason this job must keep
+    # running on every pull request: a required check that is skipped by a `paths:`
+    # filter never reports, stays "expected" forever and blocks the merge outright.
     name: Build, lint & test
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -34,7 +44,7 @@ jobs:
       - name: Set up Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
-          version: 3.52.0
+          version: ${{ env.TASK_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Local↔CI parity (spec/project/taskfile/): CI calls the same targets a
@@ -51,7 +61,8 @@ jobs:
 
   docs:
     # Like the build job above, this job name is a required status check in
-    # .github/settings.yml — rename both together or the merge gate goes stale.
+    # .github/settings.yml: rename both together, and never add a `paths:` filter —
+    # a required check that does not report blocks every merge (see the build job).
     name: Docs build
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -65,7 +76,7 @@ jobs:
       - name: Set up Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
         with:
-          version: 3.52.0
+          version: ${{ env.TASK_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build docs
