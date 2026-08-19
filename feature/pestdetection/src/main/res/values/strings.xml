@@ -90,4 +90,35 @@
     <string name="pest_failed_unsupported_type">Your instance accepts JPEG and PNG photos only, and this one is neither.</string>
     <string name="pest_failed_not_permitted">Your account may not run pest detection in this tenant.</string>
     <string name="pest_failed_consent">Your choice could not be saved. Try again.</string>
+
+    <!-- Human-in-the-loop feedback on a finding (#10). -->
+    <string name="pest_feedback_prompt">Was this right?</string>
+    <string name="pest_feedback_correct">Correct</string>
+    <string name="pest_feedback_wrong">Wrong</string>
+    <string name="pest_feedback_beneficial">It is a beneficial</string>
+    <string name="pest_feedback_recorded">Thanks — recorded on your instance.</string>
+    <string name="pest_feedback_said_correct">You confirmed this finding.</string>
+    <string name="pest_feedback_said_wrong">You marked this finding as wrong.</string>
+    <string name="pest_feedback_said_beneficial">You marked this as a beneficial.</string>
+    <string name="pest_feedback_not_permitted">Your instance does not let this connection record feedback.</string>
+    <string name="pest_feedback_failed">The feedback could not be recorded. Try again.</string>
+
+    <!-- Turning a finding into an IPM inspection; needs a permission detection does not. -->
+    <string name="pest_inspection_create">Create an inspection</string>
+    <string name="pest_inspection_created">Inspection created for this plant.</string>
+    <string name="pest_inspection_not_permitted">Your instance does not let this connection create inspections.</string>
+    <string name="pest_inspection_failed">The inspection could not be created. Try again.</string>
+
+    <!-- Past detections for the plant this check was opened from. -->
+    <string name="pest_history_open">Past checks</string>
+    <string name="pest_history_title">Past checks</string>
+    <string name="pest_history_close">Close</string>
+    <string name="pest_history_empty">No pest check has been recorded for this plant yet.</string>
+    <string name="pest_history_loading">Loading past checks…</string>
+    <string name="pest_history_failed">The past checks could not be loaded.</string>
+    <string name="pest_history_unauthorized">Your instance refused the stored credential.</string>
+    <string name="pest_history_not_permitted">Your instance does not let this connection read past checks.</string>
+    <string name="pest_history_abstained">No reliable detection</string>
+    <!-- %1$d is how many findings that check produced. -->
+    <string name="pest_history_findings">%1$d finding(s)</string>
 </resources>

@@ -46,9 +46,19 @@ internal fun CaptureStep(
     camera: MicroscopeState,
     actions: CaptureActions,
     modifier: Modifier = Modifier,
+    /**
+     * Opens the plant's past checks, or `null` where there is no plant to have any.
+     *
+     * On the picker rather than beside the shutter: this is the moment the user is deciding
+     * what to photograph, and "what did the last check say" is the question they are deciding
+     * it with. It leaves once a viewfinder is open, where the answer is the frame in front of
+     * them.
+     */
+    onShowHistory: (() -> Unit)? = null,
 ) {
     when (state.source) {
         null -> SourcePicker(
+            onShowHistory = onShowHistory,
             // Attached is enough to offer it — whether it is streaming yet is the viewfinder's
             // problem, and a picker that waited for a stream would look broken while the USB
             // dialogue is open.
@@ -87,6 +97,7 @@ private fun SourcePicker(
     microscopeAttached: Boolean,
     onChoose: (CaptureSource) -> Unit,
     modifier: Modifier = Modifier,
+    onShowHistory: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.padding(24.dp),
@@ -114,6 +125,11 @@ private fun SourcePicker(
             enabled = microscopeAttached,
             onClick = { onChoose(CaptureSource.MICROSCOPE) },
         )
+        onShowHistory?.let {
+            TextButton(onClick = it) {
+                Text(stringResource(R.string.pest_history_open))
+            }
+        }
     }
 }
 
