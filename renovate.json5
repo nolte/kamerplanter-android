@@ -81,10 +81,14 @@
       matchPackageNames: ['/^androidx\\.camera/', '/^com\\.google\\.mlkit/'],
     },
     {
-      // Covered by the MockWebServer tests in core/network. Coil travels here rather than
-      // in its own stream because coil-network-okhttp is an OkHttp client: an OkHttp major
-      // without the matching Coil release breaks exactly there, and splitting the two
-      // would put the break and its fix in different branches.
+      // Retrofit and OkHttp are covered by the MockWebServer tests in core/network.
+      //
+      // Coil travels with them for coupling rather than for that check: coil-network-okhttp
+      // is an OkHttp client, so an OkHttp major without the matching Coil release breaks
+      // exactly there, and splitting the two would put the break and its fix in different
+      // branches. Its own verification is narrower — Coil is used in feature/plants and no
+      // test exercises it, so a Coil bump is checked by compilation and by looking at the
+      // plant list. Worth knowing before waving this group through on a green pipeline.
       groupName: 'network',
       matchPackageNames: [
         '/^com\\.squareup\\.(retrofit2|okhttp3)/',
@@ -102,9 +106,12 @@
       // one generated-code contract; hilt-navigation-compose compiles against what the
       // Dagger compiler emits. Left in the androidx group it would move away from the
       // compiler it is generated against, in a branch that carries a dozen passengers.
+      //
+      // No separateMajorMinor here, unlike the toolchain groups above: the Dagger artifacts
+      // and the plugin already share one version ref, so nothing splits when a major lands,
+      // and turning it off would only strip the `major-` branch that a Dagger major deserves.
       groupName: 'hilt',
       matchPackageNames: ['/^com\\.google\\.dagger/', '/^androidx\\.hilt/'],
-      separateMajorMinor: false,
     },
     {
       // Test path only. Grouping covers EVERY update type on purpose: a major of one test
@@ -185,13 +192,23 @@
       customType: 'regex',
       description: 'Age the Task binary version pinned in the workflows. The github-actions manager updates the setup-task digest but never looks at the Task release it installs, so without this manager the pin drifts silently while CI keeps reporting green.',
       managerFilePatterns: ['/^\\.github/workflows/.+\\.ya?ml$/'],
-      // Anchored on the `# renovate:` annotation directly above the value, the same way
-      // the inherited hacs/hassfest managers work. The first version of this matched the
-      // setup-task step itself — uses-line, then `with:`, then `version:` as its first
-      // key — which made a harmless reordering of that block silently stop the updates
-      // this manager exists to produce, with no error from Renovate to notice it by.
+      // Two shapes, because the workflows hold two. The annotated `env:` in ci.yml is the
+      // single source for that file; any other workflow that pins Task inline is matched by
+      // the second pattern.
+      //
+      // The step-shaped pattern used to be the only one, and it was written tightly enough to
+      // break on nothing: it required `with:` on the very next line and `version:` as its
+      // first key. Reordering that block — legal YAML, CI still green — silently stopped the
+      // updates this manager exists to produce, with no error from Renovate to notice it by.
+      // (No precedent for the annotation in the inherited preset, incidentally: the hacs and
+      // hassfest managers there match the `uses:` line itself. This is a repo-local choice.)
+      matchStringsStrategy: 'any',
       matchStrings: [
         '#\\s*renovate:\\s*datasource=github-releases\\s+depName=go-task/task\\s*\\n\\s*TASK_VERSION:\\s*[\'"]?(?<currentValue>[^\'"\\s]+)',
+        // A literal version in a setup-task step, whatever order its inputs are in. The
+        // leading `[^$]` keeps it off `${{ env.TASK_VERSION }}`, which is a reference to the
+        // annotated pin above and not a version at all.
+        'uses:\\s+go-task/setup-task@[^\\n]*\\n(?:\\s+[\\w-]+:[^\\n]*\\n)*?\\s+version:\\s*[\'"]?(?<currentValue>[^\'"\\s$][^\'"\\s]*)',
       ],
       depNameTemplate: 'go-task/task',
       datasourceTemplate: 'github-releases',
