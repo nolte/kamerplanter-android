@@ -10,7 +10,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * A `/connect` link waiting to be acted on.
+ * A `/connect` link waiting to be acted on — or the reason one cannot be.
  *
  * The activity receives the intent and Settings acts on it, and neither can hand it to the
  * other directly: the link can arrive before Settings exists (a cold start from the system
@@ -25,10 +25,17 @@ import javax.inject.Singleton
 @Singleton
 class PendingDiscovery @Inject constructor() {
 
-    private val _link = MutableStateFlow<DiscoveryLink?>(null)
+    private val _link = MutableStateFlow<DiscoveryOutcome?>(null)
 
-    /** The link waiting to be acted on, or `null` when there is none. */
-    val link: StateFlow<DiscoveryLink?> = _link.asStateFlow()
+    /**
+     * What is waiting to be shown, or `null` when nothing is.
+     *
+     * A refusal travels the same way a usable link does. It has to: the deep-link channel
+     * claimed the intent and opened the app, so the user is already looking at it, and a
+     * refusal that stopped at the activity left them on a screen that said nothing about the
+     * link they had just tapped (#40).
+     */
+    val link: StateFlow<DiscoveryOutcome?> = _link.asStateFlow()
 
     private val _arrivals = Channel<Unit>(Channel.CONFLATED)
 
@@ -50,7 +57,7 @@ class PendingDiscovery @Inject constructor() {
      */
     val arrivals: Flow<Unit> = _arrivals.receiveAsFlow()
 
-    fun offer(link: DiscoveryLink) {
+    fun offer(link: DiscoveryOutcome) {
         _link.value = link
         _arrivals.trySend(Unit)
     }
@@ -63,5 +70,5 @@ class PendingDiscovery @Inject constructor() {
      * actually acted on, so a newer one that arrived in between is left for the next round
      * rather than thrown away unseen.
      */
-    fun consume(taken: DiscoveryLink): Boolean = _link.compareAndSet(taken, null)
+    fun consume(taken: DiscoveryOutcome): Boolean = _link.compareAndSet(taken, null)
 }

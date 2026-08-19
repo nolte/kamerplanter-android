@@ -72,13 +72,26 @@
                      narrowing is one-sided on purpose — it removes the claims that are never
                      ours, and leaves the ones only the parser can judge.
 
-                     https only, although the parser also reads `http://<private address>` for
-                     a development instance served without TLS. A wildcard-host filter is a
-                     claim on every host on the internet, and staking it for cleartext as well
-                     is broader than this app needs: a development instance's link is scanned
-                     in-app, where the same parser reads it. Deliberate, not an oversight. -->
+                     Both web schemes, because a `/connect` link is built from the instance's
+                     own `window.location.origin` and a self-hosted instance without TLS emits
+                     an `http://` one. Claiming https alone was the narrower stake and it cost
+                     more than it saved: a development instance's link opened a browser that
+                     could not reach it, and an unusable one — plain http to a routable host —
+                     never reached the app at all, so the explanation this channel now carries
+                     had nothing to explain (#40).
+
+                     Claiming a link is not trusting it. What may be connected to is
+                     `InstanceAddressPolicy`'s decision, unchanged: cleartext is accepted only
+                     at a private address, and a cleartext link to a routable host is refused
+                     with that reason said out loud. The link itself is credential-free either
+                     way, and nothing is connected to without the user agreeing to it on the
+                     settings screen. -->
                 <data
                     android:scheme="https"
+                    android:host="*"
+                    android:path="/connect" />
+                <data
+                    android:scheme="http"
                     android:host="*"
                     android:path="/connect" />
             </intent-filter>

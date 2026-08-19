@@ -1,5 +1,7 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
+
 /**
  * What the app made of a QR code the camera decoded.
  *
@@ -8,35 +10,32 @@ package io.github.nolte.kamerplanter.feature.settings
  * which makes a parser that reads the wrong payload format indistinguishable from a camera
  * that never focused. Returning the verdict rather than logging it also puts it where a JVM
  * test can assert on it.
+ *
+ * The refusals are carried as [PayloadRefusal] rather than restated as cases of their own.
+ * They were restated, and that is one half of what #40 was about: the reason a code is refused
+ * belongs to the payload contract, and every layer that re-enumerated it was a layer a new
+ * reason could be forgotten in.
  */
-enum class QrReading {
+sealed interface QrReading {
 
     /** A kamerplanter payload. The connection attempt has started. */
-    ACCEPTED,
+    data object Accepted : QrReading
 
     /** A QR code, but not a kamerplanter one at all — someone else's. */
-    FOREIGN,
-
-    /** A kamerplanter code newer than this build: the app is behind, not the code. */
-    TOO_NEW,
-
-    /** A kamerplanter code older than this build reads: the instance is behind. */
-    TOO_OLD,
+    data object Foreign : QrReading
 
     /**
-     * A kamerplanter code naming an instance reached without TLS on a routable address.
+     * A kamerplanter code this build will not act on, and why.
      *
-     * Told it was "not a kamerplanter code", a self-hoster would look for the fault in their
-     * instance rather than in this app's rule about unencrypted connections.
+     * The reason is the same value the deep-link channel carries, worded from the same place,
+     * so the identical URL cannot explain itself through one entry point and stay silent in
+     * the other.
      */
-    ADDRESS_NOT_ENCRYPTED,
-
-    /** A kamerplanter code naming an address this app cannot use at all. */
-    ADDRESS_UNUSABLE,
+    data class Refused(val reason: PayloadRefusal) : QrReading
 
     /**
      * Decoded after the scan had already ended: the frame that carried the accepted code is
      * usually followed by more of the same before the camera unbinds. Not worth reporting.
      */
-    STALE,
+    data object Stale : QrReading
 }

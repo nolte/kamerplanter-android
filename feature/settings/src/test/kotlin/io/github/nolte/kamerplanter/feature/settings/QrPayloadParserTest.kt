@@ -1,6 +1,7 @@
 package io.github.nolte.kamerplanter.feature.settings
 
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -70,7 +71,7 @@ class QrPayloadParserTest {
         // all. Only "too new" is reachable while v1 is both the first and the supported
         // version; the other waits for the day this app moves on.
         assertEquals(
-            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayload.Refused(PayloadRefusal.PAYLOAD_TOO_NEW),
             QrPayloadParser.parse(payload.replace("\"v\":1", "\"v\":2")),
         )
     }
@@ -87,7 +88,7 @@ class QrPayloadParserTest {
     @Test
     fun `a newer payload is claimed as ours when a known field remains`() {
         assertEquals(
-            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayload.Refused(PayloadRefusal.PAYLOAD_TOO_NEW),
             QrPayloadParser.parse("""{"v":2,"url":"https://garten.example.org","secret":"x"}"""),
         )
     }
@@ -143,7 +144,7 @@ class QrPayloadParserTest {
     @Test
     fun `a discovery link from a newer release is refused as ours`() {
         assertEquals(
-            QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW),
+            QrPayload.Refused(PayloadRefusal.PAYLOAD_TOO_NEW),
             QrPayloadParser.parse("https://garten.example.org/connect?v=2"),
         )
         // Still not ours when the shape is not a `/connect` link at all.
@@ -204,7 +205,7 @@ class QrPayloadParserTest {
         val onPlainHttp = """{"v":1,"url":"http://garten.example.org","code":"Qm5kR2xo"}"""
 
         assertEquals(
-            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ENCRYPTED),
+            QrPayload.Refused(PayloadRefusal.ADDRESS_NOT_ENCRYPTED),
             QrPayloadParser.parse(onPlainHttp),
         )
     }
@@ -218,7 +219,7 @@ class QrPayloadParserTest {
     @Test
     fun `an address with no usable scheme is refused as unusable`() {
         assertEquals(
-            QrPayload.Refused(RefusedReason.ADDRESS_UNUSABLE),
+            QrPayload.Refused(PayloadRefusal.ADDRESS_UNUSABLE),
             QrPayloadParser.parse("""{"v":1,"url":"garten.example.org","code":"Qm5kR2xo"}"""),
         )
     }
@@ -243,7 +244,7 @@ class QrPayloadParserTest {
         val instance = "http://garten.example.org"
 
         assertEquals(
-            QrPayload.Refused(RefusedReason.ADDRESS_NOT_ENCRYPTED),
+            QrPayload.Refused(PayloadRefusal.ADDRESS_NOT_ENCRYPTED),
             QrPayloadParser.parse("$instance/connect?v=1"),
         )
         // The point is that the two agree: whichever frame the analyser decodes first, the

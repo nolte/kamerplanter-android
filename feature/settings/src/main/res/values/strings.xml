@@ -31,8 +31,15 @@
     <string name="settings_grant_local_network">Grant local network access</string>
     <string name="settings_tenant_choice_title">Which garden?</string>
     <string name="settings_tenant_choice_body">This instance holds more than one. The app connects to the one you pick.</string>
-    <string name="settings_scan_too_new">This kamerplanter code is newer than the app. Update the app to use it.</string>
-    <string name="settings_scan_too_old">This kamerplanter code is older than the app reads. Update the instance.</string>
-    <string name="settings_scan_address_not_encrypted">This instance is reached without encryption, which the app allows only inside your own network.</string>
-    <string name="settings_scan_address_unusable">The address in this code cannot be used — the app cannot reach the instance it names.</string>
+    <!--
+      One wording per refusal, shown wherever a kamerplanter payload is refused: under the
+      scanner, and on this screen after a /connect link was tapped. Worded for both — neither
+      "code" nor "link" appears, because the same sentence has to fit whichever the user used.
+    -->
+    <string name="settings_refused_too_new">This comes from a newer kamerplanter than the app can read. Update the app to use it.</string>
+    <string name="settings_refused_too_old">This comes from an older kamerplanter than the app reads. Update the instance.</string>
+    <string name="settings_refused_address_not_encrypted">This instance is reached without encryption, which the app allows only inside your own network.</string>
+    <string name="settings_refused_address_unusable">The address named here cannot be used — the app cannot reach the instance it points at.</string>
+    <string name="settings_link_refused_title">This link cannot be opened</string>
+    <string name="settings_link_refused_dismiss">OK</string>
 </resources>

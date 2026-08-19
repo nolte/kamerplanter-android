@@ -11,6 +11,7 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionResult
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.connection.DiscoveryOutcome
 import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import io.github.nolte.kamerplanter.core.connection.sameInstanceAs
@@ -122,7 +123,13 @@ class SettingsViewModel @Inject constructor(
             // process died.
             combine(_state, discoveries.link, ::Pair).collect { (current, waiting) ->
                 if (waiting == null || !current.isRestingState()) return@collect
-                val offer = offerOf(waiting.baseUrl, established?.baseUrl)
+                val offer = when (waiting) {
+                    is DiscoveryOutcome.Usable ->
+                        offerOf(waiting.link.baseUrl, established?.baseUrl)
+                    // The app opened because the user tapped this link. Dropping the refusal
+                    // here is what left them looking at a screen with nothing to say about it.
+                    is DiscoveryOutcome.Refused -> ConnectionState.LinkRefused(waiting.reason)
+                }
                 // Consumed only once the transition has landed. `update` re-runs its lambda on
                 // a lost compare-and-set, so consuming inside one would take the link on the
                 // first attempt and hand back nothing on the second — scanned, swallowed,
@@ -161,7 +168,7 @@ class SettingsViewModel @Inject constructor(
      * frame must not end the scan — but it is always reported, because "no kamerplanter code
      * here" and "the camera sees nothing" are the same picture to the person holding the
      * phone. Which report depends on what was refused: a stranger's code is
-     * [QrReading.FOREIGN], while one of ours that this build cannot use says so and says why.
+     * [QrReading.Foreign], while one of ours that this build cannot use says so and says why.
      *
      * [QrScannerView] delivers on the main thread, so the read of `ScanningQr` and the move
      * out of it are one uninterrupted step. The compare-and-set form is kept anyway: it costs
@@ -169,15 +176,15 @@ class SettingsViewModel @Inject constructor(
      */
     fun onQrDetected(raw: String): QrReading {
         val scanning = _state.value as? ConnectionState.Collecting.ScanningQr
-            ?: return QrReading.STALE
+            ?: return QrReading.Stale
         return when (val payload = QrPayloadParser.parse(raw)) {
-            null -> QrReading.FOREIGN
+            null -> QrReading.Foreign
             is QrPayload.Pairing -> {
                 // The compare-and-set decides the answer here too. A frame still in flight
                 // after `cancel()` — this runs on ML Kit's analyzer thread, cancel on the main
                 // one — starts no pairing, and saying "recognised" for it is the very
                 // indistinguishability this return value exists to remove.
-                if (verify(scanning, payload.request)) QrReading.ACCEPTED else QrReading.STALE
+                if (verify(scanning, payload.request)) QrReading.Accepted else QrReading.Stale
             }
             // A link is an address, not a decision. It reaches the same offer a `/connect`
             // deep link does — including the warning that continuing replaces a working
@@ -191,7 +198,7 @@ class SettingsViewModel @Inject constructor(
             // pairing was reachable only by pointing the camera away.
             is QrPayload.Discovery -> {
                 if (scanning.prefilledBaseUrl?.sameInstanceAs(payload.baseUrl) == true) {
-                    QrReading.STALE
+                    QrReading.Stale
                 } else {
                     // The compare-and-set decides the answer rather than being ignored. A lost
                     // one means the scan changed nothing — `cancel()` landed first, or a
@@ -201,15 +208,13 @@ class SettingsViewModel @Inject constructor(
                         scanning,
                         offerOf(payload.baseUrl, established?.baseUrl),
                     )
-                    if (moved) QrReading.ACCEPTED else QrReading.STALE
+                    if (moved) QrReading.Accepted else QrReading.Stale
                 }
             }
-            is QrPayload.Refused -> when (payload.reason) {
-                RefusedReason.PAYLOAD_TOO_NEW -> QrReading.TOO_NEW
-                RefusedReason.PAYLOAD_TOO_OLD -> QrReading.TOO_OLD
-                RefusedReason.ADDRESS_NOT_ENCRYPTED -> QrReading.ADDRESS_NOT_ENCRYPTED
-                RefusedReason.ADDRESS_UNUSABLE -> QrReading.ADDRESS_UNUSABLE
-            }
+            // Passed through rather than translated. The four reasons used to be restated as
+            // four readings here, which meant a fifth could be added to the payload contract
+            // and never reach the screen.
+            is QrPayload.Refused -> QrReading.Refused(payload.reason)
         }
     }
 
@@ -268,6 +273,9 @@ class SettingsViewModel @Inject constructor(
                 // Dismissing a discovered instance is leaving without connecting, which is
                 // what this already means. Nothing was in flight, so nothing is discarded.
                 is ConnectionState.Discovered,
+                // Acknowledging a refused link is the same act: nothing was started, and the
+                // sentence has been read.
+                is ConnectionState.LinkRefused,
                 -> restingState
                 else -> current
             }
