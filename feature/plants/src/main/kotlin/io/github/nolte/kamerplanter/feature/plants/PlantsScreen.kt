@@ -50,11 +50,12 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * The Plants tab: the connected tenant's plant instances, one row each.
+ * The Plants tab: the connected tenant's plant instances, one row each, narrowed by search
+ * and the filter chips above them.
  *
- * Filtering and search are deliberately absent for now — this is the list only. What is here
- * instead is every state the list can be in, because a screen that shows an empty box when
- * the app is disconnected is indistinguishable from one that is merely slow.
+ * Every state the list can be in is distinct, because a screen that shows an empty box when
+ * the app is disconnected is indistinguishable from one that is merely slow — and, now that
+ * the list can be narrowed, from one whose filters happen to match nothing.
  */
 @Composable
 fun PlantsScreen(
@@ -75,6 +76,7 @@ fun PlantsScreen(
             onRetry = viewModel::retry,
             onOpenSettings = onOpenSettings,
             onOpenPlant = onOpenPlant,
+            onFilterChange = viewModel::filterBy,
         ),
         imageLoader = imageLoader,
         modifier = modifier,
@@ -120,23 +122,59 @@ internal fun PlantsContent(
                     onAction = actions.onRetry,
                 )
             }
-            is PlantListState.Content -> PlantList(state.plants, imageLoader, actions.onOpenPlant)
+            is PlantListState.Content -> PlantList(state, imageLoader, actions)
         }
     }
 }
 
+/**
+ * The filter row, and under it whatever survives it.
+ *
+ * The row stays put when nothing survives: a filtered list that empties itself and takes its
+ * own controls with it strands the user, who then has no way to widen what they narrowed
+ * short of leaving the tab.
+ */
 @Composable
 private fun PlantList(
-    plants: List<PlantSummary>,
+    state: PlantListState.Content,
     imageLoader: ImageLoader?,
-    onOpenPlant: (plantKey: String) -> Unit,
+    actions: PlantListActions,
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(items = plants, key = { it.key }) { plant ->
-            PlantRow(plant, imageLoader, onClick = { onOpenPlant(plant.key) })
-            // Inset to where the text starts (thumbnail plus its gap), so the divider reads as
-            // a break between entries rather than a rule drawn across the page.
-            HorizontalDivider(modifier = Modifier.padding(start = THUMBNAIL_SIZE + 32.dp))
+    val visible = state.visible
+    Column(modifier = Modifier.fillMaxSize()) {
+        PlantFilterBar(
+            filter = state.filter,
+            options = state.options,
+            onFilterChange = actions.onFilterChange,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        )
+        if (state.onlyRemoved) {
+            CenteredMessage(
+                title = stringResource(R.string.plants_only_removed_title),
+                body = stringResource(R.string.plants_only_removed_body),
+                actionLabel = stringResource(R.string.plants_filter_show_removed),
+                onAction = { actions.onFilterChange(state.filter.copy(includeRemoved = true)) },
+            )
+        } else if (visible.isEmpty()) {
+            // Not the same sentence as an instance with no plants: this tenant has plants,
+            // and the reason none are on screen is a choice the user made and can undo.
+            CenteredMessage(
+                title = stringResource(R.string.plants_filter_no_matches_title),
+                body = stringResource(R.string.plants_filter_no_matches_body),
+                actionLabel = stringResource(R.string.plants_filter_clear),
+                onAction = { actions.onFilterChange(PlantFilter()) },
+            )
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(items = visible, key = { it.key }) { plant ->
+                    PlantRow(plant, imageLoader, onClick = { actions.onOpenPlant(plant.key) })
+                    // Inset to where the text starts (thumbnail plus its gap), so the divider
+                    // reads as a break between entries rather than a rule across the page.
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = THUMBNAIL_SIZE + 32.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -196,6 +234,16 @@ private fun PlantRow(plant: PlantSummary, imageLoader: ImageLoader?, onClick: ()
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            // A removed plant only ever reaches this list because the user asked for it, and
+            // it has to say so: dead and living plants that look alike would make the toggle
+            // read as if it had done nothing.
+            if (plant.isRemoved) {
+                Text(
+                    text = stringResource(R.string.plants_removed),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             plant.careAction?.let {
                 CareBadge(action = it, modifier = Modifier.padding(top = 6.dp))
             }
@@ -406,4 +454,5 @@ data class PlantListActions(
     val onRetry: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onOpenPlant: (plantKey: String) -> Unit,
+    val onFilterChange: (PlantFilter) -> Unit,
 )

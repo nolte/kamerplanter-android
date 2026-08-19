@@ -11,9 +11,11 @@ import io.github.nolte.kamerplanter.core.network.PlantListOutcome
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,8 +41,28 @@ class PlantListViewModel @Inject constructor(
     changes: PlantDataChanges,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<PlantListState>(PlantListState.Loading)
-    val state: StateFlow<PlantListState> = _state.asStateFlow()
+    /**
+     * What the instance answered, filter-free.
+     *
+     * Kept apart from the filter so the two cannot drift: a reload replaces this and leaves
+     * the narrowing alone, and narrowing rewrites nothing that was loaded. Merged into one
+     * state below, which is the only thing the screen sees.
+     */
+    private val loaded = MutableStateFlow<PlantListState>(PlantListState.Loading)
+
+    private val filter = MutableStateFlow(PlantFilter())
+
+    val state: StateFlow<PlantListState> =
+        combine(loaded, filter) { plants, narrowing ->
+            if (plants is PlantListState.Content) plants.copy(filter = narrowing) else plants
+        }.stateIn(
+            scope = viewModelScope,
+            // Eagerly rather than WhileSubscribed: the load starts in `init` regardless, so a
+            // lazily started merge would drop the result of a load that already ran and leave
+            // the tab on "loading" until something wrote again.
+            started = SharingStarted.Eagerly,
+            initialValue = PlantListState.Loading,
+        )
 
     /**
      * The load in flight. Held so a reconnect can cancel the previous one: without that, a
@@ -66,8 +88,12 @@ class PlantListViewModel @Inject constructor(
                 }
                 .collect { connection ->
                     loading?.cancel()
+                    // A narrowing belongs to the tenant it was typed against: its locations,
+                    // its species, its phases. Carried across an instance switch it would
+                    // hide the new tenant's plants behind a value none of them can match.
+                    filter.value = PlantFilter()
                     if (connection == null) {
-                        _state.value = PlantListState.NotConnected
+                        loaded.value = PlantListState.NotConnected
                     } else {
                         load()
                     }
@@ -82,13 +108,13 @@ class PlantListViewModel @Inject constructor(
         // there.
         viewModelScope.launch {
             changes.changes.collect {
-                if (_state.value != PlantListState.NotConnected) retry()
+                if (loaded.value != PlantListState.NotConnected) retry()
             }
         }
     }
 
     private fun credentialWasRejected(): Boolean =
-        (_state.value as? PlantListState.Failed)?.credentialRejected == true
+        (loaded.value as? PlantListState.Failed)?.credentialRejected == true
 
     /** Re-runs the load; the screen offers this after a failure. */
     fun retry() {
@@ -96,10 +122,15 @@ class PlantListViewModel @Inject constructor(
         load()
     }
 
+    /** Narrows the list. The loaded set is untouched — nothing is re-fetched. */
+    fun filterBy(narrowing: PlantFilter) {
+        filter.value = narrowing
+    }
+
     private fun load() {
-        _state.value = PlantListState.Loading
+        loaded.value = PlantListState.Loading
         loading = viewModelScope.launch {
-            _state.value = when (val outcome = plants.loadPlants()) {
+            loaded.value = when (val outcome = plants.loadPlants()) {
                 is PlantListOutcome.Loaded ->
                     if (outcome.plants.isEmpty()) {
                         PlantListState.Empty
