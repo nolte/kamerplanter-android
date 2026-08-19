@@ -254,6 +254,23 @@ class QrPayloadParserTest {
         )
     }
 
+    /**
+     * A `/connect` path on a foreign scheme is not a kamerplanter link.
+     *
+     * The link parser stopped consulting the address policy so that a plain-`http` instance's
+     * link could be refused *as ours* — and that briefly let any scheme through: `myapp://
+     * server/connect?v=2` was answered with "newer than the app; update it", for a code that
+     * was never kamerplanter's. A `/connect` link is built from a browser's own origin, so
+     * http(s) is what makes it ours; whether that address may then be used is a later and
+     * separate question.
+     */
+    @Test
+    fun `a connect path on a foreign scheme is not claimed as ours`() {
+        assertNull(QrPayloadParser.parse("myapp://server/connect?v=1"))
+        assertNull(QrPayloadParser.parse("myapp://server/connect?v=2"))
+        assertNull(QrPayloadParser.parse("ftp://plants.example/connect?v=1"))
+    }
+
     /** Anything else fails as "keep scanning", never as an exception (R44). */
     @Test
     fun `refuses anything that is not one of the two shapes`() {

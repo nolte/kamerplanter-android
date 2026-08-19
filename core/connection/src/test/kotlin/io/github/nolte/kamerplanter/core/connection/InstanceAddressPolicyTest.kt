@@ -160,4 +160,22 @@ class InstanceAddressPolicyTest {
         // The ordinary case this fallback exists for keeps working.
         assertTrue(InstanceAddressPolicy.permits("http://mein_nas.local:8000"))
     }
+
+    /**
+     * The port rule holds on both parse paths, not only where the host needed salvaging.
+     *
+     * `java.net.URI` names an ordinary host itself and only checks that the port is digits
+     * fitting an `Int`, so `:0` and `:99999` reached the app intact while the identical text
+     * on an underscored host was refused. Every assertion here passed against a version that
+     * enforced the range in one branch only — which is what made the invariant above read as
+     * general when it was not.
+     */
+    @Test
+    fun `the port rule does not depend on which parser named the host`() {
+        assertFalse(InstanceAddressPolicy.permits("https://example.org:0"))
+        assertFalse(InstanceAddressPolicy.permits("https://example.org:99999"))
+        assertFalse(InstanceAddressPolicy.permits("http://192.168.0.1:0"))
+        assertTrue(InstanceAddressPolicy.permits("https://example.org:8443"))
+        assertTrue(InstanceAddressPolicy.permits("https://example.org"))
+    }
 }

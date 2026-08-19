@@ -34,5 +34,5 @@
     <string name="settings_scan_too_new">This kamerplanter code is newer than the app. Update the app to use it.</string>
     <string name="settings_scan_too_old">This kamerplanter code is older than the app reads. Update the instance.</string>
     <string name="settings_scan_address_not_encrypted">This instance is reached without encryption, which the app allows only inside your own network.</string>
-    <string name="settings_scan_address_unusable">The address in this code cannot be used — it names no https or http instance.</string>
+    <string name="settings_scan_address_unusable">The address in this code cannot be used — the app cannot reach the instance it names.</string>
 </resources>

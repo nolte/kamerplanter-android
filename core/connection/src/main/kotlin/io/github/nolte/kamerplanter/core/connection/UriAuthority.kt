@@ -40,9 +40,13 @@ internal data class UriAuthority(val host: String, val port: Int)
  * and the caller refuses the address as it did before.
  */
 internal fun URI.parsedAuthority(): UriAuthority? =
-    // When java.net.URI named the host itself, it applied the stricter grammar and there is
-    // nothing to salvage — take its answer, including a port it has already validated.
-    host?.takeIf { it.isNotBlank() }?.let { UriAuthority(it, port) }
+    // When java.net.URI named the host itself it applied the stricter grammar, so the host
+    // needs no salvaging — but the port still does. `getPort()` only checks that the text is
+    // digits that fit an `Int`, so `:0` and `:99999` arrive intact; without the same range
+    // rule here, the two branches would disagree about identical port text and the invariant
+    // below would hold only for hosts that happen to contain an underscore.
+    host?.takeIf { it.isNotBlank() }
+        ?.let { name -> if (port == NO_PORT || port in 1..MAX_PORT) UriAuthority(name, port) else null }
         // Deliberately the RAW authority. The decoded one invents delimiters the scanned text
         // does not contain, and the userinfo split is exactly where that mattered.
         ?: rawAuthority?.takeIf { it.isNotBlank() }?.substringAfterLast('@')?.asAuthority()
@@ -53,6 +57,10 @@ internal fun URI.parsedAuthority(): UriAuthority? =
  * Both halves have to hold: an unusable port makes the whole address unusable rather than
  * port-less, because dropping it silently would send the request to the scheme's default port
  * — a different machine than the one the address names.
+ *
+ * Slightly stricter than the `java.net.URI` branch, which cannot be: that one has already
+ * renormalised `:080` to `80` before this code sees it. The range is enforced on both paths;
+ * the canonical-spelling check is what only this one can do.
  */
 private fun String.asAuthority(): UriAuthority? {
     val separator = lastIndexOf(':')

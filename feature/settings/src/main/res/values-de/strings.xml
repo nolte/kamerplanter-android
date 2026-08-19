@@ -32,5 +32,5 @@
     <string name="settings_scan_too_new">Dieser kamerplanter-Code ist neuer als die App. Aktualisiere die App, um ihn zu nutzen.</string>
     <string name="settings_scan_too_old">Dieser kamerplanter-Code ist älter, als die App liest. Aktualisiere die Instanz.</string>
     <string name="settings_scan_address_not_encrypted">Diese Instanz läuft unverschlüsselt. Das erlaubt die App nur im eigenen Netz.</string>
-    <string name="settings_scan_address_unusable">Die Adresse in diesem Code ist unbrauchbar — sie nennt keine https- oder http-Instanz.</string>
+    <string name="settings_scan_address_unusable">Die Adresse in diesem Code ist unbrauchbar — die App kann die genannte Instanz nicht erreichen.</string>
 </resources>

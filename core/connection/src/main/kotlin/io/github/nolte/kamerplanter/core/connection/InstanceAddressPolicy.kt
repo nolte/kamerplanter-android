@@ -84,7 +84,14 @@ enum class AddressRefusal {
     /** Plain `http` to a routable host: understood, and not safe for a credential. */
     NOT_ENCRYPTED,
 
-    /** No host, or a scheme that is not http(s) — nothing a connection could be opened to. */
+    /**
+     * Nothing a connection could be opened to: no host, a scheme that is not http(s), or a
+     * port that is not a port.
+     *
+     * The port case is easy to forget and was — a mistyped `:8O00` names a perfectly good
+     * http instance, so wording this refusal as "no https or http instance" sends the reader
+     * to check the scheme, which is the one thing that was right.
+     */
     UNUSABLE,
 }
 

@@ -33,6 +33,9 @@ object DiscoveryLinkParser {
     private const val PATH_SEGMENT = "connect"
     private const val PARAM_VERSION = "v"
 
+    /** The only schemes a kamerplanter instance's own web UI can build a link from. */
+    private val WEB_SCHEMES = setOf("http", "https")
+
     /**
      * The version a `/connect` link declares, for anything shaped like one of ours.
      *
@@ -70,14 +73,28 @@ object DiscoveryLinkParser {
     /**
      * Everything both readers above need, read once.
      *
-     * They used to be hand-copied twins — same URI parse, same host lookup, same path rule,
-     * same query decode — and had already drifted apart: one compared the version as text and
-     * the other as a number, and only one consulted the address policy. That is the drift this
-     * very file documents as how half the underscore fix shipped, so the two now differ only
-     * in what they decide, never in what they read.
+     * They used to be hand-copied twins — same URI parse, same host lookup, same policy check,
+     * same path rule, same query decode — and had already drifted apart: one compared the
+     * version as text, the other as a number. That is the drift this very file documents as
+     * how half the underscore fix shipped, so the two now differ only in what they decide,
+     * never in what they read.
+     *
+     * What they decide differently is deliberate and new: the address policy moved out of here
+     * into [parse] alone, so [declaredVersion] can name the version of a link at an address
+     * this app may not use. That is the whole point — a plain-`http` instance's link is still
+     * its link, and the scanner has to say so rather than call it foreign.
+     *
+     * The shape rule still holds the line against codes that were never ours. A kamerplanter
+     * `/connect` link is built from `window.location.origin`, so it is `http` or `https` and
+     * nothing else; without that check here, dropping the policy check let `myapp://server/
+     * connect?v=2` through as "recognisably kamerplanter's, newer than this app".
      */
     private fun String.shape(): LinkShape? {
         val uri = runCatching { URI(trim()) }.getOrNull() ?: return null
+        // Whose link it is, decided before whether its address may be used. A `/connect` link
+        // comes out of a browser's own origin, so a scheme that is not http(s) is not one of
+        // ours at all — as opposed to `http` to a routable host, which is ours and refused.
+        if (uri.scheme?.lowercase() !in WEB_SCHEMES) return null
         // Read through the shared helper: `java.net.URI` refuses to name a host containing an
         // underscore, and this parser reading it differently from InstanceAddressPolicy is how
         // one instance's pairing code was accepted while its `/connect` link was called
