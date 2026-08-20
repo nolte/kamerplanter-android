@@ -3,6 +3,7 @@ package io.github.nolte.kamerplanter.feature.settings
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import io.github.nolte.kamerplanter.core.connection.Tenant
 
 /**
@@ -125,6 +126,22 @@ sealed interface ConnectionState {
         val baseUrl: String,
         val relation: DiscoveredInstance,
     ) : ConnectionState
+
+    /**
+     * A `/connect` link arrived that this build will not act on, and the user is owed the
+     * reason (#40).
+     *
+     * Beside [Discovered] rather than inside it: there is no address to offer and nothing to
+     * continue to, only something to say and dismiss. It is a resting state — the app already
+     * opened on the user's tap, so this is where they are standing, and a later link may
+     * replace it.
+     *
+     * Only ever reached through the deep-link channel. The scanner says the same sentence
+     * under its viewfinder without leaving the camera, because there the user is still
+     * pointing it at something and stopping the scan to acknowledge a bad code would be the
+     * wrong answer.
+     */
+    data class LinkRefused(val reason: PayloadRefusal) : ConnectionState
 
     /**
      * The attempt failed and nothing was stored (R14). [method] is carried so a retry

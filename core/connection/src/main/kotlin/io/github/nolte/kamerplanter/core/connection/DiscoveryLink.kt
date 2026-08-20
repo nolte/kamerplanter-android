@@ -18,6 +18,22 @@ data class DiscoveryLink(
 )
 
 /**
+ * What reading a candidate `/connect` link produced.
+ *
+ * Two answers where there was one, and the missing one is what #40 was about: a refusal that
+ * cannot be carried is a refusal the deep-link channel drops on the floor, leaving the user
+ * looking at an app that opened and did nothing.
+ */
+sealed interface DiscoveryOutcome {
+
+    /** A link this build can act on. */
+    data class Usable(val link: DiscoveryLink) : DiscoveryOutcome
+
+    /** Recognisably kamerplanter's, and not usable — with the reason to say out loud. */
+    data class Refused(val reason: PayloadRefusal) : DiscoveryOutcome
+}
+
+/**
  * Reads the `https://<instance>/connect?v=1` link the backend documents this app as handling.
  *
  * The scheme is whatever the instance's own web UI was reached through — the link is built from
@@ -27,6 +43,11 @@ data class DiscoveryLink(
  * Pure Kotlin rather than `android.net.Uri` so it is unit-testable on the JVM, in keeping with
  * [QrPayloadParser]. Anything that is not this exact shape yields `null`, and the caller treats
  * that as "not a link for us" rather than as an error worth showing.
+ *
+ * The one reader, for both entry points. A link tapped in a browser and the same link scanned
+ * in-app used to be read by two different code paths, and only one of them could name a
+ * refusal — so the identical URL explained itself under the scanner and vanished when tapped
+ * (#40).
  */
 object DiscoveryLinkParser {
 
@@ -37,57 +58,68 @@ object DiscoveryLinkParser {
     private val WEB_SCHEMES = setOf("http", "https")
 
     /**
-     * The version a `/connect` link declares, for anything shaped like one of ours.
+     * What a string turns out to be, as far as the `/connect` contract goes.
      *
-     * Offered so a caller can tell "a link from a release this app predates" from "not our
-     * link at all". [parse] answers `null` to both, and the scanner words that as somebody
-     * else's QR code — so an instance updated to v2 showed "newer than the app" for its
-     * pairing code and "not a kamerplanter code" for its discovery link, depending on which
-     * the camera decoded first. Both hang on the same dialogue.
+     * `null` for anything that is not one of ours — a foreign URL that happens to carry
+     * `/connect`, a bare string, a link declaring no readable version. Those are dropped
+     * without a word wherever they arrive, deliberately: the user asked to open a web address,
+     * and landing in this app on a screen complaining about it is a worse answer than the app
+     * not claiming it.
      *
-     * Deliberately does NOT ask [InstanceAddressPolicy] whether the address may be used. It
-     * did, and that rebuilt the same contradiction one class down: a self-hosted instance on
-     * plain `http` emits an `http://` link from its own web UI, so its pairing code answered
-     * "reached without encryption" while its link — on that identical address — answered "not
-     * a kamerplanter code". Whether an address is allowed is a separate question from whose
-     * link it is, and the caller asks it separately.
-     *
-     * `null` when the shape is not a `/connect` link at all, and when the link declares no
-     * readable version — the contract specifies one.
+     * Everything else is claimed and answered for. A link this build cannot read is still
+     * recognisably kamerplanter's, and both the scanner and the deep-link channel say the same
+     * thing about it because both ask this one function (#40).
      */
-    fun declaredVersion(raw: String): Int? = raw.shape()?.version
-
-    fun parse(raw: String): DiscoveryLink? {
+    fun read(raw: String): DiscoveryOutcome? {
         val shape = raw.shape() ?: return null
-        if (shape.version != PayloadVersion.SUPPORTED) return null
-        if (!InstanceAddressPolicy.permits(shape.uri.scheme, shape.host)) return null
-
-        // The scheme is carried over, not assumed: a development instance is reached over
-        // `http`, and rewriting its address to `https` would send the app somewhere that does
-        // not answer.
-        val scheme = shape.uri.scheme.lowercase()
-        val prefix = if (shape.prefix.isEmpty()) "" else "/${shape.prefix}"
-        return DiscoveryLink(baseUrl = "$scheme://${shape.host}${shape.uri.explicitPort()}$prefix")
+        // No version, no claim: the contract specifies one, and a `/connect` path on its own
+        // is a path anybody's web app may have.
+        val version = shape.version ?: return null
+        return when {
+            // Below the first version kamerplanter ever published this is not its payload at
+            // all. Claiming it would tell someone to update an instance that was never ours.
+            version < PayloadVersion.FIRST -> null
+            version < PayloadVersion.SUPPORTED ->
+                DiscoveryOutcome.Refused(PayloadRefusal.PAYLOAD_TOO_OLD)
+            version > PayloadVersion.SUPPORTED ->
+                DiscoveryOutcome.Refused(PayloadRefusal.PAYLOAD_TOO_NEW)
+            // Whether the address may be used is asked only once the version says this build
+            // can read the link at all: an app that cannot read the payload cannot judge the
+            // address it names either.
+            !InstanceAddressPolicy.permits(shape.uri.scheme, shape.host) ->
+                DiscoveryOutcome.Refused(addressRefusalOf(raw.trim()))
+            else -> DiscoveryOutcome.Usable(DiscoveryLink(baseUrl = shape.baseUrl()))
+        }
     }
 
     /**
-     * Everything both readers above need, read once.
+     * The address, rebuilt from the parts that were read.
      *
-     * They used to be hand-copied twins — same URI parse, same host lookup, same policy check,
-     * same path rule, same query decode — and had already drifted apart: one compared the
-     * version as text, the other as a number. That is the drift this very file documents as
-     * how half the underscore fix shipped, so the two now differ only in what they decide,
-     * never in what they read.
+     * The scheme is carried over, not assumed: a development instance is reached over `http`,
+     * and rewriting its address to `https` would send the app somewhere that does not answer.
+     */
+    private fun LinkShape.baseUrl(): String {
+        val scheme = uri.scheme.lowercase()
+        val pathPrefix = if (prefix.isEmpty()) "" else "/$prefix"
+        return "$scheme://$host${uri.explicitPort()}$pathPrefix"
+    }
+
+    /**
+     * A candidate taken apart, before anything has been decided about it.
      *
-     * What they decide differently is deliberate and new: the address policy moved out of here
-     * into [parse] alone, so [declaredVersion] can name the version of a link at an address
-     * this app may not use. That is the whole point — a plain-`http` instance's link is still
-     * its link, and the scanner has to say so rather than call it foreign.
+     * Reading and deciding are separate on purpose. This used to be two hand-copied readers —
+     * same URI parse, same host lookup, same path rule, same query decode — which had already
+     * drifted apart: one compared the version as text, the other as a number, and the two
+     * codes on one dialogue contradicted each other frame by frame.
      *
-     * The shape rule still holds the line against codes that were never ours. A kamerplanter
+     * The address policy is deliberately *not* asked here, so a link at an address this app
+     * may not use is still recognised as its link: a plain-`http` instance's link is the
+     * instance's own, and both entry points have to say so rather than call it foreign.
+     *
+     * The shape rule holds the line against codes that were never ours. A kamerplanter
      * `/connect` link is built from `window.location.origin`, so it is `http` or `https` and
-     * nothing else; without that check here, dropping the policy check let `myapp://server/
-     * connect?v=2` through as "recognisably kamerplanter's, newer than this app".
+     * nothing else; without that check, `myapp://server/connect?v=2` would pass as
+     * "recognisably kamerplanter's, newer than this app".
      */
     private fun String.shape(): LinkShape? {
         val uri = runCatching { URI(trim()) }.getOrNull() ?: return null

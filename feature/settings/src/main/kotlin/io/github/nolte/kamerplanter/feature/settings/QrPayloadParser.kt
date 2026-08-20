@@ -1,10 +1,12 @@
 package io.github.nolte.kamerplanter.feature.settings
 
-import io.github.nolte.kamerplanter.core.connection.AddressRefusal
 import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import io.github.nolte.kamerplanter.core.connection.DiscoveryLinkParser
+import io.github.nolte.kamerplanter.core.connection.DiscoveryOutcome
 import io.github.nolte.kamerplanter.core.connection.InstanceAddressPolicy
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import io.github.nolte.kamerplanter.core.connection.PayloadVersion
+import io.github.nolte.kamerplanter.core.connection.addressRefusalOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -35,38 +37,7 @@ sealed interface QrPayload {
      * pairing code was told it was not one — the same misdiagnosis this scanner was rewritten
      * to end, one layer further in.
      */
-    data class Refused(val reason: RefusedReason) : QrPayload
-}
-
-/** Why a kamerplanter code was recognised and still refused. */
-enum class RefusedReason {
-
-    /**
-     * A payload from a release this build predates.
-     *
-     * Separate from [PAYLOAD_TOO_OLD] because the advice is opposite: here the app is behind
-     * and the user updates it. One shared "version mismatch" would have told the owner of an
-     * older instance to update the wrong side.
-     */
-    PAYLOAD_TOO_NEW,
-
-    /**
-     * A payload older than this build reads — the instance is behind, not the app.
-     *
-     * Unreachable while v1 is both the first version and the supported one, and kept because
-     * the day this app moves to v2 is the day an un-updated instance needs to be told which
-     * side to update.
-     */
-    PAYLOAD_TOO_OLD,
-
-    /**
-     * Plain `http` to a routable host: an address the app will only use inside a private
-     * network, because the payload carries a one-time credential.
-     */
-    ADDRESS_NOT_ENCRYPTED,
-
-    /** An address this app cannot use at all — no scheme, or one that is not http(s). */
-    ADDRESS_UNUSABLE,
+    data class Refused(val reason: PayloadRefusal) : QrPayload
 }
 
 /**
@@ -106,12 +77,7 @@ object QrPayloadParser {
         val text = raw.trim()
         // The pairing payload first. The two shapes cannot be confused — one starts with `{`
         // and the other with a scheme — so the order is for readability, not correctness.
-        return text.asPairing()
-            ?: DiscoveryLinkParser.parse(text)?.let { QrPayload.Discovery(it.baseUrl) }
-            // A `/connect` link this build cannot read is still recognisably ours, and gets
-            // the same answer the pairing payload does. Reported as a stranger's code, the two
-            // codes on one dialogue would contradict each other frame by frame.
-            ?: text.asRefusedLink()
+        return text.asPairing() ?: text.asLink()
     }
 
     /**
@@ -133,7 +99,7 @@ object QrPayloadParser {
         // same misdiagnosis this parser exists to end, pointing the other way.
         if (version < PayloadVersion.FIRST) return null
         if (version < PayloadVersion.SUPPORTED) {
-            return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
+            return QrPayload.Refused(PayloadRefusal.PAYLOAD_TOO_OLD)
         }
 
         // Newer than this build: claimed as ours, but only on evidence. A version bump may
@@ -142,7 +108,7 @@ object QrPayloadParser {
         // code and must not be reported as one. A pairing payload names an instance and
         // carries a credential; something recognisable as either is the anchor.
         if (version > PayloadVersion.SUPPORTED) {
-            return QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW).takeIf { fields.looksLikePairing() }
+            return QrPayload.Refused(PayloadRefusal.PAYLOAD_TOO_NEW).takeIf { fields.looksLikePairing() }
         }
 
         // Missing fields at the version this build does read: indistinguishable from a foreign
@@ -155,52 +121,24 @@ object QrPayloadParser {
         // not a payload it may act on. The two refusals are told apart because the advice is:
         // "your instance has no TLS" is help, and it is wrong for an address with no scheme.
         if (!InstanceAddressPolicy.permits(url)) {
-            return QrPayload.Refused(url.addressRefusal())
+            return QrPayload.Refused(addressRefusalOf(url))
         }
         return QrPayload.Pairing(ConnectionRequest.QrPairing(baseUrl = url, code = code))
     }
 
     /**
-     * A `/connect` link this build will not act on; `null` when it is not one of ours.
+     * A `/connect` link, usable or refused; `null` when it is not one of ours.
      *
-     * Version first, address second, and both answered the way the pairing payload answers
-     * them. The version is asked first because an app that cannot read the payload cannot
-     * judge the address it names either.
-     *
-     * The address half is the reason this reaches here at all: [DiscoveryLinkParser.parse]
-     * returns `null` both for a link it may not use and for a link that is not ours, and only
-     * this layer can tell the user which. A self-hoster's plain-`http` instance emits an
-     * `http://` link from its own web UI, so without this the pairing code on that dialogue
-     * said "reached without encryption" while the link beside it said "not a kamerplanter
-     * code" — contradicting itself as the camera picked frames.
+     * Both halves come from [DiscoveryLinkParser.read], which is the one place that decides
+     * what a link is. It used to be decided here as well, from the version and the address
+     * separately, and the deep-link channel had no way to ask — so the same URL explained
+     * itself when scanned and vanished when tapped (#40).
      */
-    private fun String.asRefusedLink(): QrPayload? =
-        when (val version = DiscoveryLinkParser.declaredVersion(this)) {
-            null -> null
-            in Int.MIN_VALUE until PayloadVersion.FIRST -> null
-            in PayloadVersion.FIRST until PayloadVersion.SUPPORTED ->
-                QrPayload.Refused(RefusedReason.PAYLOAD_TOO_OLD)
-            // A version this build reads, and `parse` still refused it: at this point the shape
-            // is confirmed, so what is left is the address.
-            PayloadVersion.SUPPORTED -> QrPayload.Refused(addressRefusal())
-            else -> QrPayload.Refused(RefusedReason.PAYLOAD_TOO_NEW)
-        }
-
-    /**
-     * The policy's reason, worded for this screen.
-     *
-     * Asked rather than re-derived: this used to decide by matching the raw string's prefix
-     * while [InstanceAddressPolicy] refused on a parsed URI, and the two disagreed — a leading
-     * space made a plainly unencrypted address read as unusable, and `http:///pair`, which
-     * names no host, was reported as an encryption problem it does not have.
-     */
-    private fun String.addressRefusal(): RefusedReason =
-        when (InstanceAddressPolicy.refusalFor(this)) {
-            AddressRefusal.NOT_ENCRYPTED -> RefusedReason.ADDRESS_NOT_ENCRYPTED
-            // `null` cannot occur — the caller only asks about an address already refused —
-            // and if it ever does, the answer that promises the least is the right one.
-            AddressRefusal.UNUSABLE, null -> RefusedReason.ADDRESS_UNUSABLE
-        }
+    private fun String.asLink(): QrPayload? = when (val outcome = DiscoveryLinkParser.read(this)) {
+        null -> null
+        is DiscoveryOutcome.Usable -> QrPayload.Discovery(outcome.link.baseUrl)
+        is DiscoveryOutcome.Refused -> QrPayload.Refused(outcome.reason)
+    }
 
     /**
      * Whether an object of an unknown version is recognisably a pairing payload.

@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.settings
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.delay
 
@@ -157,6 +159,10 @@ private fun SettingsContent(
             is ConnectionState.Discovered -> DiscoveredBody(
                 state = state,
                 onContinue = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
+                onDismiss = actions.onCancel,
+            )
+            is ConnectionState.LinkRefused -> LinkRefusedBody(
+                reason = state.reason,
                 onDismiss = actions.onCancel,
             )
             is ConnectionState.Collecting.ScanningQr -> ScanningBody(
@@ -410,19 +416,16 @@ private fun ScanFeedbackTimeout(feedback: ScanFeedback?, onExpired: () -> Unit) 
 @Composable
 private fun ScanFeedbackBadge(reading: QrReading, modifier: Modifier = Modifier) {
     val label = when (reading) {
-        QrReading.ACCEPTED -> R.string.settings_scan_recognised
-        QrReading.FOREIGN -> R.string.settings_scan_foreign
-        // Both of these are the user's own code, held correctly. Saying "not a kamerplanter
-        // code" would send them looking for another one; the fault is elsewhere, and the
-        // sentence has to point at it.
-        QrReading.TOO_NEW -> R.string.settings_scan_too_new
-        QrReading.TOO_OLD -> R.string.settings_scan_too_old
-        QrReading.ADDRESS_NOT_ENCRYPTED -> R.string.settings_scan_address_not_encrypted
-        QrReading.ADDRESS_UNUSABLE -> R.string.settings_scan_address_unusable
-        QrReading.STALE -> return
+        QrReading.Accepted -> R.string.settings_scan_recognised
+        QrReading.Foreign -> R.string.settings_scan_foreign
+        // The user's own code, held correctly. Saying "not a kamerplanter code" would send
+        // them looking for another one; the fault is elsewhere, and the sentence points at it
+        // — the same sentence a tapped link gets, from the same place.
+        is QrReading.Refused -> reading.reason.explanationRes()
+        QrReading.Stale -> return
     }
     val colors = when (reading) {
-        QrReading.ACCEPTED -> CardDefaults.cardColors(
+        QrReading.Accepted -> CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -439,6 +442,53 @@ private fun ScanFeedbackBadge(reading: QrReading, modifier: Modifier = Modifier)
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         )
     }
+}
+
+/**
+ * A `/connect` link the app recognised and will not act on.
+ *
+ * Reached only from the deep-link channel, and deliberately plain: there is nothing to
+ * continue to, so the screen says what happened and gets out of the way. The sentence itself
+ * comes from [explanationRes], which is also what the scanner shows — the whole point of #40
+ * is that the same URL cannot explain itself through one entry point and stay silent in the
+ * other.
+ */
+@Composable
+private fun LinkRefusedBody(reason: PayloadRefusal, onDismiss: () -> Unit) {
+    CenteredColumn {
+        Text(
+            text = stringResource(R.string.settings_link_refused_title),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = stringResource(reason.explanationRes()),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        OutlinedButton(onClick = onDismiss, modifier = Modifier.padding(top = 24.dp)) {
+            Text(text = stringResource(R.string.settings_link_refused_dismiss))
+        }
+    }
+}
+
+/**
+ * What a refusal says, wherever it is shown.
+ *
+ * One `when` over the payload contract's reasons, so a reason added there has to be worded
+ * once and reaches both the scanner and the deep-link screen — the drift #40 named: an
+ * explanation on one entry point, silence on the other.
+ *
+ * The strings name neither "code" nor "link", because the same sentence has to fit whichever
+ * of the two the user actually used.
+ */
+@StringRes
+internal fun PayloadRefusal.explanationRes(): Int = when (this) {
+    PayloadRefusal.PAYLOAD_TOO_NEW -> R.string.settings_refused_too_new
+    PayloadRefusal.PAYLOAD_TOO_OLD -> R.string.settings_refused_too_old
+    PayloadRefusal.ADDRESS_NOT_ENCRYPTED -> R.string.settings_refused_address_not_encrypted
+    PayloadRefusal.ADDRESS_UNUSABLE -> R.string.settings_refused_address_unusable
 }
 
 // The pairing code the dummy used to print here is gone on purpose: no stored secret is
