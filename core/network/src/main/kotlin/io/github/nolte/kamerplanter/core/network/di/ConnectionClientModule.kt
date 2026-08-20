@@ -8,9 +8,11 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkPestDetectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantActionsClient
+import io.github.nolte.kamerplanter.core.network.NetworkPlantPageClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantsClient
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
 import io.github.nolte.kamerplanter.core.network.PlantActionsClient
+import io.github.nolte.kamerplanter.core.network.PlantPageClient
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import javax.inject.Singleton
 
@@ -38,6 +40,11 @@ internal interface ConnectionClientModule {
     @Binds
     @Singleton
     fun bindPlantActionsClient(impl: NetworkPlantActionsClient): PlantActionsClient
+
+    /** Reads one plant's page, a section at a time (#11). */
+    @Binds
+    @Singleton
+    fun bindPlantPageClient(impl: NetworkPlantPageClient): PlantPageClient
 
     @Binds
     @Singleton

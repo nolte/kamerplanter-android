@@ -100,4 +100,30 @@
     <string name="plants_removed">Removed</string>
     <string name="plants_only_removed_title">Nothing growing here</string>
     <string name="plants_only_removed_body">Every plant on this instance has been removed. Show removed plants to look at them anyway.</string>
+    <!-- The plant page's sections (#11). -->
+    <string name="plants_detail_gone">This plant is no longer on the instance.</string>
+    <string name="plants_section_loading">Loading…</string>
+    <string name="plants_section_facts">Details</string>
+    <string name="plants_section_facts_empty">The instance records nothing else about this plant.</string>
+    <string name="plants_section_phase">Growth phase</string>
+    <string name="plants_section_phase_empty">No phase recorded.</string>
+    <string name="plants_section_care">Care</string>
+    <string name="plants_section_care_empty">Nothing needs doing right now.</string>
+    <string name="plants_section_photos">Photos</string>
+    <string name="plants_section_photos_empty">No photos of this plant yet.</string>
+    <string name="plants_section_pest_checks">Pest checks</string>
+    <string name="plants_section_pest_checks_empty">This plant has not been checked yet.</string>
+    <!-- %1$s is the date the instance recorded. -->
+    <string name="plants_removed_on">Removed on %1$s</string>
+    <string name="plants_fact_planted">Planted on %1$s</string>
+    <!-- %1$s is a volume in litres, without a trailing zero. -->
+    <string name="plants_fact_container">Container: %1$s l</string>
+    <string name="plants_fact_substrate">Substrate: %1$s</string>
+    <string name="plants_fact_cycle">Cultivation: %1$s</string>
+    <!-- %1$s is the instance's key for the plant this one was propagated from. -->
+    <string name="plants_fact_mother">Propagated from %1$s</string>
+    <!-- %1$s is the phase name, %2$s the date it started. -->
+    <string name="plants_phase_current_since">%1$s, since %2$s</string>
+    <string name="plants_check_abstained">No reliable detection</string>
+    <string name="plants_check_nothing_found">Nothing found</string>
 </resources>

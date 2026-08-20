@@ -14,6 +14,7 @@ import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.RecordedFeedback
 import io.github.nolte.kamerplanter.core.network.RefusedReason
 import io.github.nolte.kamerplanter.feature.microscope.CapturedFrame
@@ -64,9 +65,12 @@ class PestDetectionViewModelTest {
      * plant's own page pushed it. The detection is filed against it either way, so the tests
      * can drive both.
      */
+    private val changes = PlantDataChanges()
+
     private fun viewModel(plantKey: String? = null) = PestDetectionViewModel(
         detections,
         camera,
+        changes,
         SavedStateHandle(plantKey?.let { mapOf(PLANT_KEY_ARG to it) } ?: emptyMap()),
     )
 

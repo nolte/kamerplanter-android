@@ -13,6 +13,7 @@ import io.github.nolte.kamerplanter.core.network.DetectionReadiness
 import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.RefusedReason
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
@@ -36,6 +37,15 @@ import javax.inject.Inject
 class PestDetectionViewModel @Inject constructor(
     private val detections: PestDetectionClient,
     private val camera: MicroscopeCamera,
+    /**
+     * Announces a completed check to whatever is showing the plant.
+     *
+     * The plant's page is still on the back stack behind this screen, holding a pest-check
+     * section that was accurate when it loaded and is not any more. Told through the same bus
+     * a watering uses, it refreshes on return rather than waiting for the user to leave and
+     * come back (#11).
+     */
+    private val changes: PlantDataChanges,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -221,12 +231,16 @@ class PestDetectionViewModel @Inject constructor(
             // The plant this was opened for, where it was opened from one. Entered from the
             // Capture tab there is none, and the instance files the finding without a plant.
             when (val outcome = detections.detect(jpeg, plantKey = plantKey, language = language)) {
-                is DetectionOutcome.Completed ->
+                is DetectionOutcome.Completed -> {
                     _state.value = PestDetectionState.Result(
                         frame = jpeg,
                         detection = outcome.detection,
                         plantBound = isPlantBound,
                     )
+                    // Only a plant-bound check changes anything another screen is showing:
+                    // a standalone detection is filed against no plant and no page holds it.
+                    if (isPlantBound) changes.notifyChanged()
+                }
                 DetectionOutcome.Unauthorized -> _state.value = PestDetectionState.Unauthorized
                 is DetectionOutcome.Unavailable ->
                     _state.value = PestDetectionState.Failed(R.string.pest_failed_unreachable)
