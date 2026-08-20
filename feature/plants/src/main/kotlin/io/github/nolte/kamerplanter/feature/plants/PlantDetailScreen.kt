@@ -1079,8 +1079,8 @@ private fun NoteDialog(
                 draft = draft,
                 microscope = microscope,
                 microscopeAttached = microscopeAttached,
-                picking = picking,
-                withCamera = withCamera,
+                photos = PhotoAccess(picking = picking, withCamera = withCamera),
+                isNew = editing == null,
             )
         },
         confirmButton = {
@@ -1117,15 +1117,27 @@ private fun NoteDialog(
 }
 
 /**
+ * The system picker and the camera gate, which always travel together.
+ *
+ * Two of the three photo sources need the CAMERA grant — the phone camera obviously, and the
+ * microscope because AOSP refuses to show the USB dialogue for a video-class device to an app
+ * without it — so the gate is never useful without the picker beside it.
+ */
+private class PhotoAccess(val picking: PhotoPicking, val withCamera: (() -> Unit) -> Unit)
+
+/**
  * Either the viewfinder or the form — the dialogue is one or the other, never both.
  */
 @Composable
 private fun NoteDialogBody(
     draft: NoteDraft,
+    /** The microscope, and whether one is there to use. */
     microscope: MicroscopeAccess,
     microscopeAttached: Boolean,
-    picking: PhotoPicking,
-    withCamera: (() -> Unit) -> Unit,
+    /** Where a photo comes from, and the camera grant that two of the three need. */
+    photos: PhotoAccess,
+    /** False while an existing entry is being rewritten; see [NoteForm]. */
+    isNew: Boolean,
 ) {
     if (draft.microscopeOpen) {
         MicroscopeCapture(
@@ -1140,17 +1152,18 @@ private fun NoteDialogBody(
     }
     NoteForm(
         draft = draft,
+        isNew = isNew,
         // The camera grant covers two of the three sources: the phone camera obviously, and
         // the microscope because AOSP refuses to show the USB dialogue for a video-class
         // device to an app without it. Only the library picker needs nothing — the system
         // picker grants per item as it goes.
         sources = PhotoSourceActions(
-            onCamera = { withCamera(picking.takePhoto) },
-            onLibrary = picking.pickFromLibrary,
+            onCamera = { photos.withCamera(photos.picking.takePhoto) },
+            onLibrary = photos.picking.pickFromLibrary,
             // Offered only while a device is actually attached. Shown regardless, it was a
             // button whose whole answer was "no microscope here" — which the picker can say
             // by not offering it (#12).
-            onMicroscope = { withCamera { draft.microscopeOpen = true } }
+            onMicroscope = { photos.withCamera { draft.microscopeOpen = true } }
                 .takeIf { microscopeAttached },
         ),
     )
@@ -1301,7 +1314,7 @@ private class NoteDraft(
 
 /** The entry form: what kind, what to write, what to attach, and what to record with it. */
 @Composable
-private fun NoteForm(draft: NoteDraft, sources: PhotoSourceActions) {
+private fun NoteForm(draft: NoteDraft, isNew: Boolean, sources: PhotoSourceActions) {
     Column(
         modifier = Modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1341,10 +1354,16 @@ private fun NoteForm(draft: NoteDraft, sources: PhotoSourceActions) {
             onRemove = { index -> draft.photos = draft.photos.filterIndexed { at, _ -> at != index } },
         )
         PhotoSources(enabled = draft.photoCount < MAX_PHOTOS, actions = sources)
-        EnvironmentSwitch(
-            checked = draft.captureEnvironment,
-            onChange = { draft.captureEnvironment = it },
-        )
+        // Only while writing. The switch asks the instance to *look* at its sensors, and an
+        // entry being rewritten was looked at when it was written — `PUT` carries no such
+        // field. Shown on an edit it was a control that quietly did nothing, which is worse
+        // than one that is not there.
+        if (isNew) {
+            EnvironmentSwitch(
+                checked = draft.captureEnvironment,
+                onChange = { draft.captureEnvironment = it },
+            )
+        }
     }
 }
 
