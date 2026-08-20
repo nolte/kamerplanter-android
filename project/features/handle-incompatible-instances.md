@@ -1,7 +1,7 @@
 ---
 id: F-10
 title: Keep working against instances the app only partly supports
-status: ready
+status: in_progress
 roadmap_item: R-1
 sprint: 1
 created: 2026-08-13
