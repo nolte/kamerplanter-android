@@ -1,5 +1,7 @@
 package io.github.nolte.kamerplanter.feature.plants
 
+import android.content.Context
+import android.text.format.DateUtils
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,6 +97,8 @@ import io.github.nolte.kamerplanter.core.network.PlantPhase
 import io.github.nolte.kamerplanter.core.network.PlantPhoto
 import io.github.nolte.kamerplanter.core.network.PlantRemoval
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * One plant, and what can be done to it.
@@ -857,7 +861,7 @@ private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?, actions: Diar
         }
         entry.createdAt?.let {
             Text(
-                text = it.take(ISO_DATE_LENGTH),
+                text = it.asLocalDate(LocalContext.current),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -1478,6 +1482,27 @@ private fun PlantAction.messageRes(): Int = when (this) {
 }
 
 private val HEADER_IMAGE_HEIGHT = 200.dp
+
+/**
+ * `2026-08-16T09:31:00Z` as the reader's own device writes a date.
+ *
+ * The clock time is dropped — a diary row needs the day, not the minute — and the day itself
+ * goes through the platform's formatter rather than being printed as the ISO string it arrives
+ * as: 08/16 and 16.08. are the same date to two readers who would each misread the other's.
+ *
+ * A timestamp this build cannot parse falls back to its first ten characters, which is the ISO
+ * date and readable, rather than to nothing.
+ */
+private fun String.asLocalDate(context: Context): String {
+    val date = runCatching { LocalDate.parse(take(ISO_DATE_LENGTH)) }.getOrNull()
+        ?: return take(ISO_DATE_LENGTH)
+    val millis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    return DateUtils.formatDateTime(
+        context,
+        millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH,
+    )
+}
 
 /** `2026-08-16T09:31:00Z` — the date is what a diary row needs; the clock time is noise. */
 private const val ISO_DATE_LENGTH = 10

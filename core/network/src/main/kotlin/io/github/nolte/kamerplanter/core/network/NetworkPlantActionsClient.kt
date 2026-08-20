@@ -216,18 +216,35 @@ class NetworkPlantActionsClient @Inject constructor(
      * Follows [NetworkPlantsClient]'s precedent for logging from this module. No payload
      * reaches the log — only the instance's description of its own refusal.
      */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun Throwable.describeAndLog(): String = describe().also {
         // The raw body as well as the sentence made from it. A parser that reads the wrong key
         // produces a confident, useless message — which is how "photo_refs" reached the screen
         // with no explanation after it — and the only way to see that is to log what it read.
-        val raw = (this as? HttpFailure)?.body?.take(RAW_BODY_LOG_LIMIT)
-        Log.w(LOG_TAG, "the action failed: $it${raw?.let { body -> " | body: $body" }.orEmpty()}", this)
+        //
+        // Guarded for the same reason the plant list guards its own: this runs on the failure
+        // path, and a logger that throws would replace a message the user could act on with a
+        // crash. The only thrower observed is the JVM unit test's `android.jar` stub — which
+        // is exactly where a write's failure paths are tested.
+        try {
+            val raw = (this as? HttpFailure)?.body?.take(RAW_BODY_LOG_LIMIT)
+            Log.w(LOG_TAG, "the action failed: $it${raw?.let { body -> " | body: $body" }.orEmpty()}", this)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (reportingFailed: Throwable) {
+            // Nowhere left to report it — reporting is what just failed.
+        }
     }
 
     private fun Throwable.describe(): String = when {
         this is NotConnected -> "the app is not connected to an instance"
-        this is HttpFailure && status in CREDENTIAL_REFUSED ->
+        this is HttpFailure && status == HTTP_UNAUTHORIZED ->
             "the instance refused the stored credential — reconnect in Settings"
+        // Told apart from 401 on purpose. A write refused with 403 is a *role*: the credential
+        // authenticated and this account may not write here, and reconnecting cannot widen
+        // that — it sends the user round a loop back to the same refusal (#12).
+        this is HttpFailure && status == HTTP_FORBIDDEN ->
+            "your account may not do this on this instance"
         this is HttpFailure && status == HTTP_BAD_REQUEST ->
             "the instance has nothing open to confirm for this plant"
         this is UploadWithoutId -> "the instance stored the photo but did not name it"
