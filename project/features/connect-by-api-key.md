@@ -1,7 +1,7 @@
 ---
 id: F-7
 title: Connect with an API key
-status: ready
+status: in_progress
 roadmap_item: R-1
 sprint: 1
 created: 2026-08-13

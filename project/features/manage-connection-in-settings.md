@@ -1,7 +1,7 @@
 ---
 id: F-9
 title: See and change your connection in Settings
-status: ready
+status: in_progress
 roadmap_item: R-1
 sprint: 1
 created: 2026-08-13

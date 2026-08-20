@@ -1,7 +1,7 @@
 ---
 id: F-6
 title: Connect by scanning your instance's pairing code
-status: ready
+status: in_progress
 roadmap_item: R-1
 sprint: 1
 created: 2026-08-13
