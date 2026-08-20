@@ -1,7 +1,7 @@
 ---
 number: 0001
-status: planned
-started: null
+status: active
+started: 2026-08-20
 ended: null
 value_statement: A plant owner connects the app to their own kamerplanter instance.
 artifact_ref: null
@@ -43,6 +43,33 @@ the debug/release variant split (R34) also ship, but they are criterion-free by 
 are therefore not criteria at all. Every acceptance box in all six features is still
 unchecked. The sprint's real work is everything that touches the network, plus the Settings
 surface — the method chooser in particular does not exist at all today.
+
+## Where this sprint stands (2026-08-20)
+
+Promoted to `active` on 2026-08-20, retroactively: the work has been landing on `develop`
+since #29 and the file still said `planned`. What ships today, from
+[#29](https://github.com/nolte/kamerplanter-android/pull/29),
+[#36](https://github.com/nolte/kamerplanter-android/pull/36),
+[#38](https://github.com/nolte/kamerplanter-android/pull/38) and
+[#42](https://github.com/nolte/kamerplanter-android/pull/42): the generated client from the
+pinned schema, all three connection paths, Keystore-backed storage, verification before
+persist, tenant resolution, session refresh and 401 teardown, the Settings surface, the
+refusal wording shared by the scanner and the `/connect` deep link.
+
+**No feature is `done`, and none can be yet.** Every test hook in all six features is still
+`pending`, and three kinds of verification are missing rather than merely unrecorded:
+
+- **The Pixel 7a.** F-6 acceptance-1 (the sprint's value-verifying criterion), F-7
+  acceptance-1, F-8 acceptance-2 (the Keystore cipher cannot execute under `./gradlew test`)
+  and F-11 acceptance-1 all need a device and a real instance. The device has been unreachable
+  over adb (`192.168.178.21:5555`, connection refused) through this round of work.
+- **Compose UI tests.** F-9's criteria name them; this repository has no instrumented test
+  source set at all.
+- **The tenant picker.** F-6 acceptance-4's UI half genuinely does not exist — `SelectingTenant`
+  still renders the same spinner as `Verifying`.
+
+So the honest state is six features in progress against a working connection, and a closure
+that waits on hardware rather than on code.
 
 ## Features
 

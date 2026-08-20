@@ -25,8 +25,22 @@ this sprint's value is verified — the two are deliberately the same event.
 **Dependencies, stated rather than discovered.** Every criterion here needs the generated API
 client that sprint 1 delivers, so this sprint cannot start before sprint 1 closes. Sprint 1's
 own upstream dependency has cleared — backend release `v0.2.0` was published on 2026-08-13 —
-so the only thing between this sprint and its start is sprint 1's execution. Nothing in this
-sprint has been implemented; unlike sprint 1, it carries no regression contracts at all.
+so the only thing between this sprint and its start is sprint 1's execution.
+
+**Its subject shipped before the sprint did (2026-08-20).** The sentence that stood here — that
+nothing in this sprint has been implemented — stopped being true somewhere around
+[#37](https://github.com/nolte/kamerplanter-android/pull/37) and is comprehensively false since
+[#43](https://github.com/nolte/kamerplanter-android/pull/43): the availability gate, the source
+picker, the upload, the rendered findings with their marked regions, the abstention state, the
+beneficial handling, human-in-the-loop feedback, creating an IPM inspection and a plant's
+detection history all exist on `develop`, driven from the GitHub issues (#1, #10) rather than
+from this file.
+
+The sprint stays `planned` regardless, and deliberately: at most one sprint may be `active`, and
+sprint 1 cannot close while its value-verifying criterion waits on a device (see that sprint's
+own note). What this sprint's features will mostly do when it starts is record what already
+works and name what is genuinely left — which is the same hardware verification, plus whatever
+the device run turns up.
 
 ## Features
 

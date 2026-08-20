@@ -1,7 +1,7 @@
 ---
 id: F-11
 title: Connect to a light-mode instance without credentials
-status: ready
+status: in_progress
 roadmap_item: R-1
 sprint: 1
 created: 2026-08-13
