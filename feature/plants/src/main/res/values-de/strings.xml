@@ -118,4 +118,25 @@
     <string name="plants_phase_current_since">%1$s, seit %2$s</string>
     <string name="plants_check_abstained">Keine sichere Erkennung</string>
     <string name="plants_check_nothing_found">Nichts gefunden</string>
+    <string name="plants_note_title_hint">Titel (optional)</string>
+    <string name="plants_note_remaining">Noch %1$d Zeichen</string>
+    <string name="plants_note_capture_environment_explained">Deine Instanz vermerkt, was ihre Sensoren für diese Pflanze gerade messen.</string>
+    <string name="plants_entry_observation">Beobachtung</string>
+    <string name="plants_entry_problem">Problem</string>
+    <string name="plants_entry_milestone">Meilenstein</string>
+    <string name="plants_entry_measurement">Messung</string>
+    <string name="plants_entry_photo">Foto</string>
+    <string name="plants_entry_note">Notiz</string>
+    <string name="plants_entry_actions">Aktionen zum Eintrag</string>
+    <string name="plants_entry_edit">Bearbeiten</string>
+    <string name="plants_entry_delete">Löschen</string>
+    <string name="plants_entry_delete_title">Diesen Eintrag löschen?</string>
+    <string name="plants_entry_delete_body">Der Eintrag und seine Fotos verschwinden von deiner Instanz. Eine Analyse dazu geht mit.</string>
+    <string name="plants_entry_analyse">Analyse anfordern</string>
+    <string name="plants_entry_analysis_state">Analyse: %1$s</string>
+    <string name="plants_diary_older">Ältere Einträge zeigen</string>
+    <string name="plants_diary_loading_older">Wird geladen…</string>
+    <string name="plants_action_note_updated">Eintrag aktualisiert</string>
+    <string name="plants_action_note_deleted">Eintrag gelöscht</string>
+    <string name="plants_action_analysis_requested">Analyse angefordert</string>
 </resources>

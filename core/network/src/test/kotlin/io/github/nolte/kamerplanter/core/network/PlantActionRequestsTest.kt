@@ -2,6 +2,7 @@ package io.github.nolte.kamerplanter.core.network
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -55,5 +56,43 @@ class PlantActionRequestsTest {
         val body = json.encodeToString(ConfirmRequest(reminderType = "watering"))
 
         assertTrue(body.contains("\"reminder_type\":\"watering\""))
+    }
+
+    /**
+     * An update must not carry `capture_environment`.
+     *
+     * The field asks the server to *look* at its sensors, which only a new entry can be asked:
+     * the readings on an existing entry describe the moment it was written, and re-sending the
+     * flag on a typo fix would ask the instance to re-stamp it with today's weather.
+     */
+    @Test
+    fun `an update omits the field only a new entry may carry`() {
+        val body = json.encodeToString(
+            NoteRequest(
+                text = "Fixed a typo",
+                entryType = "note",
+                photoRefs = listOf("a1"),
+                captureEnvironment = null,
+            ),
+        )
+
+        assertFalse("capture_environment must not travel on an update: $body", body.contains("capture_environment"))
+        assertTrue("the photos it already had must stay: $body", body.contains("a1"))
+    }
+
+    /** A title the writer left blank is absent, not an empty string the instance would store. */
+    @Test
+    fun `a blank title is not sent at all`() {
+        val body = json.encodeToString(
+            NoteRequest(
+                text = "No title on this one",
+                title = null,
+                entryType = "note",
+                photoRefs = emptyList(),
+                captureEnvironment = true,
+            ),
+        )
+
+        assertFalse("an absent title must not be encoded: $body", body.contains("\"title\""))
     }
 }

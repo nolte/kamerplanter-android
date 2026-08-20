@@ -10,11 +10,17 @@ import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
 import io.github.nolte.kamerplanter.core.network.CareAction
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
+import io.github.nolte.kamerplanter.core.network.DIARY_PAGE_SIZE
+import io.github.nolte.kamerplanter.core.network.DIARY_PHOTOS_MAX
+import io.github.nolte.kamerplanter.core.network.DIARY_TEXT_MAX
+import io.github.nolte.kamerplanter.core.network.DIARY_TITLE_MAX
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionFeedback
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.DiaryDraft
+import io.github.nolte.kamerplanter.core.network.DiaryEntry
 import io.github.nolte.kamerplanter.core.network.DiaryOutcome
 import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
@@ -181,6 +187,126 @@ class PlantDetailViewModelTest {
         assertTrue(offered.state.value.detectionAvailable)
     }
 
+    // --- the diary (#12) --------------------------------------------------------------
+
+    /** A full page means there may be more; the control that says so is the reader's. */
+    @Test
+    fun `a full page of entries offers older ones`() = runTest(dispatcher) {
+        actions.pages = mapOf(0 to DiaryOutcome.Loaded(page(DIARY_PAGE_SIZE), hasMore = true))
+        val model = viewModel()
+        advanceUntilIdle()
+
+        assertTrue(model.state.value.diaryHasMore)
+    }
+
+    /**
+     * Offset from what is on screen rather than from a page number, and deduplicated: a diary
+     * written into while the reader scrolls shifts the window, and the same entry arriving
+     * twice would break the list's own keys.
+     */
+    @Test
+    fun `older entries are appended, not repeated`() = runTest(dispatcher) {
+        val first = page(DIARY_PAGE_SIZE)
+        actions.pages = mapOf(
+            0 to DiaryOutcome.Loaded(first, hasMore = true),
+            // The last of the first page comes back again, as a diary written into meanwhile
+            // would produce.
+            DIARY_PAGE_SIZE to DiaryOutcome.Loaded(listOf(first.last(), ENTRY.copy(key = "older")), hasMore = false),
+        )
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.loadOlderDiary()
+        advanceUntilIdle()
+
+        val shown = model.state.value.diary.valueOrNull.orEmpty()
+        assertEquals(DIARY_PAGE_SIZE + 1, shown.size)
+        assertEquals(shown.size, shown.distinctBy { it.key }.size)
+        assertEquals(listOf(0, DIARY_PAGE_SIZE), actions.offsets)
+        assertFalse(model.state.value.diaryHasMore)
+    }
+
+    /** Nothing to append when the instance has already said there is nothing more. */
+    @Test
+    fun `no more entries means no request`() = runTest(dispatcher) {
+        val model = viewModel()
+        advanceUntilIdle()
+        val calls = actions.diaryCalls
+
+        model.loadOlderDiary()
+        advanceUntilIdle()
+
+        assertEquals(calls, actions.diaryCalls)
+    }
+
+    @Test
+    fun `an entry is written as its kind, with its title trimmed`() = runTest(dispatcher) {
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.saveEntry(
+            DiaryDraft(entryType = "problem", title = "  Spider mites  ", text = "  Under the leaves  "),
+        )
+        advanceUntilIdle()
+
+        val sent = actions.added.single()
+        assertEquals("problem", sent.entryType)
+        assertEquals("Spider mites", sent.title)
+        assertEquals("Under the leaves", sent.text)
+    }
+
+    /**
+     * The endpoint's own limits, applied before the request. An entry refused by the instance
+     * costs a round trip and comes back naming a field; one stopped here is still on screen.
+     */
+    @Test
+    fun `an entry past the endpoint's limits is not sent`() = runTest(dispatcher) {
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.saveEntry(DiaryDraft(text = ""))
+        model.saveEntry(DiaryDraft(text = "x".repeat(DIARY_TEXT_MAX + 1)))
+        model.saveEntry(DiaryDraft(title = "t".repeat(DIARY_TITLE_MAX + 1), text = "fine"))
+        model.saveEntry(DiaryDraft(text = "fine", newPhotos = List(DIARY_PHOTOS_MAX + 1) { byteArrayOf(1) }))
+        advanceUntilIdle()
+
+        assertTrue(actions.added.isEmpty())
+    }
+
+    /**
+     * `PUT` replaces what it is given, so an edit has to carry the photos the entry already
+     * had — otherwise saving a typo fix would silently drop every picture with it.
+     */
+    @Test
+    fun `an edit carries the photos the entry already had`() = runTest(dispatcher) {
+        val existing = ENTRY.copy(photoRefs = listOf("a1", "a2"))
+        actions.pages = mapOf(0 to DiaryOutcome.Loaded(listOf(existing)))
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.saveEntry(DiaryDraft(text = "Fixed a typo", photoRefs = existing.photoRefs), editing = existing.key)
+        advanceUntilIdle()
+
+        val (key, draft) = actions.updated.single()
+        assertEquals("d1", key)
+        assertEquals(listOf("a1", "a2"), draft.photoRefs)
+        assertTrue(actions.added.isEmpty())
+    }
+
+    @Test
+    fun `deleting and analysing name the entry they act on`() = runTest(dispatcher) {
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.deleteEntry("d1")
+        advanceUntilIdle()
+        model.requestAnalysis("d1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("d1"), actions.deleted)
+        assertEquals(listOf("d1"), actions.analysed)
+    }
+
     /**
      * The page is still on the back stack while a pest check runs in front of it, holding a
      * section that was accurate when it loaded. Coming back to a list of checks that does not
@@ -283,39 +409,64 @@ private class FakePageClient : PlantPageClient {
 
 private class FakeActionsClient : PlantActionsClient {
 
-    var diaryOutcome: DiaryOutcome = DiaryOutcome.Loaded(
-        listOf(
-            io.github.nolte.kamerplanter.core.network.DiaryEntry(
-                key = "d1",
-                kind = "note",
-                title = null,
-                text = "Repotted.",
-                createdAt = "2026-08-01",
-                photoUrls = emptyList(),
-                environment = emptyList(),
-                environmentStatus = null,
-            ),
-        ),
-    )
+    /** Pages, keyed by the offset they answer; the default is one full page and nothing more. */
+    var pages: Map<Int, DiaryOutcome> = mapOf(0 to DiaryOutcome.Loaded(listOf(ENTRY)))
 
     var diaryCalls = 0
         private set
+    val offsets = mutableListOf<Int>()
+    val added = mutableListOf<DiaryDraft>()
+    val updated = mutableListOf<Pair<String, DiaryDraft>>()
+    val deleted = mutableListOf<String>()
+    val analysed = mutableListOf<String>()
 
-    override suspend fun diary(plantKey: String): DiaryOutcome {
+    override suspend fun diary(plantKey: String, offset: Int, limit: Int): DiaryOutcome {
         diaryCalls++
-        return diaryOutcome
+        offsets += offset
+        return pages[offset] ?: DiaryOutcome.Loaded(emptyList())
     }
 
-    override suspend fun addNote(
+    override suspend fun addEntry(plantKey: String, draft: DiaryDraft): ActionOutcome {
+        added += draft
+        return ActionOutcome.Done
+    }
+
+    override suspend fun updateEntry(
         plantKey: String,
-        text: String,
-        photos: List<ByteArray>,
-        captureEnvironment: Boolean,
-    ): ActionOutcome = ActionOutcome.Done
+        entryKey: String,
+        draft: DiaryDraft,
+    ): ActionOutcome {
+        updated += entryKey to draft
+        return ActionOutcome.Done
+    }
+
+    override suspend fun deleteEntry(plantKey: String, entryKey: String): ActionOutcome {
+        deleted += entryKey
+        return ActionOutcome.Done
+    }
+
+    override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome {
+        analysed += entryKey
+        return ActionOutcome.Done
+    }
 
     override suspend fun confirmCare(plantKey: String, kind: String): ActionOutcome =
         ActionOutcome.Done
 }
+
+/** A page of distinct entries, for the paging tests. */
+private fun page(size: Int) = List(size) { ENTRY.copy(key = "d$it") }
+
+private val ENTRY = DiaryEntry(
+    key = "d1",
+    kind = "note",
+    title = null,
+    text = "Repotted.",
+    createdAt = "2026-08-01",
+    photoUrls = emptyList(),
+    environment = emptyList(),
+    environmentStatus = null,
+)
 
 private class FakeDetectionClient : PestDetectionClient {
 

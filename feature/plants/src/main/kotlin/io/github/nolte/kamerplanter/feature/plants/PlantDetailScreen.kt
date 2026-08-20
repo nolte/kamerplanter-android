@@ -17,20 +17,26 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Biotech
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Yard
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,16 +78,23 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import io.github.nolte.kamerplanter.core.camera.CameraPermission
 import io.github.nolte.kamerplanter.core.camera.MAX_PHOTOS
+import io.github.nolte.kamerplanter.core.camera.PhotoPicking
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
 import io.github.nolte.kamerplanter.core.camera.rememberPhotoPicking
 import io.github.nolte.kamerplanter.core.network.CareAction
+import io.github.nolte.kamerplanter.core.network.DIARY_ENTRY_TYPES
+import io.github.nolte.kamerplanter.core.network.DIARY_TEXT_MAX
+import io.github.nolte.kamerplanter.core.network.DIARY_TITLE_MAX
 import io.github.nolte.kamerplanter.core.network.Detection
+import io.github.nolte.kamerplanter.core.network.DiaryDraft
 import io.github.nolte.kamerplanter.core.network.DiaryEntry
+import io.github.nolte.kamerplanter.core.network.ENTRY_TYPE_NOTE
 import io.github.nolte.kamerplanter.core.network.EnvironmentReading
 import io.github.nolte.kamerplanter.core.network.PlantDetail
 import io.github.nolte.kamerplanter.core.network.PlantPhase
 import io.github.nolte.kamerplanter.core.network.PlantPhoto
 import io.github.nolte.kamerplanter.core.network.PlantRemoval
+import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
 
 /**
  * One plant, and what can be done to it.
@@ -108,6 +121,13 @@ fun PlantDetailScreen(
     }
     val snackbars = remember { SnackbarHostState() }
     var noteOpen by rememberSaveable { mutableStateOf(false) }
+    // Which entry the editor is open on. Held by key rather than by value so it survives a
+    // reload: the list is replaced after every write, and an entry held by identity would be
+    // a copy of a row that no longer exists.
+    var editingKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val editing = editingKey?.let { key ->
+        state.diary.valueOrNull?.firstOrNull { it.key == key }
+    }
 
     ReportOutcome(state, snackbars, viewModel::clearMessages)
 
@@ -134,13 +154,24 @@ fun PlantDetailScreen(
                 imageLoader = imageLoader,
                 viewModel = viewModel,
                 onDetectPests = onDetectPests,
-                onAddNote = { noteOpen = true },
+                onCompose = { entry ->
+                    editingKey = entry?.key
+                    noteOpen = true
+                },
             )
         }
     }
 
     if (noteOpen) {
-        NoteComposer(viewModel = viewModel, state = state, onClose = { noteOpen = false })
+        NoteComposer(
+            viewModel = viewModel,
+            state = state,
+            editing = editing,
+            onClose = {
+                noteOpen = false
+                editingKey = null
+            },
+        )
     }
 }
 
@@ -157,16 +188,20 @@ fun PlantDetailScreen(
 private fun NoteComposer(
     viewModel: PlantDetailViewModel,
     state: PlantDetailUiState,
+    editing: DiaryEntry?,
     onClose: () -> Unit,
 ) {
     LaunchedEffect(state.actionDone) {
-        if (state.actionDone == PlantAction.NOTE_ADDED) onClose()
+        val written = state.actionDone == PlantAction.NOTE_ADDED ||
+            state.actionDone == PlantAction.NOTE_UPDATED
+        if (written) onClose()
     }
     NoteDialog(
         microscope = viewModel.microscope,
         isSaving = state.isWorking,
+        editing = editing,
         onDismiss = onClose,
-        onSave = viewModel::addNote,
+        onSave = { viewModel.saveEntry(it, editing = editing?.key) },
     )
 }
 
@@ -183,7 +218,8 @@ private fun BoxScope.PlantDetailPage(
     imageLoader: ImageLoader?,
     viewModel: PlantDetailViewModel,
     onDetectPests: (plantKey: String) -> Unit,
-    onAddNote: () -> Unit,
+    /** Opens the editor — empty for a new entry, on the entry it is handed. */
+    onCompose: (DiaryEntry?) -> Unit,
 ) {
     val plant = state.plant
     val header = state.header
@@ -207,9 +243,15 @@ private fun BoxScope.PlantDetailPage(
             actions = PlantDetailActions(
                 onWater = viewModel::water,
                 onConfirmCare = viewModel::confirmCare,
-                onAddNote = onAddNote,
+                onAddNote = { onCompose(null) },
                 onDetectPests = { onDetectPests(plant.key) },
                 onRetrySection = viewModel::reload,
+                onLoadOlderDiary = viewModel::loadOlderDiary,
+                diaryRow = DiaryRowActions(
+                    onEdit = onCompose,
+                    onDelete = { viewModel.deleteEntry(it.key) },
+                    onRequestAnalysis = { viewModel.requestAnalysis(it.key) },
+                ),
             ),
         )
 
@@ -334,8 +376,27 @@ private fun PlantDetailBody(
             )
         }
         items(state.diary.valueOrNull.orEmpty(), key = { it.key }) { entry ->
-            DiaryRow(entry, imageLoader)
+            DiaryRow(entry, imageLoader, actions.diaryRow)
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+        }
+        if (state.diaryHasMore) {
+            item {
+                TextButton(
+                    onClick = actions.onLoadOlderDiary,
+                    enabled = !state.isLoadingOlder,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    Text(
+                        stringResource(
+                            if (state.isLoadingOlder) {
+                                R.string.plants_diary_loading_older
+                            } else {
+                                R.string.plants_diary_older
+                            },
+                        ),
+                    )
+                }
+            }
         }
     }
 }
@@ -760,10 +821,22 @@ private fun QuickAction(
 }
 
 @Composable
-private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?) {
+private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?, actions: DiaryRowActions?) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        entry.title?.takeIf { it.isNotBlank() }?.let {
-            Text(text = it, style = MaterialTheme.typography.titleSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            entry.title?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+            } ?: Text(
+                text = stringResource(entry.kind.entryTypeLabel()),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            actions?.let { EntryMenu(entry = entry, actions = it) }
         }
         if (entry.text.isNotBlank()) {
             Text(text = entry.text, style = MaterialTheme.typography.bodyMedium)
@@ -773,6 +846,14 @@ private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?) {
         }
         if (entry.environment.isNotEmpty()) {
             EnvironmentReadings(entry.environment)
+        }
+        entry.analysisLine()?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         entry.createdAt?.let {
             Text(
@@ -784,6 +865,94 @@ private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?) {
         }
     }
 }
+
+/** What can be done to one entry; `null` for a row nobody is allowed to act on. */
+data class DiaryRowActions(
+    val onEdit: (DiaryEntry) -> Unit,
+    val onDelete: (DiaryEntry) -> Unit,
+    val onRequestAnalysis: (DiaryEntry) -> Unit,
+)
+
+/**
+ * Edit, delete, and — where this reader may — ask for an analysis.
+ *
+ * Analysis is offered per entry rather than per page: the backend decides it from authorship,
+ * so in a shared garden one list legitimately mixes entries that can be analysed with entries
+ * that cannot, and one verdict cached for the page would offer an action that 403s.
+ */
+@Composable
+private fun EntryMenu(entry: DiaryEntry, actions: DiaryRowActions) {
+    var open by remember { mutableStateOf(false) }
+    var confirmingDelete by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(
+                imageVector = Icons.Filled.MoreVert,
+                contentDescription = stringResource(R.string.plants_entry_actions),
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.plants_entry_edit)) },
+                onClick = {
+                    open = false
+                    actions.onEdit(entry)
+                },
+            )
+            if (entry.canRequestAnalysis) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.plants_entry_analyse)) },
+                    onClick = {
+                        open = false
+                        actions.onRequestAnalysis(entry)
+                    },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.plants_entry_delete)) },
+                onClick = {
+                    open = false
+                    confirmingDelete = true
+                },
+            )
+        }
+    }
+    if (confirmingDelete) {
+        // Asked before, not undone after: the instance is the only place the entry exists,
+        // and nothing in this app can bring one back.
+        AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text(stringResource(R.string.plants_entry_delete_title)) },
+            text = { Text(stringResource(R.string.plants_entry_delete_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmingDelete = false
+                        actions.onDelete(entry)
+                    },
+                ) { Text(stringResource(R.string.plants_entry_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingDelete = false }) {
+                    Text(stringResource(R.string.plants_note_cancel))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * What the instance's analysis has to say, or how far it has got.
+ *
+ * The state is shown even without a result, because "asked for, still running" is the answer
+ * for as long as it takes and an entry that showed nothing would read as one nobody asked
+ * about.
+ */
+@Composable
+private fun DiaryEntry.analysisLine(): String? = analysis?.takeIf { it.isNotBlank() }
+    ?: analysisState
+        ?.takeIf { it.isNotBlank() }
+        ?.let { stringResource(R.string.plants_entry_analysis_state, it) }
 
 /** The entry's photos, fetched with the connection's credential like every other image. */
 @Composable
@@ -868,14 +1037,23 @@ private val METRIC_LABELS = mapOf(
 private fun NoteDialog(
     microscope: MicroscopeAccess,
     isSaving: Boolean,
+    /** The entry being rewritten, or `null` when this is a new one. */
+    editing: DiaryEntry?,
     onDismiss: () -> Unit,
-    onSave: (text: String, photos: List<ByteArray>, captureEnvironment: Boolean) -> Unit,
+    onSave: (draft: DiaryDraft) -> Unit,
 ) {
-    val draft = rememberSaveable(saver = NoteDraft.Saver) { NoteDraft() }
+    // Keyed on the entry: opening the editor on a different entry has to start from that
+    // entry's text, and a draft remembered across both would put one entry's words into the
+    // other.
+    val draft = rememberSaveable(editing?.key, saver = NoteDraft.Saver) {
+        editing?.let(NoteDraft::of) ?: NoteDraft()
+    }
     val permission = rememberCameraPermission(requestOnFirstShow = false)
     val withCamera = rememberCameraGate(permission)
+    val cameraState by microscope.state.collectAsStateWithLifecycle()
+    val microscopeAttached = cameraState !is MicroscopeState.Unavailable
     val picking = rememberPhotoPicking { picked ->
-        draft.photos = (draft.photos + picked).take(MAX_PHOTOS)
+        draft.photos = (draft.photos + picked).take(MAX_PHOTOS - draft.keptRefs.size)
     }
     if (draft.microscopeOpen) {
         MicroscopeSession(start = microscope.start, stop = microscope.stop)
@@ -885,37 +1063,32 @@ private fun NoteDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(draft.titleRes())) },
         text = {
-            if (draft.microscopeOpen) {
-                MicroscopeCapture(
-                    microscope = microscope,
-                    onCaptured = {
-                        draft.photos = (draft.photos + it).take(MAX_PHOTOS)
-                        draft.microscopeOpen = false
-                    },
-                    onCancel = { draft.microscopeOpen = false },
-                )
-            } else {
-                NoteForm(
-                    draft = draft,
-                    // The camera grant covers two of the three sources: the phone camera
-                    // obviously, and the microscope because AOSP refuses to show the USB
-                    // dialogue for a video-class device to an app without it. Only the library
-                    // picker needs nothing — the system picker grants per item as it goes.
-                    sources = PhotoSourceActions(
-                        onCamera = { withCamera(picking.takePhoto) },
-                        onLibrary = picking.pickFromLibrary,
-                        onMicroscope = { withCamera { draft.microscopeOpen = true } },
-                    ),
-                )
-            }
+            NoteDialogBody(
+                draft = draft,
+                microscope = microscope,
+                microscopeAttached = microscopeAttached,
+                picking = picking,
+                withCamera = withCamera,
+            )
         },
         confirmButton = {
             // Text, not photos, is what the endpoint requires (`minLength: 1`). A picture with
             // no words is a fine idea and a 422, so the button says so up front rather than
             // letting the instance refuse the entry after the photos have uploaded.
             TextButton(
-                onClick = { onSave(draft.text, draft.photos, draft.captureEnvironment) },
-                enabled = draft.text.isNotBlank() && !draft.microscopeOpen && !isSaving,
+                onClick = {
+                    onSave(
+                        DiaryDraft(
+                            entryType = draft.entryType,
+                            title = draft.title,
+                            text = draft.text,
+                            photoRefs = draft.keptRefs,
+                            newPhotos = draft.photos,
+                            captureEnvironment = draft.captureEnvironment,
+                        ),
+                    )
+                },
+                enabled = draft.canSave && !draft.microscopeOpen && !isSaving,
             ) {
                 Text(
                     stringResource(
@@ -927,6 +1100,46 @@ private fun NoteDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.plants_note_cancel)) }
         },
+    )
+}
+
+/**
+ * Either the viewfinder or the form — the dialogue is one or the other, never both.
+ */
+@Composable
+private fun NoteDialogBody(
+    draft: NoteDraft,
+    microscope: MicroscopeAccess,
+    microscopeAttached: Boolean,
+    picking: PhotoPicking,
+    withCamera: (() -> Unit) -> Unit,
+) {
+    if (draft.microscopeOpen) {
+        MicroscopeCapture(
+            microscope = microscope,
+            onCaptured = {
+                draft.photos = (draft.photos + it).take(MAX_PHOTOS - draft.keptRefs.size)
+                draft.microscopeOpen = false
+            },
+            onCancel = { draft.microscopeOpen = false },
+        )
+        return
+    }
+    NoteForm(
+        draft = draft,
+        // The camera grant covers two of the three sources: the phone camera obviously, and
+        // the microscope because AOSP refuses to show the USB dialogue for a video-class
+        // device to an app without it. Only the library picker needs nothing — the system
+        // picker grants per item as it goes.
+        sources = PhotoSourceActions(
+            onCamera = { withCamera(picking.takePhoto) },
+            onLibrary = picking.pickFromLibrary,
+            // Offered only while a device is actually attached. Shown regardless, it was a
+            // button whose whole answer was "no microscope here" — which the picker can say
+            // by not offering it (#12).
+            onMicroscope = { withCamera { draft.microscopeOpen = true } }
+                .takeIf { microscopeAttached },
+        ),
     )
 }
 
@@ -970,39 +1183,116 @@ private fun rememberCameraGate(permission: CameraPermission): (() -> Unit) -> Un
  * saved.
  */
 @Stable
-private class NoteDraft(text: String = "", captureEnvironment: Boolean = true) {
+private class NoteDraft(
+    text: String = "",
+    title: String = "",
+    entryType: String = ENTRY_TYPE_NOTE,
+    captureEnvironment: Boolean = true,
+    /** Attachment ids this entry already has, when one is being rewritten. */
+    keptRefs: List<String> = emptyList(),
+    /** Their thumbnails, in the same order, so the strip shows what is being kept. */
+    keptUrls: List<String> = emptyList(),
+) {
 
     var text by mutableStateOf(text)
+    var title by mutableStateOf(title)
+    var entryType by mutableStateOf(entryType)
     var photos by mutableStateOf<List<ByteArray>>(emptyList())
     var captureEnvironment by mutableStateOf(captureEnvironment)
     var microscopeOpen by mutableStateOf(false)
 
-    fun titleRes(): Int =
-        if (microscopeOpen) R.string.plants_note_microscope else R.string.plants_note_title
+    /** Photos the instance already holds; dropping one here removes it from the entry. */
+    var keptRefs by mutableStateOf(keptRefs)
+    var keptUrls by mutableStateOf(keptUrls)
+
+    /** How many photos the entry would have — kept plus newly taken. */
+    val photoCount: Int get() = keptRefs.size + photos.size
+
+    /**
+     * Whether this draft is one the endpoint would accept.
+     *
+     * Text is what it requires (`minLength: 1`), and the two lengths are its own limits. A
+     * picture with no words is a fine idea and a 422, so the button says so up front rather
+     * than letting the instance refuse the entry after the photos have uploaded.
+     */
+    val canSave: Boolean
+        get() = text.isNotBlank() &&
+            text.length <= DIARY_TEXT_MAX &&
+            title.length <= DIARY_TITLE_MAX
+
+    fun titleRes(): Int = when {
+        microscopeOpen -> R.string.plants_note_microscope
+        else -> R.string.plants_note_title
+    }
+
+    /** Removes one of the photos the entry already had, by position. */
+    fun dropKept(index: Int) {
+        keptRefs = keptRefs.filterIndexed { at, _ -> at != index }
+        keptUrls = keptUrls.filterIndexed { at, _ -> at != index }
+    }
 
     companion object {
         val Saver: Saver<NoteDraft, Any> = listSaver(
-            save = { listOf(it.text, it.captureEnvironment) },
-            restore = { NoteDraft(it[0] as String, it[1] as Boolean) },
+            save = { listOf(it.text, it.title, it.entryType, it.captureEnvironment, it.keptRefs, it.keptUrls) },
+            restore = {
+                @Suppress("UNCHECKED_CAST")
+                NoteDraft(
+                    text = it[0] as String,
+                    title = it[1] as String,
+                    entryType = it[2] as String,
+                    captureEnvironment = it[3] as Boolean,
+                    keptRefs = it[4] as List<String>,
+                    keptUrls = it[5] as List<String>,
+                )
+            },
+        )
+
+        /** A draft that starts where an existing entry left off. */
+        fun of(entry: DiaryEntry) = NoteDraft(
+            text = entry.text,
+            title = entry.title.orEmpty(),
+            entryType = entry.kind,
+            keptRefs = entry.photoRefs,
+            keptUrls = entry.photoUrls,
         )
     }
 }
 
-/** The entry form: what to write, what to attach, and whether to record the surroundings. */
+/** The entry form: what kind, what to write, what to attach, and what to record with it. */
 @Composable
 private fun NoteForm(draft: NoteDraft, sources: PhotoSourceActions) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        EntryTypePicker(selected = draft.entryType, onSelect = { draft.entryType = it })
         OutlinedTextField(
-            value = draft.text,
-            onValueChange = { draft.text = it },
-            label = { Text(stringResource(R.string.plants_note_hint)) },
+            value = draft.title,
+            onValueChange = { draft.title = it.take(DIARY_TITLE_MAX) },
+            label = { Text(stringResource(R.string.plants_note_title_hint)) },
+            singleLine = true,
+            isError = draft.title.length >= DIARY_TITLE_MAX,
+            supportingText = { Remaining(draft.title.length, DIARY_TITLE_MAX) },
             modifier = Modifier.fillMaxWidth(),
         )
+        OutlinedTextField(
+            value = draft.text,
+            // Capped rather than merely counted: the instance refuses anything longer, and
+            // finding that out after typing another page of text is worse than not being able
+            // to type it.
+            onValueChange = { draft.text = it.take(DIARY_TEXT_MAX) },
+            label = { Text(stringResource(R.string.plants_note_hint)) },
+            isError = draft.text.length >= DIARY_TEXT_MAX,
+            supportingText = { Remaining(draft.text.length, DIARY_TEXT_MAX) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // The photos already on the entry, which an edit can drop, then the new ones.
+        KeptPhotos(urls = draft.keptUrls, onRemove = draft::dropKept)
         PickedPhotos(
             photos = draft.photos,
             onRemove = { index -> draft.photos = draft.photos.filterIndexed { at, _ -> at != index } },
         )
-        PhotoSources(enabled = draft.photos.size < MAX_PHOTOS, actions = sources)
+        PhotoSources(enabled = draft.photoCount < MAX_PHOTOS, actions = sources)
         EnvironmentSwitch(
             checked = draft.captureEnvironment,
             onChange = { draft.captureEnvironment = it },
@@ -1010,11 +1300,87 @@ private fun NoteForm(draft: NoteDraft, sources: PhotoSourceActions) {
     }
 }
 
+/**
+ * What kind of entry this is.
+ *
+ * All six the backend defines, because they are what the diary is read back by — "problem" and
+ * "milestone" are what somebody scrolling a season looks for, and filing everything as a note
+ * makes the whole diary one undifferentiated column.
+ */
+@Composable
+private fun EntryTypePicker(selected: String, onSelect: (String) -> Unit) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DIARY_ENTRY_TYPES.forEach { type ->
+            FilterChip(
+                selected = type == selected,
+                onClick = { onSelect(type) },
+                label = { Text(stringResource(type.entryTypeLabel())) },
+            )
+        }
+    }
+}
+
+/** How much of a field is left, said only once it is worth saying. */
+@Composable
+private fun Remaining(used: Int, limit: Int) {
+    if (used < limit - REMAINING_THRESHOLD) return
+    Text(
+        text = stringResource(R.string.plants_note_remaining, limit - used),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (used >= limit) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
+}
+
+/** The photos an entry already has, each of which an edit may drop. */
+@Composable
+private fun KeptPhotos(urls: List<String>, onRemove: (Int) -> Unit) {
+    if (urls.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        urls.forEachIndexed { index, _ ->
+            AssistChip(
+                onClick = { onRemove(index) },
+                label = { Text(stringResource(R.string.plants_note_photo, index + 1)) },
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = stringResource(
+                            R.string.plants_note_remove_photo,
+                            index + 1,
+                        ),
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+            )
+        }
+    }
+}
+
+/** The backend's entry kinds, in the reader's language; an unknown one keeps its own name. */
+private fun String.entryTypeLabel(): Int = when (this) {
+    "observation" -> R.string.plants_entry_observation
+    "problem" -> R.string.plants_entry_problem
+    "milestone" -> R.string.plants_entry_milestone
+    "measurement" -> R.string.plants_entry_measurement
+    "photo" -> R.string.plants_entry_photo
+    else -> R.string.plants_entry_note
+}
+
+/** How close to a limit is close enough to start counting down. */
+private const val REMAINING_THRESHOLD = 100
+
 /** Where a photo can come from; bundled so the form's signature stays readable. */
 internal data class PhotoSourceActions(
     val onCamera: () -> Unit,
     val onLibrary: () -> Unit,
-    val onMicroscope: () -> Unit,
+    /** `null` while no microscope is attached — the option is then not offered at all. */
+    val onMicroscope: (() -> Unit)?,
 )
 
 /** Where a photo can come from. */
@@ -1023,9 +1389,11 @@ private fun PhotoSources(enabled: Boolean, actions: PhotoSourceActions) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PhotoSource(Icons.Filled.PhotoCamera, R.string.plants_note_take_photo, enabled, actions.onCamera)
         PhotoSource(Icons.Filled.PhotoLibrary, R.string.plants_note_pick_photo, enabled, actions.onLibrary)
-        // Offered whether or not a microscope is attached: the surface behind it says so
-        // plainly, which is more use than a button that is simply missing.
-        PhotoSource(Icons.Filled.Biotech, R.string.plants_note_microscope, enabled, actions.onMicroscope)
+        // Only while one is attached. Offered regardless, the button's whole answer was "no
+        // microscope here", which the picker can say by not offering it (#12).
+        actions.onMicroscope?.let {
+            PhotoSource(Icons.Filled.Biotech, R.string.plants_note_microscope, enabled, it)
+        }
     }
 }
 
@@ -1047,6 +1415,18 @@ private fun PhotoSource(icon: ImageVector, labelRes: Int, enabled: Boolean, onCl
  */
 @Composable
 private fun EnvironmentSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Column {
+        Text(
+            text = stringResource(R.string.plants_note_capture_environment_explained),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        EnvironmentSwitchRow(checked = checked, onChange = onChange)
+    }
+}
+
+@Composable
+private fun EnvironmentSwitchRow(checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Switch(checked = checked, onCheckedChange = onChange)
         Text(
@@ -1092,6 +1472,9 @@ private fun PlantAction.messageRes(): Int = when (this) {
     PlantAction.WATERED -> R.string.plants_action_watered_done
     PlantAction.CARE_CONFIRMED -> R.string.plants_action_care_done
     PlantAction.NOTE_ADDED -> R.string.plants_action_note_done
+    PlantAction.NOTE_UPDATED -> R.string.plants_action_note_updated
+    PlantAction.NOTE_DELETED -> R.string.plants_action_note_deleted
+    PlantAction.ANALYSIS_REQUESTED -> R.string.plants_action_analysis_requested
 }
 
 private val HEADER_IMAGE_HEIGHT = 200.dp
@@ -1107,4 +1490,8 @@ data class PlantDetailActions(
     val onDetectPests: () -> Unit,
     /** Loads one section again, from the button that section shows when it failed. */
     val onRetrySection: (PlantSection) -> Unit,
+    /** Appends the next page of older entries. */
+    val onLoadOlderDiary: () -> Unit,
+    /** What each entry's own menu offers. */
+    val diaryRow: DiaryRowActions,
 )
