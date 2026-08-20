@@ -139,4 +139,5 @@
     <string name="plants_action_note_updated">Eintrag aktualisiert</string>
     <string name="plants_action_note_deleted">Eintrag gelöscht</string>
     <string name="plants_action_analysis_requested">Analyse angefordert</string>
+    <string name="plants_note_tags_hint">Schlagwörter, mit Komma getrennt</string>
 </resources>

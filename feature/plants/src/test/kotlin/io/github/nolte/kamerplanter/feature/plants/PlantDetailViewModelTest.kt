@@ -293,6 +293,18 @@ class PlantDetailViewModelTest {
         assertTrue(actions.added.isEmpty())
     }
 
+    /** Tags travel as a list, not as the line the editor takes them on. */
+    @Test
+    fun `tags reach the instance split and trimmed`() = runTest(dispatcher) {
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.saveEntry(DiaryDraft(text = "Under the leaves", tags = listOf("pest", "greenhouse")))
+        advanceUntilIdle()
+
+        assertEquals(listOf("pest", "greenhouse"), actions.added.single().tags)
+    }
+
     @Test
     fun `deleting and analysing name the entry they act on`() = runTest(dispatcher) {
         val model = viewModel()

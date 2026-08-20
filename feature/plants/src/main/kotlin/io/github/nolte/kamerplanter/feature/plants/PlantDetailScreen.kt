@@ -851,6 +851,14 @@ private fun DiaryRow(entry: DiaryEntry, imageLoader: ImageLoader?, actions: Diar
         if (entry.environment.isNotEmpty()) {
             EnvironmentReadings(entry.environment)
         }
+        if (entry.tags.isNotEmpty()) {
+            Text(
+                text = entry.tags.joinToString(TAG_SEPARATOR),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         entry.analysisLine()?.let {
             Text(
                 text = it,
@@ -1088,6 +1096,7 @@ private fun NoteDialog(
                             text = draft.text,
                             photoRefs = draft.keptRefs,
                             newPhotos = draft.photos,
+                            tags = draft.tagList(),
                             captureEnvironment = draft.captureEnvironment,
                         ),
                     )
@@ -1186,28 +1195,41 @@ private fun rememberCameraGate(permission: CameraPermission): (() -> Unit) -> Un
  * a process death is the smaller loss; losing the sentence already typed is not, so that is
  * saved.
  */
+/**
+ * The photos an entry already has: the ids the instance knows them by, and the thumbnails that
+ * show them. One value rather than two lists, because they are the same photos in the same
+ * order and a draft that let them drift would save the wrong ones.
+ */
+private data class KeptPhotos(
+    val refs: List<String> = emptyList(),
+    val urls: List<String> = emptyList(),
+)
+
 @Stable
 private class NoteDraft(
     text: String = "",
     title: String = "",
+    /** Comma-separated while it is being typed; split on save. */
+    tags: String = "",
     entryType: String = ENTRY_TYPE_NOTE,
     captureEnvironment: Boolean = true,
-    /** Attachment ids this entry already has, when one is being rewritten. */
-    keptRefs: List<String> = emptyList(),
-    /** Their thumbnails, in the same order, so the strip shows what is being kept. */
-    keptUrls: List<String> = emptyList(),
+    /** The photos this entry already has, when one is being rewritten. */
+    kept: KeptPhotos = KeptPhotos(),
 ) {
 
     var text by mutableStateOf(text)
     var title by mutableStateOf(title)
+    var tags by mutableStateOf(tags)
     var entryType by mutableStateOf(entryType)
     var photos by mutableStateOf<List<ByteArray>>(emptyList())
     var captureEnvironment by mutableStateOf(captureEnvironment)
     var microscopeOpen by mutableStateOf(false)
 
     /** Photos the instance already holds; dropping one here removes it from the entry. */
-    var keptRefs by mutableStateOf(keptRefs)
-    var keptUrls by mutableStateOf(keptUrls)
+    var kept by mutableStateOf(kept)
+
+    val keptRefs: List<String> get() = kept.refs
+    val keptUrls: List<String> get() = kept.urls
 
     /** How many photos the entry would have — kept plus newly taken. */
     val photoCount: Int get() = keptRefs.size + photos.size
@@ -1229,24 +1251,39 @@ private class NoteDraft(
         else -> R.string.plants_note_title
     }
 
+    /** The tags as the endpoint takes them: split, trimmed, and without the empties. */
+    fun tagList(): List<String> = tags.split(',').map(String::trim).filter(String::isNotEmpty)
+
     /** Removes one of the photos the entry already had, by position. */
     fun dropKept(index: Int) {
-        keptRefs = keptRefs.filterIndexed { at, _ -> at != index }
-        keptUrls = keptUrls.filterIndexed { at, _ -> at != index }
+        kept = KeptPhotos(
+            refs = kept.refs.filterIndexed { at, _ -> at != index },
+            urls = kept.urls.filterIndexed { at, _ -> at != index },
+        )
     }
 
     companion object {
         val Saver: Saver<NoteDraft, Any> = listSaver(
-            save = { listOf(it.text, it.title, it.entryType, it.captureEnvironment, it.keptRefs, it.keptUrls) },
+            save = {
+                listOf(
+                    it.text,
+                    it.title,
+                    it.tags,
+                    it.entryType,
+                    it.captureEnvironment,
+                    it.kept.refs,
+                    it.kept.urls,
+                )
+            },
             restore = {
                 @Suppress("UNCHECKED_CAST")
                 NoteDraft(
                     text = it[0] as String,
                     title = it[1] as String,
-                    entryType = it[2] as String,
-                    captureEnvironment = it[3] as Boolean,
-                    keptRefs = it[4] as List<String>,
-                    keptUrls = it[5] as List<String>,
+                    tags = it[2] as String,
+                    entryType = it[3] as String,
+                    captureEnvironment = it[4] as Boolean,
+                    kept = KeptPhotos(refs = it[5] as List<String>, urls = it[6] as List<String>),
                 )
             },
         )
@@ -1255,9 +1292,9 @@ private class NoteDraft(
         fun of(entry: DiaryEntry) = NoteDraft(
             text = entry.text,
             title = entry.title.orEmpty(),
+            tags = entry.tags.joinToString(TAG_SEPARATOR),
             entryType = entry.kind,
-            keptRefs = entry.photoRefs,
-            keptUrls = entry.photoUrls,
+            kept = KeptPhotos(refs = entry.photoRefs, urls = entry.photoUrls),
         )
     }
 }
@@ -1288,6 +1325,13 @@ private fun NoteForm(draft: NoteDraft, sources: PhotoSourceActions) {
             label = { Text(stringResource(R.string.plants_note_hint)) },
             isError = draft.text.length >= DIARY_TEXT_MAX,
             supportingText = { Remaining(draft.text.length, DIARY_TEXT_MAX) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = draft.tags,
+            onValueChange = { draft.tags = it },
+            label = { Text(stringResource(R.string.plants_note_tags_hint)) },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         // The photos already on the entry, which an edit can drop, then the new ones.
@@ -1503,6 +1547,9 @@ private fun String.asLocalDate(context: Context): String {
         DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH,
     )
 }
+
+/** How tags read as one line, both in the editor and on a row. */
+private const val TAG_SEPARATOR = ", "
 
 /** `2026-08-16T09:31:00Z` — the date is what a diary row needs; the clock time is noise. */
 private const val ISO_DATE_LENGTH = 10

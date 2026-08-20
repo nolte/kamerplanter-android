@@ -150,4 +150,5 @@
     <string name="plants_action_note_updated">Entry updated</string>
     <string name="plants_action_note_deleted">Entry deleted</string>
     <string name="plants_action_analysis_requested">Analysis requested</string>
+    <string name="plants_note_tags_hint">Tags, separated by commas</string>
 </resources>
