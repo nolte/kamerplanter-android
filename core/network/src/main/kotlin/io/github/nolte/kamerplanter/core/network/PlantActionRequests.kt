@@ -21,11 +21,20 @@ import kotlinx.serialization.Serializable
 @Serializable
 internal data class NoteRequest(
     val text: String,
+    /** Optional, and at most 200 characters; omitted entirely when the writer left it blank. */
+    val title: String? = null,
     @SerialName("entry_type") val entryType: String,
     /** Attachment ids of photos already uploaded; the endpoint takes at most five. */
     @SerialName("photo_refs") val photoRefs: List<String>,
-    /** Asks the instance to attach what its sensors read. The backend's own default is true. */
-    @SerialName("capture_environment") val captureEnvironment: Boolean,
+    val tags: List<String> = emptyList(),
+    /**
+     * Asks the instance to attach what its sensors read. The backend's own default is true.
+     *
+     * Null on an update, and omitted from the body then: `PUT` has no such field, because it
+     * asks the server to *look* at its sensors and an entry being rewritten was looked at when
+     * it was written.
+     */
+    @SerialName("capture_environment") val captureEnvironment: Boolean? = null,
 )
 
 /** The body of a care confirmation: which kind of task was done. */

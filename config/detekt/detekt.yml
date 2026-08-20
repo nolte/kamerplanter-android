@@ -45,6 +45,11 @@ complexity:
     # it harder to read. Same exemption the project already grants FunctionNaming and
     # MagicNumber; plain Kotlin classes and files stay under the default threshold.
     ignoreAnnotatedFunctions: ['Composable']
+    # Private helpers do not count. The rule is about a class offering too much to its
+    # callers, and counting private functions punishes the one fix it asks for: a class that
+    # breaks a long method into four named steps gets *worse* by this measure. The public
+    # surface still counts, and that is what a caller has to understand.
+    ignorePrivate: true
     excludes: *testSources
 
 exceptions:

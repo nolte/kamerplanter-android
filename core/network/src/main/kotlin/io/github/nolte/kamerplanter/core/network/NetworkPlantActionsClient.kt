@@ -15,11 +15,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -40,46 +43,99 @@ class NetworkPlantActionsClient @Inject constructor(
     private val changes: PlantDataChanges,
 ) : PlantActionsClient {
 
-    override suspend fun diary(plantKey: String): DiaryOutcome = runCatchingCancellable {
-        val (retrofit, tenant) = target()
-        retrofit.create(RawDiaryApi::class.java)
-            .list(tenant, plantKey)
-            .bodyOrThrow()
-            .mapNotNull { it.asDiaryEntry(baseUrl(), tenant) }
-            .let { DiaryOutcome.Loaded(it) }
-    }.getOrElse { failure ->
-        when {
-            failure is HttpFailure && failure.status in CREDENTIAL_REFUSED -> DiaryOutcome.Unauthorized
-            else -> DiaryOutcome.Unavailable(failure.describeAndLog())
+    override suspend fun diary(plantKey: String, offset: Int, limit: Int): DiaryOutcome =
+        runCatchingCancellable {
+            val (retrofit, tenant) = target()
+            val page = retrofit.create(RawDiaryApi::class.java)
+                .list(tenant, plantKey, offset, limit)
+                .bodyOrThrow()
+            DiaryOutcome.Loaded(
+                entries = page.mapNotNull { it.asDiaryEntry(baseUrl(), tenant) },
+                // A full page means there may be another. The endpoint sends no total, so the
+                // alternative would be asking for one more entry than is shown on every load.
+                hasMore = page.size >= limit,
+            )
+        }.getOrElse { failure ->
+            when {
+                failure is HttpFailure && failure.status in CREDENTIAL_REFUSED ->
+                    DiaryOutcome.Unauthorized
+                else -> DiaryOutcome.Unavailable(failure.describeAndLog())
+            }
         }
-    }
 
-    override suspend fun addNote(
+    // ── The diary: read a page, write, rewrite, remove, and ask for an analysis ──────────
+
+    override suspend fun addEntry(plantKey: String, draft: DiaryDraft): ActionOutcome =
+        runCatchingCancellable {
+            val (retrofit, tenant) = target()
+            retrofit.create(RawDiaryApi::class.java)
+                .create(tenant, plantKey, retrofit.asRequest(tenant, draft, forCreate = true))
+                .bodyOrThrow()
+            changes.notifyChanged()
+            ActionOutcome.Done
+        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+
+    override suspend fun updateEntry(
         plantKey: String,
-        text: String,
-        photos: List<ByteArray>,
-        captureEnvironment: Boolean,
+        entryKey: String,
+        draft: DiaryDraft,
     ): ActionOutcome = runCatchingCancellable {
         val (retrofit, tenant) = target()
-        // Sequentially, and before the entry: the endpoint takes ids, so there is nothing to
-        // write until every upload has answered. Serial rather than parallel because five
-        // full-size photos at once on a phone connection is how an upload times out.
-        val refs = photos.map { jpeg -> retrofit.upload(tenant, jpeg) }
         retrofit.create(RawDiaryApi::class.java)
-            .create(
-                tenant,
-                plantKey,
-                NoteRequest(
-                    text = text,
-                    entryType = ENTRY_TYPE_NOTE,
-                    photoRefs = refs,
-                    captureEnvironment = captureEnvironment,
-                ),
-            )
+            .update(tenant, plantKey, entryKey, retrofit.asRequest(tenant, draft, forCreate = false))
             .bodyOrThrow()
         changes.notifyChanged()
         ActionOutcome.Done
     }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+
+    override suspend fun deleteEntry(plantKey: String, entryKey: String): ActionOutcome =
+        runCatchingCancellable {
+            val (retrofit, tenant) = target()
+            val response = retrofit.create(RawDiaryApi::class.java)
+                .delete(tenant, plantKey, entryKey)
+            if (!response.isSuccessful) throw HttpFailure(response.code(), null)
+            changes.notifyChanged()
+            ActionOutcome.Done
+        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+
+    override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome =
+        runCatchingCancellable {
+            val (retrofit, tenant) = target()
+            retrofit.create(RawDiaryApi::class.java)
+                .requestAnalysis(tenant, plantKey, entryKey)
+                .bodyOrThrow()
+            changes.notifyChanged()
+            ActionOutcome.Done
+        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+
+    /**
+     * A draft as the endpoint takes it, uploading whatever photos are new first.
+     *
+     * Sequentially, and before the entry: the endpoint takes ids, so there is nothing to write
+     * until every upload has answered. Serial rather than parallel because five full-size
+     * photos at once on a phone connection is how an upload times out.
+     *
+     * [forCreate] decides whether `capture_environment` travels at all. It tells the server
+     * whether to *look* at its sensors, which is a question only a new entry can be asked —
+     * `PUT` has no such field, and sending one would be describing a moment that has passed.
+     */
+    private suspend fun Retrofit.asRequest(
+        tenant: String,
+        draft: DiaryDraft,
+        forCreate: Boolean,
+    ): NoteRequest {
+        val uploaded = draft.newPhotos.map { jpeg -> upload(tenant, jpeg) }
+        return NoteRequest(
+            text = draft.text,
+            title = draft.title?.takeIf { it.isNotBlank() },
+            entryType = draft.entryType,
+            // Existing photos first, in the order the entry already had them: an edit that
+            // added one should not reshuffle the ones that were there.
+            photoRefs = draft.photoRefs + uploaded,
+            tags = draft.tags,
+            captureEnvironment = draft.captureEnvironment.takeIf { forCreate },
+        )
+    }
 
     /**
      * Uploads one photo as a **diary** attachment and returns the id the entry will reference.
@@ -160,18 +216,35 @@ class NetworkPlantActionsClient @Inject constructor(
      * Follows [NetworkPlantsClient]'s precedent for logging from this module. No payload
      * reaches the log — only the instance's description of its own refusal.
      */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun Throwable.describeAndLog(): String = describe().also {
         // The raw body as well as the sentence made from it. A parser that reads the wrong key
         // produces a confident, useless message — which is how "photo_refs" reached the screen
         // with no explanation after it — and the only way to see that is to log what it read.
-        val raw = (this as? HttpFailure)?.body?.take(RAW_BODY_LOG_LIMIT)
-        Log.w(LOG_TAG, "the action failed: $it${raw?.let { body -> " | body: $body" }.orEmpty()}", this)
+        //
+        // Guarded for the same reason the plant list guards its own: this runs on the failure
+        // path, and a logger that throws would replace a message the user could act on with a
+        // crash. The only thrower observed is the JVM unit test's `android.jar` stub — which
+        // is exactly where a write's failure paths are tested.
+        try {
+            val raw = (this as? HttpFailure)?.body?.take(RAW_BODY_LOG_LIMIT)
+            Log.w(LOG_TAG, "the action failed: $it${raw?.let { body -> " | body: $body" }.orEmpty()}", this)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (reportingFailed: Throwable) {
+            // Nowhere left to report it — reporting is what just failed.
+        }
     }
 
     private fun Throwable.describe(): String = when {
         this is NotConnected -> "the app is not connected to an instance"
-        this is HttpFailure && status in CREDENTIAL_REFUSED ->
+        this is HttpFailure && status == HTTP_UNAUTHORIZED ->
             "the instance refused the stored credential — reconnect in Settings"
+        // Told apart from 401 on purpose. A write refused with 403 is a *role*: the credential
+        // authenticated and this account may not write here, and reconnecting cannot widen
+        // that — it sends the user round a loop back to the same refusal (#12).
+        this is HttpFailure && status == HTTP_FORBIDDEN ->
+            "your account may not do this on this instance"
         this is HttpFailure && status == HTTP_BAD_REQUEST ->
             "the instance has nothing open to confirm for this plant"
         this is UploadWithoutId -> "the instance stored the photo but did not name it"
@@ -200,6 +273,8 @@ class NetworkPlantActionsClient @Inject constructor(
         suspend fun list(
             @Path("tenant_slug") tenantSlug: String,
             @Path("key") key: String,
+            @Query("offset") offset: Int,
+            @Query("limit") limit: Int,
         ): Response<JsonArray>
 
         @POST("api/v1/t/{tenant_slug}/plant-instances/{key}/diary")
@@ -207,6 +282,28 @@ class NetworkPlantActionsClient @Inject constructor(
             @Path("tenant_slug") tenantSlug: String,
             @Path("key") key: String,
             @Body body: NoteRequest,
+        ): Response<JsonElement>
+
+        @PUT("api/v1/t/{tenant_slug}/plant-instances/{key}/diary/{entry_key}")
+        suspend fun update(
+            @Path("tenant_slug") tenantSlug: String,
+            @Path("key") key: String,
+            @Path("entry_key") entryKey: String,
+            @Body body: NoteRequest,
+        ): Response<JsonElement>
+
+        @DELETE("api/v1/t/{tenant_slug}/plant-instances/{key}/diary/{entry_key}")
+        suspend fun delete(
+            @Path("tenant_slug") tenantSlug: String,
+            @Path("key") key: String,
+            @Path("entry_key") entryKey: String,
+        ): Response<Unit>
+
+        @POST("api/v1/t/{tenant_slug}/plant-instances/{key}/diary/{entry_key}/request-analysis")
+        suspend fun requestAnalysis(
+            @Path("tenant_slug") tenantSlug: String,
+            @Path("key") key: String,
+            @Path("entry_key") entryKey: String,
         ): Response<JsonElement>
     }
 
@@ -276,9 +373,7 @@ class NetworkPlantActionsClient @Inject constructor(
                 createdAt = fields.text("created_at"),
                 // Resolved here rather than by the screen: the id alone addresses nothing,
                 // and the base URL and tenant are known at this point and nowhere later.
-                photoUrls = (fields["photo_refs"] as? JsonArray)
-                    .orEmpty()
-                    .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                photoUrls = fields.refs()
                     .map { id ->
                         "${baseUrl.trimEnd('/')}/api/v1/t/$tenant/attachments/$id" +
                             "/thumbnails/$THUMBNAIL_EDGE_PX"
@@ -287,8 +382,23 @@ class NetworkPlantActionsClient @Inject constructor(
                     .orEmpty()
                     .mapNotNull { it.asReading() },
                 environmentStatus = fields.text("environment_status"),
+                photoRefs = fields.refs(),
+                tags = (fields["tags"] as? JsonArray)
+                    .orEmpty()
+                    .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
+                canRequestAnalysis = (fields["can_request_analysis"] as? JsonPrimitive)
+                    ?.takeIf { !it.isString }
+                    ?.content
+                    ?.toBooleanStrictOrNull() == true,
+                analysisState = fields.text("analysis_state"),
+                analysis = fields.text("analysis"),
             )
         }
+
+        /** The attachment ids an entry references, in stored order. */
+        fun JsonObject.refs(): List<String> = (this["photo_refs"] as? JsonArray)
+            .orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
 
         /** One sensor value; an entry missing metric or value is not one worth showing. */
         fun JsonElement.asReading(): EnvironmentReading? {

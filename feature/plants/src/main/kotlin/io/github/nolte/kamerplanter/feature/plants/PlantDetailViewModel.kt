@@ -8,9 +8,13 @@ import io.github.nolte.kamerplanter.core.camera.JpegDownscale
 import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
 import io.github.nolte.kamerplanter.core.network.CareAction
+import io.github.nolte.kamerplanter.core.network.DIARY_PHOTOS_MAX
+import io.github.nolte.kamerplanter.core.network.DIARY_TEXT_MAX
+import io.github.nolte.kamerplanter.core.network.DIARY_TITLE_MAX
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.DiaryDraft
 import io.github.nolte.kamerplanter.core.network.DiaryEntry
 import io.github.nolte.kamerplanter.core.network.DiaryOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
@@ -67,6 +71,10 @@ data class PlantDetailUiState(
     val photos: SectionState<List<PlantPhoto>> = SectionState.Loading,
     val phases: SectionState<List<PlantPhase>> = SectionState.Loading,
     val diary: SectionState<List<DiaryEntry>> = SectionState.Loading,
+    /** Whether the instance holds entries older than the ones loaded. */
+    val diaryHasMore: Boolean = false,
+    /** A page of older entries is on its way; the "show older" control waits on it. */
+    val isLoadingOlder: Boolean = false,
     val pestChecks: SectionState<List<Detection>> = SectionState.Loading,
     /**
      * Whether the instance offers pest detection at all.
@@ -105,7 +113,14 @@ data class PlantDetailUiState(
 }
 
 /** The actions this page offers, so the screen can report which of them just finished. */
-enum class PlantAction { WATERED, CARE_CONFIRMED, NOTE_ADDED }
+enum class PlantAction {
+    WATERED,
+    CARE_CONFIRMED,
+    NOTE_ADDED,
+    NOTE_UPDATED,
+    NOTE_DELETED,
+    ANALYSIS_REQUESTED,
+}
 
 /**
  * Everything one plant's page reads from, in one place.
@@ -265,9 +280,44 @@ class PlantDetailViewModel @Inject constructor(
         val outcome = sources.actions.diary(plantKey)
         _state.update {
             when (outcome) {
-                is DiaryOutcome.Loaded -> it.copy(diary = SectionState.Loaded(outcome.entries))
+                is DiaryOutcome.Loaded -> it.copy(
+                    diary = SectionState.Loaded(outcome.entries),
+                    diaryHasMore = outcome.hasMore,
+                )
                 DiaryOutcome.Unauthorized -> it.copy(credentialRefused = true)
                 is DiaryOutcome.Unavailable -> it.copy(diary = SectionState.Failed(outcome.reason))
+            }
+        }
+    }
+
+    /**
+     * Appends the next page of entries.
+     *
+     * Offset from what is on screen rather than from a page number, and deduplicated by key: a
+     * diary written into while the reader scrolls shifts the window, and the same entry
+     * arriving twice would break the list's own keys.
+     */
+    fun loadOlderDiary() {
+        val shown = _state.value.diary.valueOrNull ?: return
+        if (_state.value.isLoadingOlder || !_state.value.diaryHasMore) return
+        _state.update { it.copy(isLoadingOlder = true) }
+        viewModelScope.launch {
+            val outcome = sources.actions.diary(plantKey, offset = shown.size)
+            _state.update {
+                when (outcome) {
+                    is DiaryOutcome.Loaded -> it.copy(
+                        diary = SectionState.Loaded(
+                            (it.diary.valueOrNull.orEmpty() + outcome.entries)
+                                .distinctBy(DiaryEntry::key),
+                        ),
+                        diaryHasMore = outcome.hasMore,
+                        isLoadingOlder = false,
+                    )
+                    DiaryOutcome.Unauthorized ->
+                        it.copy(credentialRefused = true, isLoadingOlder = false)
+                    is DiaryOutcome.Unavailable ->
+                        it.copy(isLoadingOlder = false, actionError = outcome.reason)
+                }
             }
         }
     }
@@ -297,19 +347,53 @@ class PlantDetailViewModel @Inject constructor(
         act(PlantAction.CARE_CONFIRMED) { sources.actions.confirmCare(plantKey, kind) }
 
     /**
-     * Writes a diary entry.
+     * Writes a diary entry, or rewrites one.
      *
-     * Text is required, and the guard is here as well as in the dialogue's save button because
-     * the endpoint declares `minLength: 1`: an entry with photos and no words is a reasonable
-     * thing to want and a 422 from the instance. The button is what tells the user; this is
-     * what keeps a caller from finding out the hard way.
+     * [editing] is the key of the entry being rewritten, or `null` for a new one. A draft the
+     * endpoint would refuse is stopped here rather than sent: an entry stopped at the phone is
+     * still on screen to fix, while one refused by the instance costs a round trip and comes
+     * back naming a field.
      */
-    fun addNote(text: String, photos: List<ByteArray>, captureEnvironment: Boolean) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
-        act(PlantAction.NOTE_ADDED) {
-            sources.actions.addNote(plantKey, trimmed, photos, captureEnvironment)
+    fun saveEntry(draft: DiaryDraft, editing: String? = null) {
+        val prepared = draft.prepared() ?: return
+        if (editing == null) {
+            act(PlantAction.NOTE_ADDED) { sources.actions.addEntry(plantKey, prepared) }
+        } else {
+            act(PlantAction.NOTE_UPDATED) {
+                sources.actions.updateEntry(plantKey, editing, prepared)
+            }
         }
+    }
+
+    /**
+     * Removes an entry.
+     *
+     * The confirmation is the screen's; what matters here is the reload afterwards. The
+     * instance is the only place the entry existed, and a list that still shows it reads as a
+     * delete that did not work.
+     */
+    fun deleteEntry(entryKey: String) =
+        act(PlantAction.NOTE_DELETED) { sources.actions.deleteEntry(plantKey, entryKey) }
+
+    /** Asks the instance to analyse an entry, where this reader may. */
+    fun requestAnalysis(entryKey: String) =
+        act(PlantAction.ANALYSIS_REQUESTED) { sources.actions.requestAnalysis(plantKey, entryKey) }
+
+    /**
+     * The draft as the endpoint would take it, or `null` where it would refuse it.
+     *
+     * One place for the four rules, so the editor's save button and this guard cannot drift:
+     * text is required (`minLength: 1`) and capped, the title is capped, and five photos is
+     * the limit.
+     */
+    private fun DiaryDraft.prepared(): DiaryDraft? {
+        val trimmedText = text.trim()
+        val trimmedTitle = title?.trim()?.takeIf { it.isNotBlank() }
+        val fits = trimmedText.isNotEmpty() &&
+            trimmedText.length <= DIARY_TEXT_MAX &&
+            (trimmedTitle?.length ?: 0) <= DIARY_TITLE_MAX &&
+            photoRefs.size + newPhotos.size <= DIARY_PHOTOS_MAX
+        return copy(text = trimmedText, title = trimmedTitle).takeIf { fits }
     }
 
     /** Dismisses whichever of the two messages is showing, so it does not outlive its moment. */
