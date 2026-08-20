@@ -42,7 +42,21 @@ The Gradle multi-module layout (`app/`, `core/`, `feature/` at the root) is the 
 
 ## Status
 
-Early scaffold. The tech stack is decided ([ADR 0001](docs/en/adrs/0001-tech-stack.md)); the USB microscope capture flow (issue #1) is the first feature in progress.
+Usable against a self-hosted instance, and not yet released. The tech stack is decided
+([ADR 0001](docs/en/adrs/0001-tech-stack.md)); what works today:
+
+- **Connect** to your own instance by pairing code, API key or light mode, with the credential
+  under an Android Keystore key and the connection manageable from Settings.
+- **Your plants** as a filterable list — search, location, species, phase, "needs attention",
+  and removed plants on request — and a page per plant with its master data, phase, care,
+  photos, diary and past pest checks.
+- **Pest detection** from the phone camera or a USB (UVC) microscope: the instance recognises,
+  the app renders the findings over the frame, tells a beneficial from a pest, says when the
+  recogniser abstained, and takes your verdict back to the instance.
+- **A diary** per plant, with photos from either camera, editable and paged.
+
+Not verified end to end on hardware yet: the microscope capture against the reference device
+(issue #1) and the device-level criteria of issues #9, #10 and #12.
 
 ## License
 
