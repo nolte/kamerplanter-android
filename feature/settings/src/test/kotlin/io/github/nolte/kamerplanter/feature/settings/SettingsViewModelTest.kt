@@ -9,7 +9,9 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.Credential
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
 import io.github.nolte.kamerplanter.core.connection.DiscoveryLink
+import io.github.nolte.kamerplanter.core.connection.DiscoveryOutcome
 import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
+import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import io.github.nolte.kamerplanter.core.connection.PendingDiscovery
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.CompletableDeferred
@@ -183,7 +185,7 @@ class SettingsViewModelTest {
         // The distinction the scanner's badge rests on: this is not the same as seeing
         // nothing, and reporting it as such is what makes a payload-format mismatch visible
         // instead of looking like a camera that never focused.
-        assertEquals(QrReading.FOREIGN, viewModel.onQrDetected("just some scanned text"))
+        assertEquals(QrReading.Foreign, viewModel.onQrDetected("just some scanned text"))
     }
 
     @Test
@@ -192,7 +194,7 @@ class SettingsViewModelTest {
 
         viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
 
-        assertEquals(QrReading.ACCEPTED, viewModel.onQrDetected(validQr))
+        assertEquals(QrReading.Accepted, viewModel.onQrDetected(validQr))
     }
 
     @Test
@@ -204,7 +206,7 @@ class SettingsViewModelTest {
 
         // The frames still carrying the accepted code keep arriving. Calling those foreign
         // would put "not a kamerplanter code" on screen over a pairing already under way.
-        assertEquals(QrReading.STALE, viewModel.onQrDetected(validQr))
+        assertEquals(QrReading.Stale, viewModel.onQrDetected(validQr))
     }
 
     @Test
@@ -576,7 +578,7 @@ class SettingsViewModelTest {
 
     // ── /connect deep link (#13) ────────────────────────────────────────────────────
 
-    private val discovered = DiscoveryLink("https://plants.example")
+    private val discovered = DiscoveryOutcome.Usable(DiscoveryLink("https://plants.example"))
 
     private fun connectedTo(baseUrl: String) = viewModel(
         store = FakeConnectionStore(Connection.QrPairing(baseUrl = baseUrl, tenantSlug = "demo")),
@@ -599,7 +601,7 @@ class SettingsViewModelTest {
         val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
         advanceUntilIdle()
 
-        assertEquals(QrReading.ACCEPTED, reading)
+        assertEquals(QrReading.Accepted, reading)
         assertEquals(
             ConnectionState.Discovered("https://plants.example", DiscoveredInstance.NEW),
             viewModel.state.value,
@@ -627,11 +629,44 @@ class SettingsViewModelTest {
         val reading = viewModel.onQrDetected("https://plants.example/connect?v=1")
         advanceUntilIdle()
 
-        assertEquals(QrReading.STALE, reading)
+        assertEquals(QrReading.Stale, reading)
         assertTrue(
             viewModel.state.value.toString(),
             viewModel.state.value is ConnectionState.Collecting.ScanningQr,
         )
+    }
+
+    /**
+     * The app opened because the user tapped a link it recognises and cannot use. Saying
+     * nothing is what #40 was about: same URL, an explanation when scanned, silence when
+     * tapped — and the silent path is the one that already interrupted the user.
+     */
+    @Test
+    fun `a refused link says why instead of vanishing`() = runTest(dispatcher) {
+        discoveries.offer(DiscoveryOutcome.Refused(PayloadRefusal.PAYLOAD_TOO_NEW))
+
+        val model = viewModel()
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.LinkRefused(PayloadRefusal.PAYLOAD_TOO_NEW),
+            model.state.value,
+        )
+    }
+
+    /** Acknowledging it is leaving without connecting, which is where the user started. */
+    @Test
+    fun `dismissing a refused link leaves nothing behind`() = runTest(dispatcher) {
+        discoveries.offer(DiscoveryOutcome.Refused(PayloadRefusal.ADDRESS_NOT_ENCRYPTED))
+        val model = viewModel()
+        advanceUntilIdle()
+
+        model.cancel()
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, model.state.value)
+        // Consumed, not merely hidden: returning to Settings must not replay it.
+        assertEquals(null, discoveries.link.value)
     }
 
     /** Nothing is connected, so the link is simply an offer. */

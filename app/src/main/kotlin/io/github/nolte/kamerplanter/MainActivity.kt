@@ -81,22 +81,21 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Publishes an incoming link, and silently ignores anything else.
+     * Publishes what an incoming link turned out to be, and silently ignores anything else.
      *
      * A foreign URL that happens to carry `/connect` is dropped here rather than shown as an
      * error. The user asked to open a web address; landing in the app on a screen complaining
      * about it would be a worse answer than the app simply not claiming it.
      *
-     * Known gap: that reasoning does not hold for a link this app *recognises* and cannot
-     * read — a payload version newer than this build. The scanner now words that one ("newer
-     * than the app; update it"), so the identical URL explains itself when scanned and says
-     * nothing when tapped, having already claimed the intent and opened. Closing it means
-     * carrying a refusal through [PendingDiscovery] and into the settings screen, which is
-     * more than a scanner fix; tracked separately.
+     * A link the app *recognises* and cannot act on is not that case, and used to be treated
+     * as if it were: the manifest claims any host's `/connect` path whatever the query carries,
+     * so tapping a link from a newer release opened the app, which then did nothing at all —
+     * while scanning that same URL explained itself. Both now travel the same refusal to the
+     * same screen (#40).
      */
     private fun offerDiscoveryLink(intent: Intent?) {
         val raw = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
-        DiscoveryLinkParser.parse(raw)?.let(pendingDiscovery::offer)
+        DiscoveryLinkParser.read(raw)?.let(pendingDiscovery::offer)
     }
 }
 
