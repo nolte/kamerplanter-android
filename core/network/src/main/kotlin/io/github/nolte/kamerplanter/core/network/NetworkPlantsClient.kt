@@ -6,7 +6,6 @@ import io.github.nolte.kamerplanter.core.connection.CredentialStore
 import io.github.nolte.kamerplanter.core.network.generated.apis.LocationsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantInstancesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
-import io.github.nolte.kamerplanter.core.network.generated.models.PlantResponse
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -15,9 +14,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.GET
@@ -298,59 +294,6 @@ class NetworkPlantsClient(
         fun <T> Response<T>.bodyOrThrow(): T {
             if (!isSuccessful) throw HttpFailure(code())
             return body() ?: throw HttpFailure(code())
-        }
-
-        /**
-         * One dashboard entry, or `null` where it cannot be read.
-         *
-         * Hand-parsed rather than deserialized so a `reminder_type` this build does not know
-         * costs one badge instead of every badge in the tenant. `plant_key`, `reminder_type`
-         * and `urgency` are the fields a row needs; an entry missing any of them is not
-         * usable and is dropped.
-         */
-        fun JsonElement.asCareAction(): Pair<String, CareAction>? {
-            val fields = this as? JsonObject ?: return null
-            val plantKey = fields.text("plant_key") ?: return null
-            val kind = fields.text("reminder_type") ?: return null
-            val urgency = fields.text("urgency") ?: return null
-            return plantKey to CareAction(kind = kind, urgency = urgency, dueDate = fields.text("due_date"))
-        }
-
-        /**
-         * Overdue before upcoming, then the earliest due date.
-         *
-         * Ordered on the urgency the backend assigns rather than on the date alone: an entry
-         * without a date must still rank, and "overdue" is the backend's judgement, not
-         * something to re-derive from a date this app cannot see the schedule behind.
-         */
-        fun List<CareAction>.mostPressing(): CareAction =
-            minWithOrNull(
-                compareBy<CareAction> { if (it.urgency == URGENCY_OVERDUE) 0 else 1 }
-                    .thenBy { it.dueDate ?: "9999-99-99" },
-            ) ?: first()
-
-        fun JsonObject.text(name: String): String? =
-            (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-        /** `plant_name` is nullable, and a blank one is as unusable as a missing one. */
-        fun PlantResponse.displayName(): String =
-            plantName?.takeIf { it.isNotBlank() } ?: instanceId
-
-        /** Common name first — that is what the owner calls it — with the cultivar appended. */
-        fun PlantResponse.speciesLabel(): String? {
-            val base = species?.commonNames?.firstOrNull()?.takeIf { it.isNotBlank() }
-                ?: species?.scientificName
-                ?: return cultivar?.name
-            return cultivar?.name?.let { "$base '$it'" } ?: base
-        }
-
-        /**
-         * Thumbnail URIs may come back relative to the instance. Coil needs an absolute URL,
-         * and prefixing one that is already absolute would produce a broken address.
-         */
-        fun absoluteAgainst(baseUrl: String, uri: String): String = when {
-            uri.startsWith("http://") || uri.startsWith("https://") -> uri
-            else -> baseUrl.trimEnd('/') + "/" + uri.trimStart('/')
         }
 
         @Suppress("TooGenericExceptionCaught")
