@@ -611,8 +611,11 @@ private fun RemovedNotice(removal: PlantRemoval) {
 /** Planted on, what it sits in, how it is grown, and where it came from. */
 @Composable
 private fun MasterData(plant: PlantDetail) {
+    val context = LocalContext.current
     val facts = listOfNotNull(
-        plant.plantedOn?.let { stringResource(R.string.plants_fact_planted, it) },
+        plant.plantedOn?.let {
+            stringResource(R.string.plants_fact_planted, it.asLocalDate(context))
+        },
         plant.containerVolumeLiters?.let {
             stringResource(R.string.plants_fact_container, it.formatLitres())
         },
@@ -634,19 +637,27 @@ private fun MasterData(plant: PlantDetail) {
 /** The phase it is in, and the ones it has been through. */
 @Composable
 private fun Phases(current: PlantPhase?, history: List<PlantPhase>) {
+    val context = LocalContext.current
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         current?.let {
             Text(
                 text = it.startedAt?.let { since ->
-                    stringResource(R.string.plants_phase_current_since, it.name, since)
+                    stringResource(
+                        R.string.plants_phase_current_since,
+                        it.name,
+                        since.asLocalDate(context),
+                    )
                 } ?: it.name,
                 style = MaterialTheme.typography.bodyLarge,
             )
         }
         history.forEach { phase ->
             Text(
-                text = listOfNotNull(phase.name, phase.startedAt, phase.endedAt)
-                    .joinToString(SEPARATOR),
+                text = listOfNotNull(
+                    phase.name,
+                    phase.startedAt?.asLocalDate(context),
+                    phase.endedAt?.asLocalDate(context),
+                ).joinToString(SEPARATOR),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

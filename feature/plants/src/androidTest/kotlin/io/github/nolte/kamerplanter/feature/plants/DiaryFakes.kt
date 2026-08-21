@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 internal class FakePageClient(
     private val detail: PlantDetail = plantDetail(),
+    private val phases: List<PlantPhase> = emptyList(),
 ) : PlantPageClient {
 
     override suspend fun plant(key: String): SectionOutcome<PlantDetail> =
@@ -49,7 +50,7 @@ internal class FakePageClient(
         SectionOutcome.Loaded(emptyList())
 
     override suspend fun phaseHistory(key: String): SectionOutcome<List<PlantPhase>> =
-        SectionOutcome.Loaded(emptyList())
+        SectionOutcome.Loaded(phases)
 
     override suspend fun care(key: String): SectionOutcome<List<CareAction>> =
         SectionOutcome.Loaded(emptyList())
@@ -137,14 +138,18 @@ internal class FakeCamera : MicroscopeCamera {
     override fun zoomBy(deltaPercent: Int) = Unit
 }
 
-internal fun plantDetail(name: String = "Monstera") = PlantDetail(
+internal fun plantDetail(
+    name: String = "Monstera",
+    plantedOn: String? = null,
+    phase: PlantPhase? = null,
+) = PlantDetail(
     key = "p1",
     displayName = name,
     species = "Monstera deliciosa",
     location = "Windowsill",
-    plantedOn = null,
+    plantedOn = plantedOn,
     removal = null,
-    phase = null,
+    phase = phase,
     containerVolumeLiters = null,
     substrate = null,
     cultivationCycle = null,
