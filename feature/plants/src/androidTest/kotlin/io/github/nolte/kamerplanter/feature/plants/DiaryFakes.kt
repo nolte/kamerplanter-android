@@ -5,6 +5,7 @@ import android.view.View
 import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.CareAction
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
+import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionFeedback
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
@@ -20,6 +21,7 @@ import io.github.nolte.kamerplanter.core.network.PlantDetail
 import io.github.nolte.kamerplanter.core.network.PlantPageClient
 import io.github.nolte.kamerplanter.core.network.PlantPhase
 import io.github.nolte.kamerplanter.core.network.PlantPhoto
+import io.github.nolte.kamerplanter.core.network.PlantRemoval
 import io.github.nolte.kamerplanter.core.network.SectionOutcome
 import io.github.nolte.kamerplanter.feature.microscope.CapturedFrame
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeButton
@@ -88,11 +90,19 @@ internal class FakeActionsClient(private val entries: List<DiaryEntry>) : PlantA
         ActionOutcome.Done
 }
 
-/** Reports the pest check as unavailable; these tests are about the diary. */
-internal class QuietDetectionClient : PestDetectionClient {
+/**
+ * Reports the pest check as unavailable; these tests are about the diary.
+ *
+ * [pastChecks] is the exception: the plant page renders a past check's timestamp, so a test
+ * about dates has to be able to put one there. Left empty, that section never composes and a
+ * raw timestamp in it would go unseen.
+ */
+internal class QuietDetectionClient(
+    private val pastChecks: List<Detection> = emptyList(),
+) : PestDetectionClient {
 
     override suspend fun readiness(): DetectionReadiness =
-        DetectionReadiness.NotOffered
+        if (pastChecks.isEmpty()) DetectionReadiness.NotOffered else DetectionReadiness.Ready
 
     override suspend fun grantConsent(purpose: String): ConsentOutcome = ConsentOutcome.Granted
 
@@ -113,8 +123,20 @@ internal class QuietDetectionClient : PestDetectionClient {
     ): InspectionOutcome = InspectionOutcome.Failed("not used here")
 
     override suspend fun history(plantKey: String, limit: Int): DetectionHistoryOutcome =
-        DetectionHistoryOutcome.Loaded(emptyList())
+        DetectionHistoryOutcome.Loaded(pastChecks)
 }
+
+/** A completed check, carrying the timestamp shape the instance actually sends. */
+internal fun pastCheck(recordedAt: String) = Detection(
+    key = "det-1",
+    isConfident = true,
+    findings = emptyList(),
+    disclaimer = "Only an estimate.",
+    suggestedNextStep = "Look again",
+    tilesProcessed = 1,
+    feedback = emptyList(),
+    recordedAt = recordedAt,
+)
 
 /** A microscope that is never attached; the diary tests never reach for one. */
 internal class FakeCamera : MicroscopeCamera {
@@ -142,13 +164,14 @@ internal fun plantDetail(
     name: String = "Monstera",
     plantedOn: String? = null,
     phase: PlantPhase? = null,
+    removal: PlantRemoval? = null,
 ) = PlantDetail(
     key = "p1",
     displayName = name,
     species = "Monstera deliciosa",
     location = "Windowsill",
     plantedOn = plantedOn,
-    removal = null,
+    removal = removal,
     phase = phase,
     containerVolumeLiters = null,
     substrate = null,

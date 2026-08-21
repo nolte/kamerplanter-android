@@ -98,6 +98,7 @@ import io.github.nolte.kamerplanter.core.network.PlantPhoto
 import io.github.nolte.kamerplanter.core.network.PlantRemoval
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeState
 import java.time.LocalDate
+import java.time.OffsetDateTime
 import java.time.ZoneId
 
 /**
@@ -588,7 +589,10 @@ private fun RemovedNotice(removal: PlantRemoval) {
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(
-                text = stringResource(R.string.plants_removed_on, removal.removedOn),
+                text = stringResource(
+                    R.string.plants_removed_on,
+                    removal.removedOn.asLocalDate(LocalContext.current),
+                ),
                 style = MaterialTheme.typography.labelLarge,
             )
             // Type and cause as the instance names them. A translation table here would go
@@ -704,6 +708,7 @@ private fun Gallery(photos: List<PlantPhoto>, imageLoader: ImageLoader?) {
 /** What this plant has been checked for, and what came of it. */
 @Composable
 private fun PastChecks(checks: List<Detection>) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -711,7 +716,10 @@ private fun PastChecks(checks: List<Detection>) {
         checks.forEach { check ->
             Column {
                 check.recordedAt?.let {
-                    Text(text = it, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = it.asLocalDate(context),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 }
                 Text(
                     text = if (check.isConfident) {
@@ -1567,9 +1575,25 @@ private val HEADER_IMAGE_HEIGHT = 200.dp
  * A timestamp this build cannot parse falls back to its first ten characters, which is the ISO
  * date and readable, rather than to nothing.
  */
+/**
+ * The calendar day this instant falls on **for the reader**, not for the server.
+ *
+ * The plain first-ten-characters reading is the server's day: a phase that began
+ * `2026-08-14T02:00:00Z` started on the 13th for someone in UTC-5, and taking the prefix
+ * would tell them the 14th. Fields that carry an instant therefore go through the device's
+ * zone first.
+ *
+ * A bare `LocalDate` — `planted_on` and `removed_on` are exactly that upstream — carries no
+ * instant to convert, so it is read as the calendar day it already is. Anything this build
+ * cannot parse falls back to the caller, which keeps the ISO date rather than showing nothing.
+ */
+private fun String.asLocalCalendarDay(): LocalDate? =
+    runCatching { OffsetDateTime.parse(this).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }
+        .recoverCatching { LocalDate.parse(take(ISO_DATE_LENGTH)) }
+        .getOrNull()
+
 private fun String.asLocalDate(context: Context): String {
-    val date = runCatching { LocalDate.parse(take(ISO_DATE_LENGTH)) }.getOrNull()
-        ?: return take(ISO_DATE_LENGTH)
+    val date = asLocalCalendarDay() ?: return take(ISO_DATE_LENGTH)
     val millis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
     return DateUtils.formatDateTime(
         context,

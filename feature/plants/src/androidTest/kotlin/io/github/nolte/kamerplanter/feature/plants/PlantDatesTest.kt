@@ -1,8 +1,12 @@
 package io.github.nolte.kamerplanter.feature.plants
 
 import android.Manifest
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.rule.GrantPermissionRule
 import io.github.nolte.kamerplanter.core.connection.Connection
@@ -11,6 +15,7 @@ import io.github.nolte.kamerplanter.core.connection.InMemoryCredentialStore
 import io.github.nolte.kamerplanter.core.network.AuthenticatedImageClient
 import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.PlantPhase
+import io.github.nolte.kamerplanter.core.network.PlantRemoval
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -66,11 +71,24 @@ class PlantDatesTest {
             ),
             sources = PlantPageSources(
                 page = FakePageClient(
-                    detail = plantDetail(plantedOn = "2026-07-10", phase = phase),
+                    detail = plantDetail(
+                        plantedOn = "2026-07-10",
+                        phase = phase,
+                        removal = PlantRemoval(
+                            removedOn = "2026-08-20",
+                            type = "loss",
+                            cause = null,
+                        ),
+                    ),
                     phases = listOf(past),
                 ),
                 actions = FakeActionsClient(listOf(diaryEntry("d1", "Repotted."))),
-                detections = QuietDetectionClient(),
+                // Every dated field the page can render, in one pass: master data, both phase
+                // lines, the removal notice and a past check. Each of the last two printed a
+                // raw value until pre-merge review caught them.
+                detections = QuietDetectionClient(
+                    pastChecks = listOf(pastCheck(recordedAt = "2026-08-18T09:15:00Z")),
+                ),
             ),
             camera = FakeCamera(),
             changes = PlantDataChanges(),
@@ -86,12 +104,13 @@ class PlantDatesTest {
             composeRule.onAllNodesWithText("Repotted.").fetchSemanticsNodes().isNotEmpty()
         }
 
-        // The clock portion of each timestamp the fakes fed in. A formatted date never
-        // carries it; a string printed as the instance wrote it always does.
-        val offenders = ISO_CLOCK_MARKERS.filter { marker ->
-            composeRule.onAllNodesWithText(marker, substring = true).fetchSemanticsNodes()
-                .isNotEmpty()
-        }
+        // Every text the page renders, matched against the shape of a wire timestamp rather
+        // than against the two the fixture happens to use. A hardcoded pair would pass
+        // silently the moment a fourth date field arrives with a different clock time — the
+        // exact blind spot this test exists to close.
+        val offenders = composeRule.onRoot().fetchSemanticsNode()
+            .everyText()
+            .filter { ISO_CLOCK.containsMatchIn(it) }
 
         assertTrue(
             "raw backend timestamps reached the screen: $offenders",
@@ -100,5 +119,27 @@ class PlantDatesTest {
     }
 }
 
-/** The clock parts of the timestamps this test feeds in; no formatted date contains them. */
-private val ISO_CLOCK_MARKERS = listOf("T13:22", "T14:33")
+/**
+ * The two shapes a wire date takes: a full ISO date-time, and a bare ISO calendar day.
+ *
+ * The clock component catches `2026-08-14T13:22:45.710215Z`. The bare day catches
+ * `2026-08-20`, which a `LocalDate` field arrives as and which carries no clock at all — the
+ * gap that let the removal notice through the first version of this test.
+ *
+ * The bare-day pattern assumes the device does not itself format dates as ISO. That holds for
+ * the managed device (en-US, "Aug 20, 2026") and for de-DE; a locale like sv-SE would need
+ * this narrowed, and the failure would be loud rather than silent.
+ */
+private val ISO_CLOCK = Regex("""T\d{2}:\d{2}|\b\d{4}-\d{2}-\d{2}\b""")
+
+/**
+ * Every string the whole subtree can put in front of a reader.
+ *
+ * Walks the children rather than querying a matcher, so a field nobody thought to look for is
+ * still covered — which is the point of asserting the property instead of naming the offenders.
+ * Both channels count: what is drawn, and what a screen reader announces.
+ */
+private fun SemanticsNode.everyText(): List<String> =
+    config.getOrNull(SemanticsProperties.Text)?.map { it.text }.orEmpty() +
+        config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() +
+        children.flatMap { it.everyText() }

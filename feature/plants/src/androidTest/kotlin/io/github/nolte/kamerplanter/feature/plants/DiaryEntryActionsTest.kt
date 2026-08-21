@@ -88,6 +88,15 @@ class DiaryEntryActionsTest {
     /**
      * The same mixed list for both halves of the claim, one menu opened per test.
      *
+     * **Known limit, raised in pre-merge review and deliberately left:** the menus are reached
+     * by index into "all menu buttons", which holds only while every row stays composed. Two
+     * entries on this page do; a third, or a taller header, and the `LazyColumn` may recycle
+     * the first row out from under index 1. Two attempts at addressing the button through its
+     * row's text failed — `hasAnyDescendant` also matches the enclosing lazy list and hits both
+     * menus, and `hasAnySibling` matches nothing, because the semantics tree merges nodes
+     * rather than mirroring the composable nesting. Adding a third entry here means fixing
+     * this first; the failure would be loud (wrong menu or an index error), not silent.
+     *
      * Split rather than sequenced: closing a dropdown mid-test means either clicking one of
      * its own items — which acts — or reaching for back-press plumbing, and neither belongs in
      * an assertion about what the menu offered. The menus are addressed by position, because
