@@ -19,6 +19,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -42,11 +43,13 @@ class NetworkPlantsClientTest {
      * Paths whose overlap is being measured.
      *
      * A request to one of these holds its dispatcher thread for [photoDelayMillis], so the
-     * count below reflects requests that are genuinely in flight together. `setBodyDelay`
+     * count below reflects requests that are genuinely in flight together. Concurrent, for the
+     * same reason `requestedPaths` is guarded: the test thread writes it, MockWebServer's
+     * threads read it. `setBodyDelay`
      * would not do: it delays the body while `dispatch` returns immediately, so nothing ever
      * overlaps inside the dispatcher and the peak would read 1 whatever the client does.
      */
-    private val probedPaths = mutableSetOf<String>()
+    private val probedPaths: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val inFlight = AtomicInteger()
     private val peakInFlight = AtomicInteger()
 

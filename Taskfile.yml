@@ -21,9 +21,13 @@ tasks:
       - .venv/bin/pip install -r docs/requirements.txt
 
   lint:
-    desc: Static analysis (detekt incl. ktlint rules, Android Lint)
+    desc: Static analysis (detekt incl. ktlint rules, Android Lint), incl. instrumented sources
     cmds:
-      - ./gradlew detekt lint
+      # assembleDebugAndroidTest, not just detekt+lint: neither compiles src/androidTest, so a
+      # renamed symbol or a deleted string resource breaks the instrumented suite while every
+      # required check stays green — the rot would only surface when someone runs the
+      # managed-device task by hand. This compiles the suite without booting an emulator.
+      - ./gradlew detekt lint assembleDebugAndroidTest
       - task: verify:openapi-client
 
   test:

@@ -101,7 +101,6 @@ dependencies {
     testImplementation(libs.junit)
 
     androidTestImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.core)
@@ -110,7 +109,8 @@ dependencies {
     androidTestImplementation(libs.hilt.android.testing)
     kspAndroidTest(libs.hilt.compiler)
 
-    // Supplies the empty activity the Compose test rule launches into. Debug-only, so it
-    // never reaches a release manifest.
+    // Not referenced by any test here — AppLaunchTest launches MainActivity — but removing it
+    // makes lintAnalyzeDebugAndroidTest crash inside Kotlin's symbol resolver. Measured, not
+    // assumed: the task is green with this line and red without it.
     debugImplementation(libs.compose.ui.test.manifest)
 }

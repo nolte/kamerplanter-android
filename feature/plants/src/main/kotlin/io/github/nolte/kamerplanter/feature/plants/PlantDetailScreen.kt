@@ -1566,16 +1566,6 @@ private fun PlantAction.messageRes(): Int = when (this) {
 private val HEADER_IMAGE_HEIGHT = 200.dp
 
 /**
- * `2026-08-16T09:31:00Z` as the reader's own device writes a date.
- *
- * The clock time is dropped — a diary row needs the day, not the minute — and the day itself
- * goes through the platform's formatter rather than being printed as the ISO string it arrives
- * as: 08/16 and 16.08. are the same date to two readers who would each misread the other's.
- *
- * A timestamp this build cannot parse falls back to its first ten characters, which is the ISO
- * date and readable, rather than to nothing.
- */
-/**
  * The calendar day this instant falls on **for the reader**, not for the server.
  *
  * The plain first-ten-characters reading is the server's day: a phase that began
@@ -1592,6 +1582,18 @@ private fun String.asLocalCalendarDay(): LocalDate? =
         .recoverCatching { LocalDate.parse(take(ISO_DATE_LENGTH)) }
         .getOrNull()
 
+/**
+ * `2026-08-16T09:31:00Z` as the reader's own device writes a date.
+ *
+ * The clock time is dropped — a date on this page needs the day, not the minute — and the day
+ * itself goes through the platform's formatter rather than being printed as the ISO string it
+ * arrives as: 08/16 and 16.08. are the same date to two readers who would each misread the
+ * other's.
+ *
+ * Which day that is comes from [asLocalCalendarDay], which is where the reader's time zone is
+ * taken into account. A value this build cannot parse falls back to its first ten characters —
+ * the ISO date, readable — rather than to nothing.
+ */
 private fun String.asLocalDate(context: Context): String {
     val date = asLocalCalendarDay() ?: return take(ISO_DATE_LENGTH)
     val millis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
