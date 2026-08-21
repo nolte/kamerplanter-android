@@ -13,6 +13,23 @@ android {
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    testOptions {
+        managedDevices {
+            localDevices {
+                // Same device the app module declares, for the same reason and with the same
+                // caveat: a Pixel 7a *profile*, not the physical Pixel 7a, so nothing measured
+                // here is device verification. Repeated per module because the managed-device
+                // block is per-project; keep the two in step.
+                create("pixel7aApi36") {
+                    device = "Pixel 7a"
+                    apiLevel = 36
+                    systemImageSource = "aosp-atd"
+                }
+            }
+        }
     }
 
     compileOptions {
@@ -65,6 +82,12 @@ dependencies {
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
