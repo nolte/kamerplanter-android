@@ -85,6 +85,10 @@ dependencies {
 
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    // The in-memory CredentialStore and ConnectionStore, so the page's image client can be
+    // built without a real connection — same fixtures the unit tests use.
+    androidTestImplementation(testFixtures(project(":core:connection")))
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
