@@ -17,6 +17,10 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
+
+        // Hilt has to build the application object for an instrumented test, or every
+        // binding the test wants to replace is already frozen by the time it runs.
+        testInstrumentationRunner = "io.github.nolte.kamerplanter.HiltTestRunner"
     }
 
     buildTypes {
@@ -40,6 +44,26 @@ android {
         // never use, which permission minimalism forbids. Remove it the moment this app
         // posts anything — at which point the permission belongs in the manifest.
         disable += "NotificationPermission"
+    }
+
+    testOptions {
+        managedDevices {
+            localDevices {
+                // The device the acceptance criteria name (issues #1, #9, #10, #12), on the
+                // newest API level that ships an ATD image — API 37 has none. ATD is a
+                // stripped image without the Play stack or a launcher, which is what makes a
+                // headless run fast; nothing under test needs either.
+                //
+                // This is a Pixel 7a *profile* — screen, density and form factor — not the
+                // physical Pixel 7a. It says nothing about how the real hardware performs,
+                // so a result from here is never reported as device verification.
+                create("pixel7aApi36") {
+                    device = "Pixel 7a"
+                    apiLevel = 36
+                    systemImageSource = "aosp-atd"
+                }
+            }
+        }
     }
 
     compileOptions {
@@ -75,4 +99,18 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
+
+    // Not referenced by any test here — AppLaunchTest launches MainActivity — but removing it
+    // makes lintAnalyzeDebugAndroidTest crash inside Kotlin's symbol resolver. Measured, not
+    // assumed: the task is green with this line and red without it.
+    debugImplementation(libs.compose.ui.test.manifest)
 }
