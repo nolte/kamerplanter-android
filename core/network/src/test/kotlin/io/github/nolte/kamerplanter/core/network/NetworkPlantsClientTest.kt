@@ -19,6 +19,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Covers the joins and the field mapping, which is where this client's work actually happens
@@ -37,6 +38,18 @@ class NetworkPlantsClientTest {
     private val delays = mutableMapOf<String, Long>()
     private val requestedPaths = mutableListOf<String>()
 
+    /**
+     * Paths whose overlap is being measured.
+     *
+     * A request to one of these holds its dispatcher thread for [photoDelayMillis], so the
+     * count below reflects requests that are genuinely in flight together. `setBodyDelay`
+     * would not do: it delays the body while `dispatch` returns immediately, so nothing ever
+     * overlaps inside the dispatcher and the peak would read 1 whatever the client does.
+     */
+    private val probedPaths = mutableSetOf<String>()
+    private val inFlight = AtomicInteger()
+    private val peakInFlight = AtomicInteger()
+
     @Before
     fun setUp() {
         server = MockWebServer()
@@ -44,6 +57,12 @@ class NetworkPlantsClientTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty().substringBefore('?')
                 synchronized(requestedPaths) { requestedPaths += path }
+                if (path in probedPaths) {
+                    val now = inFlight.incrementAndGet()
+                    peakInFlight.updateAndGet { previous -> maxOf(previous, now) }
+                    Thread.sleep(photoDelayMillis)
+                    inFlight.decrementAndGet()
+                }
                 val status = statuses[path] ?: 200
                 val body = responses[path] ?: "{}"
                 return MockResponse()
@@ -61,9 +80,28 @@ class NetworkPlantsClientTest {
     @After
     fun tearDown() = server.shutdown()
 
-    /** A factory whose refresh path is inert: these tests are about the joins, not sessions. */
-    private fun plantsApiFactory(): InstanceApiFactory {
-        val http = OkHttpClient()
+    /**
+     * A factory whose refresh path is inert: these tests are about the joins, not sessions.
+     *
+     * [maxRequestsPerHost] exists for the concurrency test alone. OkHttp's own dispatcher caps
+     * a host at five in-flight requests by default, which silently supplies a bound of its own
+     * — a first version of that test passed with the client's semaphore removed entirely,
+     * because it was measuring OkHttp rather than this app. Raising the cap lets the app's own
+     * limit be the only thing left to observe.
+     */
+    private fun plantsApiFactory(maxRequestsPerHost: Int? = null): InstanceApiFactory {
+        val http = OkHttpClient.Builder()
+            .apply {
+                maxRequestsPerHost?.let {
+                    dispatcher(
+                        okhttp3.Dispatcher().apply {
+                            this.maxRequests = it
+                            this.maxRequestsPerHost = it
+                        },
+                    )
+                }
+            }
+            .build()
         val json = NetworkModule.provideJson()
         return InstanceApiFactory(
             httpClient = http,
@@ -81,8 +119,9 @@ class NetworkPlantsClientTest {
         // coin flip between two timeouts. The whole class runs in under a second, so this is
         // never reached in practice.
         thumbnailBudgetMillis: Long = 5_000L,
+        maxRequestsPerHost: Int? = null,
     ) = NetworkPlantsClient(
-        apis = plantsApiFactory(),
+        apis = plantsApiFactory(maxRequestsPerHost),
         connections = FakeConnectionStore(
             Connection.ApiKey(
                 baseUrl = server.url("/").toString(),
@@ -449,4 +488,71 @@ class NetworkPlantsClientTest {
         )
         assertTrue(requestedPaths.contains("/api/v1/t/demo/plant-instances"))
     }
+
+    /**
+     * Fifty plants never open fifty photo requests (#9).
+     *
+     * The bound is what makes the criterion's "scrolling a list of 50 plants stays responsive"
+     * achievable at all — a tenant this size is exactly where an unbounded fan-out stops being
+     * theoretical. `NetworkPlantsClient` holds a `Semaphore` permit across each call, and this
+     * measures the effect rather than trusting the construct: the stub counts how many photo
+     * requests are in flight at once and remembers the peak.
+     *
+     * The delay is what makes the measurement possible. Without it every request would finish
+     * before the next began, the peak would read 1 on any implementation, and the test would
+     * pass just as happily with the semaphore deleted.
+     */
+    @Test
+    fun `fifty plants do not open fifty photo requests at once`() = runTest {
+        val plantKeys = (1..FIFTY_PLANTS).map { "p$it" }
+        givenPlants(*plantKeys.map { plant(it) }.toTypedArray())
+        givenLocations("loc-1" to "Windowsill")
+
+        plantKeys.forEach { key ->
+            val path = "/api/v1/t/demo/plant-instances/$key/photos"
+            responses[path] = """{"plant_instance_key":"$key","photos":[]}"""
+            probedPaths += path
+        }
+
+        // Generous: fifty plants at six at a time, each held for photoDelayMillis, is about
+        // nine batches — the budget must not be what ends the load.
+        withContext(Dispatchers.Default) {
+            client(
+                thumbnailBudgetMillis = 30_000L,
+                // Above the plant count, so nothing but the app's own bound constrains this.
+                maxRequestsPerHost = FIFTY_PLANTS * 2,
+            ).loadPlants()
+        }
+
+        val peak = peakInFlight
+
+        assertTrue(
+            "photo requests must stay bounded well below the plant count, peaked at" +
+                " ${peak.get()} of $FIFTY_PLANTS",
+            peak.get() <= GENEROUS_CONCURRENCY_CEILING,
+        )
+        // Guards the guard: a peak of 1 would mean the requests never overlapped, so the
+        // assertion above would hold for a client with no bound at all.
+        assertTrue(
+            "the requests have to actually overlap for this to measure anything," +
+                " peaked at ${peak.get()}",
+            peak.get() > 1,
+        )
+    }
 }
+
+/** A tenant the criterion names by size: "scrolling a list of 50 plants" (#9). */
+private const val FIFTY_PLANTS = 50
+
+/** Long enough that the photo requests overlap, short enough not to stall the suite. */
+private const val photoDelayMillis = 200L
+
+/**
+ * Deliberately looser than the client's own `FETCH_CONCURRENCY`, which is private.
+ *
+ * The claim under test is "bounded", not "exactly six": pinning the exact value would turn a
+ * legitimate tuning change into a red test while catching nothing extra, since the failure
+ * this guards against is an unbounded fan-out — fifty plants, fifty sockets — not the
+ * difference between six and eight.
+ */
+private const val GENEROUS_CONCURRENCY_CEILING = 12
