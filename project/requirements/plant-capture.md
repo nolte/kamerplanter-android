@@ -90,8 +90,9 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 
 ### Routes and availability
 
-- **R1** — WHEN the user starts adding a plant, the app SHALL offer exactly two routes:
-  identification from a photo, and manual entry.
+- **R1** — WHEN the user starts adding a plant, the app SHALL offer at most two routes:
+  identification from a photo, and manual entry. Which of the two are offered is governed by
+  R2 and R3 — on an instance with recognition switched off, the manual route is the only one.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: issue #50 §Summary; Q1; teach-back
 - **R2** — WHILE an instance is connected, the app SHALL offer the manual route regardless
   of the recognizer's state, and SHALL offer neither route while disconnected.
@@ -197,19 +198,27 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 ### The species gap
 
 - **R25** — WHEN the selected suggestion carries `species_in_database: false`, the app SHALL
-  offer to create the species through `POST /api/v1/species`, populated from the
-  identification result (`scientific_name`, `common_names`, `genus`, `family`, `gbif_id`),
-  and SHALL then create the plant against the returned key.
+  offer to create the species through `POST /api/v1/species`, populated from the fields
+  `SpeciesCreate` actually declares — `scientific_name`, `common_names`, `genus` — and SHALL
+  then create the plant against the returned key. The suggestion's `family` and `gbif_id` have
+  **no home in that schema**: it carries `family_key` (a reference the app cannot resolve from
+  a family *name*) and no GBIF field at all, so the taxonomic linkage the identification
+  supplies is dropped on creation. Named rather than smuggled in: sending either field would
+  be rejected or silently ignored.
   - _dimension_: `functional` · _status_: `confirmed` · _source_: Q2 revised at the teach-back to "Doch anlegen lassen"; `SpeciesCreate` requires only `scientific_name`; teach-back 2
 - **R26** — The app SHALL NOT perform its own duplicate check before that call. The backend
   create is idempotent: it resolves an existing record by canonical dedup key through an
   atomic UPSERT on `scientific_name_normalized`, and upstream names this exact
-  identify→create path as the reason the rule exists.
+  identify→create path as the reason the rule exists. That idempotency covers the normalized
+  scientific name only: the route still declares a `409` ("A conflicting resource already
+  exists (duplicate key or unique constraint)"), which R33 carries as its own outcome.
   - _dimension_: `constraints` · _status_: `confirmed` · _source_: `src/backend/app/domain/services/species_service.py:206-213`; teach-back 2
 - **R27** — The app SHALL treat a `403` on species creation as a named outcome rather than
   a preventable state. No pre-flight role check is possible: the pinned surface carries no
   role field on `/users/me` or `TenantResponse`, and creation is refused for a `viewer`.
-  - _dimension_: `actors` · _status_: `confirmed` · _source_: `src/backend/app/api/v1/species/router.py:140-143`; pinned schema, `UserResponse` / `TenantResponse` fields; teach-back 2
+  Note that `403` is **undeclared** on this route — the schema lists `201/401/404/409/422` —
+  so the generated client will not type it and the app recognizes it by status code alone.
+  - _dimension_: `actors` · _status_: `confirmed` · _source_: `src/backend/app/api/v1/species/router.py:140-143`; pinned schema, `UserProfileResponse` (the response of `/api/v1/users/me`) and `TenantResponse` fields; teach-back 2
 
 ### The photo
 
@@ -241,8 +250,8 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 - **R33** — The app SHALL render each of these as its own state with its own next action,
   and SHALL NOT offer "try again" on a `403`: not connected · identification not offered ·
   consent required · `401` credential refused · `403` role · not a plant · nothing
-  recognized · image refused (`400`/`422`) · rate limited · instance not understood ·
-  transport failure · photo not saved.
+  recognized · image refused (`422`) · species conflict (`409` on species creation) ·
+  rate limited · instance not understood · transport failure · photo not saved.
   - _dimension_: `edge_cases` · _status_: `confirmed` · _source_: issue #50 §10; the shape already used by `PlantListState` and `PestDetectionState`; teach-back
 
 ### Constraints on the implementation
@@ -274,10 +283,18 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   the web UI's single-plant create form does the same is unestablished — the observation
   that would settle it is reading that form's submit path, which was not made because the
   route was not located in `src/frontend/src/pages/pflanzen/`.
-- **Deviation from `REQ-021` §3.8.** The Quick-Add flow specifies four fields; this form has
-  six, because `instance_id` and `planted_on` are mandatory on `PlantCreate` and that flow
-  does not name them. Hiding them would mean inventing the plant's human-facing identity
-  silently, which R19 refuses.
+- **Deviation from `REQ-021` §3.8.** The Quick-Add flow specifies four fields — species,
+  nickname, site, location. This form carries the same four plus `instance_id` and
+  `planted_on`, which are mandatory on `PlantCreate` and which that flow does not name.
+  Hiding them would mean inventing the plant's human-facing identity silently, which R19
+  refuses. Note that no numbered requirement names the nickname (`plant_name`) field on its
+  own; it reaches the form through this deviation and through R24's carve-out, which is thin
+  ground for a field the user sees. Worth promoting to its own requirement on the next pass.
+- **Two statuses this flow depends on are undeclared in the schema.** `429` on `/identify`
+  (already named above) and `403` on `POST /api/v1/species` (R27). Both are recognized by
+  status code alone, because the generated client types only what the document declares. A
+  third, `400` on `/identify`, was listed as an outcome in an earlier draft of R33 and has
+  been removed: the route declares `401/403/404/422` and never `400`.
 
 ## Correction record
 
@@ -291,3 +308,27 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   so R25/R26 record creation without a client-side pre-match. The rejected reading is kept
   here rather than deleted, because the same wrong premise is easy to re-derive from the
   spec draft alone.
+
+- **2026-08-28 — five schema claims corrected after a pre-merge review.** The artefact was
+  written from the pinned schema, but four of its citations did not survive being checked
+  against it a second time, and one requirement contradicted another:
+  - **R25** named `family` and `gbif_id` as fields to populate on `POST /api/v1/species`.
+    `SpeciesCreate` declares neither — it carries `family_key`, and no GBIF field at all.
+    Implemented literally, both would have been rejected or dropped. The requirement now says
+    which three fields survive and names the lost taxonomic linkage as a consequence.
+  - **R26** said the create is idempotent and therefore needs no client-side check. That
+    holds for the normalized scientific name, and it is *not* the whole story: the route
+    declares a `409` for other unique-constraint collisions, which R33 had no state for.
+  - **R27** cited a `UserResponse` schema. There is none; `/api/v1/users/me` answers with
+    `UserProfileResponse`. The same requirement's `403` is undeclared on the species route,
+    which was worth saying explicitly rather than leaving to be discovered.
+  - **R33** listed `400` among the image-refusal statuses. `/identify` declares
+    `401/403/404/422` and never `400`.
+  - **R1** read as an unconditional "offer exactly two routes" while R3 forbids offering the
+    identification route when the recognizer is unavailable. An implementer following R1 as
+    written would ship the failure R3 exists to prevent.
+
+  None of these was found by the elicitation or by writing the artefact; all five came out of
+  reading the schema against the prose once more. The lesson is the same one the feature audit
+  learned on the same day: a citation is a claim, and a claim that was true when written is
+  not thereby true now.
