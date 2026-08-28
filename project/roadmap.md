@@ -163,3 +163,26 @@ status: proposed
 
 Scanning an instance's `/connect` link opens the app with the server address already filled
 in, instead of dead-ending in a browser.
+
+### R-8 — Add a plant, by photo or by hand
+
+```yaml
+id: R-8
+title: Add a plant, by photo or by hand
+detail: coarse
+outcomes: [O-7]
+target_sprint: null
+mvp: false
+status: proposed
+```
+
+A plant owner adds a plant without leaving the app: photograph it and let the instance
+identify the species, or enter it by hand. Both routes end in the same pre-filled, editable
+form, nothing is written until the user confirms it, and the photo taken along the way becomes
+the plant's cover picture.
+
+Requirements are elicited and confirmed in
+[`requirements/plant-capture.md`](requirements/plant-capture.md) (`U_gate` 0.85), so `coarse`
+here means "not near-term", not "not understood" — it is the one item in this queue that
+reaches `fine` without further elicitation. Needs R-1's generated API client, and sits beside
+R-4 and R-5, which show plants but cannot create one.
