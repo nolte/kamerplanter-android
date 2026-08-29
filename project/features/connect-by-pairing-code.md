@@ -49,21 +49,21 @@ session belongs to — silently when there is only one, by asking when there are
 ## Acceptance criteria
 
 - [ ] **acceptance-1** Scanning the pairing QR code shown in the instance's web UI connects the app to that instance.
-- [ ] **acceptance-2** A payload that is recognisably a kamerplanter pairing code but carries a version the app does not know is refused with a message; a foreign QR code is ignored so scanning simply continues.
-- [ ] **acceptance-3** Nothing is stored until the instance has confirmed the credential, and a failed attempt leaves an existing connection untouched.
-- [ ] **acceptance-4** After a successful pairing the app adopts the only tenant automatically, and asks which one when there are several.
-- [ ] **acceptance-5** An unknown, already-used or expired pairing code produces one and the same message, without revealing which case applied, and returns the user to the scanner rather than a dead end.
+- [x] **acceptance-2** A payload that is recognisably a kamerplanter pairing code but carries a version the app does not know is refused with a message; a foreign QR code is ignored so scanning simply continues.
+- [x] **acceptance-3** Nothing is stored until the instance has confirmed the credential, and a failed attempt leaves an existing connection untouched.
+- [x] **acceptance-4** After a successful pairing the app adopts the only tenant automatically, and asks which one when there are several.
+- [x] **acceptance-5** An unknown, already-used or expired pairing code produces one and the same message, without revealing which case applied, and returns the user to the scanner rather than a dead end.
 - [ ] **acceptance-6** A locked-out redemption states how long the lockout lasts, and a rate-limited one is distinguishable from it.
 
 ## Test hooks
 
 - **acceptance-1** — end-to-end on the Pixel 7a against a real instance; this is the sprint's value-verifying criterion, and it cannot pass without the vendored schema, the generated client, the `/api/health` probe, the redemption call and tenant resolution all existing (requirements R1–R4) — pending
-- **acceptance-2** — unit test over the parser's three-way outcome (foreign / unknown version / valid) — pending
-- **acceptance-3** — **regression check, not new verification.** `SettingsViewModelTest` already asserts `a failed change leaves the previous connection in place` and `a failed verification stores no credential` on `feat/backend-connection` — pending
-- **acceptance-4** — **half regression, half new.** The adoption rule ships and is tested (`SettingsViewModel.kt:173-187`); the tenant-picker UI does not exist — `SelectingTenant` currently renders the same spinner as `Verifying` — pending
-- **acceptance-5** — unit test over the `401` mapping plus the return-to-scanner transition — pending
+- **acceptance-2** — unit test over the parser's three-way outcome (foreign / unknown version / valid) — **met 2026-08-28** — `QrPayloadParserTest` refuses an unknown version as ours and declines foreign shapes; `SettingsViewModelTest` ignores an unparseable QR while scanning and reports a foreign one; `RefusalWordingTest` proves every refusal has its own wording
+- **acceptance-3** — **regression check, not new verification.** `SettingsViewModelTest` already asserts `a failed change leaves the previous connection in place` and `a failed verification stores no credential` on `feat/backend-connection` — **met 2026-08-28** — `SettingsViewModelTest`: `a failed verification stores no credential`, `a failed change leaves the previous connection in place`, `a credential that cannot be stored leaves no half connection behind`
+- **acceptance-4** — **met 2026-08-28.** `SettingsViewModelTest`: `a valid qr connects and persists the connection` (a single tenant is adopted straight through), `several tenants pause the flow until the user picks one`, `a tenant that was never offered is not adopted`. The automatic-adoption rule is `resolveTenant` (`SettingsViewModel.kt:359-367`), which branches on `result.tenants.size > 1`; the picker ships as `TenantChoiceBody` (`SettingsScreen.kt:183`) wired to `selectTenant` (`SettingsViewModel.kt:240-248`). **Two superseded claims, kept so the correction is legible:** this note previously cited `SettingsViewModel.kt:173-187` for the adoption rule — those lines are `onQrDetected` and have nothing to do with it — and stated that the tenant-picker UI does not exist, which `SettingsScreen.kt:183` refutes. The stale comment inside that composable says the same wrong thing and is worth removing when the file is next touched
+- **acceptance-5** — unit test over the `401` mapping plus the return-to-scanner transition — **met 2026-08-28** — `NetworkConnectionClientTest`: `an unknown or spent code is reported as such`, `a failure after redemption says the code is spent`; the single 401 wording covers all three cases (`NetworkConnectionClient.kt:300-302`), and `SettingsViewModelTest` `retry from failed reopens the collection step of the same method` returns to the scanner
 - **acceptance-6** — unit test over the `423` and `429` mappings — pending
-- **acceptance-2** — additionally guards R44: the existing `QrPayloadParserTest` and the scanner's permission handling must keep behaving, since the foreign-QR branch of this criterion *is* R44's requirement — pending
+- **acceptance-2** — additionally guards R44: the existing `QrPayloadParserTest` and the scanner's permission handling must keep behaving, since the foreign-QR branch of this criterion *is* R44's requirement — **met 2026-08-28** — the R44 regression holds: `QrPayloadParserTest` still declines foreign shapes and `SettingsViewModelTest` still reports a foreign QR as seen so the scanner can say so.
 
 ## Consistency notes
 

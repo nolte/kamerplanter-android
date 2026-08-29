@@ -55,18 +55,18 @@ detail without leaving the user staring at a frozen screen.
 ## Acceptance criteria
 
 - [x] **acceptance-1** The user chooses between phone camera and USB microscope before capturing.
-- [ ] **acceptance-2** The microscope option is offered only while a UVC device is attached.
+- [x] **acceptance-2** The microscope option is offered only while a UVC device is attached.
 - [x] **acceptance-3** A capture from the phone camera produces an image that enters the same detection pipeline as a microscope capture.
 - [ ] **acceptance-4** A microscope still is captured at the largest mode the device offers, and the live preview returns afterwards.
-- [ ] **acceptance-5** When the microscope seam reports the device unavailable, the detection capture action stops being offered rather than remaining live.
+- [x] **acceptance-5** When the microscope seam reports the device unavailable, the detection capture action stops being offered rather than remaining live.
 
 ## Test hooks
 
 - **acceptance-1** — `PestDetectionViewModelTest` — a ready instance rests on a source choice, and `capture()` before one is made takes no frame and uploads nothing
-- **acceptance-2** — the picker offers the microscope only while a device is attached, and disabled rather than hidden so its absence reads as "not plugged in"; screen-level, no assertion yet — pending
+- **acceptance-2** — the picker offers the microscope only while a device is attached, and disabled rather than hidden so its absence reads as "not plugged in" — **met 2026-08-28** — `CaptureActions.kt:65` derives `microscopeAttached` from `camera !is MicroscopeState.Unavailable` and `:125` passes it as the action's `enabled`. Screen-level, established by reading the composable rather than by an assertion; the shutter half of the same behaviour is covered under acceptance-5
 - **acceptance-3** — `PestDetectionViewModelTest` — the chosen source is the one asked for a frame, and both end in the same `detect` call
 - **acceptance-4** — delivered by `MicroscopeCamera.captureFrame` (issue #1) and consumed here unchanged — pending
-- **acceptance-5** — the shutter is gated on `Ready.canFire`, which requires a streaming device for the microscope source; screen-level, no assertion yet — pending
+- **acceptance-5** — the shutter is gated on `Ready.canFire`, which requires a streaming device for the microscope source — **met 2026-08-28** — `CanFireTest` `the microscope fires only while it is streaming` asserts `canFire` is false for `MicroscopeState.Unavailable(NO_DEVICE_ATTACHED)` and for `AwaitingPermission` (`CanFireTest.kt:42-48`); `CaptureActions.kt:190` maps every `UnavailableReason` to its own wording so the action reads as unavailable rather than merely inert. **Corrected 2026-08-28:** this criterion was first checked citing `no source means no shutter`, which asserts only that no source has been chosen while the microscope streams (`CanFireTest.kt:24-26`) and covers nothing about an unavailable device — the two citations had been swapped with acceptance-2
 
 **Deliberately criterion-free requirements.** R11 (the shared camera module) and R12 (the
 ADR 0001 isolation rule) carry no acceptance criterion and therefore no hook — a hook keyed

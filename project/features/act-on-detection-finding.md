@@ -44,14 +44,14 @@ because they looked.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** Each finding offers the three feedback actions, and the instance accepts the choice.
-- [ ] **acceptance-2** A finding bound to a plant offers creating an IPM inspection; an unbound finding does not.
+- [x] **acceptance-1** Each finding offers the three feedback actions, and the instance accepts the choice.
+- [x] **acceptance-2** A finding bound to a plant offers creating an IPM inspection; an unbound finding does not.
 - [ ] **acceptance-3** For a plant-bound detection only, the captured image can be kept as a plant photo through an explicit action, and is never stored without one.
 
 ## Test hooks
 
-- **acceptance-1** — unit test over the feedback payload (`finding_label`, `confirmed`, `actual_label`, `was_beneficial`) — pending
-- **acceptance-2** — unit test asserting the action is absent on an unbound detection — pending
+- **acceptance-1** — unit test over the feedback payload (`finding_label`, `confirmed`, `actual_label`, `was_beneficial`) — **met 2026-08-28.** The three actions exist at screen level as one `FeedbackVerdict` per button (`PestDetectionScreen.kt:679-681`, strings `pest_feedback_correct` / `_wrong` / `_beneficial`), established by reading the composable rather than by an assertion. The instance accepting the choice is pinned by `NetworkPestDetectionClientTest` `a recorded verdict comes back as the detection now stands` (`:562-578`), which asserts the wire names on the way back, and by `a forbidden verdict is not permitted rather than unauthorized`. **Corrected 2026-08-28:** first checked citing three `PestDetectionViewModelTest` cases only; those drive a fake seam and never touch the wire field names this hook names
+- **acceptance-2** — unit test asserting the action is absent on an unbound detection — **met 2026-08-28** — `PestDetectionViewModelTest`: `an inspection is filed against the plant the check was opened from`, `an unbound detection files no inspection`, `an inspection the credential may not create is explained, not thrown`
 - **acceptance-3** — unit test asserting no upload to `/plant-instances/{key}/photos` occurs without an explicit action, and that the action is absent on an unbound detection — pending
 
 ## Consistency notes

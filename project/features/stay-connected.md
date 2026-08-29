@@ -46,21 +46,21 @@ than failing every request in silence.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** A connection survives an app restart; the user is not asked to reconnect.
+- [x] **acceptance-1** A connection survives an app restart; the user is not asked to reconnect.
 - [ ] **acceptance-2** Secrets are stored encrypted under a device-backed key and are never readable in the clear from app storage.
-- [ ] **acceptance-3** An expired access token is renewed without the user noticing.
-- [ ] **acceptance-4** When renewal fails or the instance rejects the credential, the app returns to a disconnected state and says where to fix it.
+- [x] **acceptance-3** An expired access token is renewed without the user noticing.
+- [x] **acceptance-4** When renewal fails or the instance rejects the credential, the app returns to a disconnected state and says where to fix it.
 - [ ] **acceptance-5** Disconnecting ends the session on the instance as well, not only on the device.
-- [ ] **acceptance-6** Disconnecting removes the stored credential completely.
+- [x] **acceptance-6** Disconnecting removes the stored credential completely.
 
 ## Test hooks
 
-- **acceptance-1** — **regression check.** `SettingsViewModelTest` already asserts `starts connected when a connection is already persisted`; the non-secret half ships end to end — pending
+- **acceptance-1** — **regression check.** `SettingsViewModelTest` already asserts `starts connected when a connection is already persisted`; the non-secret half ships end to end — **met 2026-08-28** — `SettingsViewModelTest` `starts connected when a connection is already persisted`
 - **acceptance-2** — **on-device only.** `KeystoreSecretCipher` cannot execute under `./gradlew test`, since the JVM has no Keystore. This needs an instrumented or manual Pixel 7a step; `CredentialStoreContractTest` covers the seam's contract through an in-memory fake, not the encryption — pending
-- **acceptance-3** — unit test over the refresh path (body transport, rotated token persisted) — pending
-- **acceptance-4** — unit test over the `401` teardown and the refresh-failure path — pending
+- **acceptance-3** — unit test over the refresh path (body transport, rotated token persisted) — **met 2026-08-28** — `SessionRefreshTest`: `an expired access token is renewed and the call repeated`, `the rotated refresh token replaces the stored one`, `concurrent failures refresh once, not once each`
+- **acceptance-4** — unit test over the `401` teardown and the refresh-failure path — **met 2026-08-28** — `SessionRefreshTest` `a failed refresh clears the credential and the connection` asserts `Credential.None` and a null connection; `FailedBody` renders the reason
 - **acceptance-5** — unit test over the session-delete call; R24 forbids `/auth/logout`, which rejects native clients with `403` — pending
-- **acceptance-6** — **regression check.** `SettingsViewModelTest` asserts `disconnect removes the credential as well as the connection`, erasing the secret before the connection record — pending
+- **acceptance-6** — **regression check.** `SettingsViewModelTest` asserts `disconnect removes the credential as well as the connection`, erasing the secret before the connection record — **met 2026-08-28** — `SettingsViewModelTest` `disconnect removes the credential as well as the connection`; `CredentialStoreContractTest` `clearing removes the secret completely`
 
 **Deliberately criterion-free requirements.** R22 (refresh-token rotation) and R34 (the
 debug-variant fake client) carry no acceptance criterion and therefore no hook — a hook keyed

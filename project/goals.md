@@ -32,6 +32,23 @@ serves; audiences resolve to entries in AUDIENCES.md.
 - **O-6** — Someone installing the app from GitHub Releases gets a build that installs and
   runs without system warnings on current Android devices.
   _(audience: sideload installer, plant owner / home grower)_
+- **O-7** — A plant owner adds a plant to their instance from the phone — photographing it
+  when they do not know what it is — and corrects what the instance guessed before it is
+  saved. _(audience: plant owner / home grower)_
+
+<!--
+Recorded operator override, 2026-08-22. O-7 was authored during a `roadmap-plan` run, which
+its own hard rules forbid ("never invent outcomes inline; missing outcomes route to the goals
+workflow"). The routing target does not exist: `roadmap-init` scaffolds this file only for the
+first time, and no skill in the portfolio maintains an outcome list on an existing
+`goals.md` — the counterpart to `mission-revise` is missing. The operator decided the outcome
+here rather than block the queue on a portfolio gap. The gap itself is worth closing; until it
+is, an outcome added this way carries a note like this one.
+
+Why a new outcome rather than widening O-3: O-3 is cited by R-4 and R-5 and states a single
+benefit — seeing which plants need attention and opening one. Adding a plant is a different
+benefit, and folding it in would leave O-3 measuring three things at once.
+-->
 
 <!--
 Deliberately not an outcome yet: the community-garden administrator. That audience is
