@@ -102,6 +102,7 @@ data class Location(val key: String, val name: String)
  */
 sealed interface Fetched<out T> {
     data class Loaded<T>(val value: T) : Fetched<T>
+    data object NotConnected : Fetched<Nothing>
     data object Unauthorized : Fetched<Nothing>
     data class Failed(val reason: String) : Fetched<Nothing>
 }

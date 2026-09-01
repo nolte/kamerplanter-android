@@ -152,4 +152,44 @@
     <string name="plants_action_note_deleted">Entry deleted</string>
     <string name="plants_action_analysis_requested">Analysis requested</string>
     <string name="plants_note_tags_hint">Tags, separated by commas</string>
+
+    <!-- Adding a plant (R-8). -->
+    <string name="plants_add_title">Add a plant</string>
+    <string name="plants_add_action">Add plant</string>
+    <string name="plants_add_loading">Preparing the form…</string>
+    <string name="plants_add_not_connected_body">Connect the app to your kamerplanter instance to add a plant.</string>
+    <string name="plants_add_failed_title">Could not prepare the form</string>
+    <string name="plants_add_failed_body">The species catalogue could not be loaded from your instance.</string>
+    <string name="plants_add_sites_failed">Your sites could not be loaded; the plant can still be added without one.</string>
+    <string name="plants_add_locations_failed">The locations of this site could not be loaded.</string>
+    <string name="plants_add_photo_section">Photo</string>
+    <string name="plants_add_photo_description">The photo that will be kept with the plant</string>
+    <string name="plants_add_remove_photo">Discard photo</string>
+    <string name="plants_add_keep_photo">Keep this photo as the plant\'s picture</string>
+    <string name="plants_add_species">Species</string>
+    <string name="plants_add_species_hint">Search by common or scientific name</string>
+    <string name="plants_add_species_none">Nothing in the catalogue matches.</string>
+    <string name="plants_add_species_empty">Your instance\'s species catalogue is empty. Add a species there first.</string>
+    <string name="plants_add_species_required">Choose a species.</string>
+    <string name="plants_add_name">Name (optional)</string>
+    <string name="plants_add_instance_id">Identifier</string>
+    <string name="plants_add_instance_id_required">An identifier is required.</string>
+    <string name="plants_add_instance_id_taken">This identifier is already in use on your instance.</string>
+    <string name="plants_add_planted_on">Planted on</string>
+    <string name="plants_add_planted_on_required">A planting date is required.</string>
+    <string name="plants_add_pick_date">Pick a date</string>
+    <string name="plants_add_date_confirm">OK</string>
+    <string name="plants_add_date_dismiss">Cancel</string>
+    <string name="plants_add_site">Site (optional)</string>
+    <string name="plants_add_location">Location (optional)</string>
+    <string name="plants_add_location_needs_site">Choose a site first.</string>
+    <string name="plants_add_none">None</string>
+    <string name="plants_add_submit">Add plant</string>
+    <string name="plants_add_submitting">Adding…</string>
+    <string name="plants_add_not_permitted">Your account may not add plants on this instance.</string>
+    <string name="plants_add_rejected">Your instance did not accept the plant.</string>
+    <string name="plants_add_unreachable">Your instance could not be reached. Try again.</string>
+    <string name="plants_add_created_title">Plant added</string>
+    <string name="plants_add_photo_not_saved">The plant was added, but its photo could not be saved. You can add one from the plant\'s page.</string>
+    <string name="plants_add_open_plant">Open plant</string>
 </resources>

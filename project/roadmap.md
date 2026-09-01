@@ -169,11 +169,11 @@ in, instead of dead-ending in a browser.
 ```yaml
 id: R-8
 title: Add a plant, by photo or by hand
-detail: coarse
+detail: fine
 outcomes: [O-7]
 target_sprint: null
 mvp: false
-status: proposed
+status: active
 ```
 
 A plant owner adds a plant without leaving the app: photograph it and let the instance
@@ -182,7 +182,9 @@ form, nothing is written until the user confirms it, and the photo taken along t
 the plant's cover picture.
 
 Requirements are elicited and confirmed in
-[`requirements/plant-capture.md`](requirements/plant-capture.md) (`U_gate` 0.85), so `coarse`
-here means "not near-term", not "not understood" — it is the one item in this queue that
-reaches `fine` without further elicitation. Needs R-1's generated API client, and sits beside
-R-4 and R-5, which show plants but cannot create one.
+[`requirements/plant-capture.md`](requirements/plant-capture.md) (`U_gate` 0.85), which is
+what let it reach `fine` without further elicitation. Decomposed into
+[`features/add-a-plant.md`](features/add-a-plant.md) (F-12) and `active` since 2026-09-02,
+when the manual route shipped from issue #50 ahead of any sprint — the same way sprint 2's
+subject did. Needs R-1's generated API client, and sits beside R-4 and R-5, which show
+plants but cannot create one.

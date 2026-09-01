@@ -251,6 +251,7 @@ class NetworkPlantCaptureClient @Inject constructor(
         Fetched.Loaded(target.read())
     }.getOrElse { failure ->
         when {
+            failure is NotConnected -> Fetched.NotConnected
             failure is HttpFailure && failure.status == HTTP_UNAUTHORIZED -> Fetched.Unauthorized
             else -> Fetched.Failed(failure.describeAndLog())
         }

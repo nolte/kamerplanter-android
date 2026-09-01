@@ -141,4 +141,44 @@
     <string name="plants_action_note_deleted">Eintrag gelöscht</string>
     <string name="plants_action_analysis_requested">Analyse angefordert</string>
     <string name="plants_note_tags_hint">Schlagwörter, mit Komma getrennt</string>
+
+    <!-- Pflanze anlegen (R-8). -->
+    <string name="plants_add_title">Pflanze anlegen</string>
+    <string name="plants_add_action">Pflanze anlegen</string>
+    <string name="plants_add_loading">Formular wird vorbereitet…</string>
+    <string name="plants_add_not_connected_body">Verbinde die App mit deiner kamerplanter-Instanz, um eine Pflanze anzulegen.</string>
+    <string name="plants_add_failed_title">Formular konnte nicht vorbereitet werden</string>
+    <string name="plants_add_failed_body">Der Artenkatalog konnte nicht von deiner Instanz geladen werden.</string>
+    <string name="plants_add_sites_failed">Deine Standorte konnten nicht geladen werden; die Pflanze lässt sich trotzdem ohne Standort anlegen.</string>
+    <string name="plants_add_locations_failed">Die Plätze dieses Standorts konnten nicht geladen werden.</string>
+    <string name="plants_add_photo_section">Foto</string>
+    <string name="plants_add_photo_description">Das Foto, das bei der Pflanze bleibt</string>
+    <string name="plants_add_remove_photo">Foto verwerfen</string>
+    <string name="plants_add_keep_photo">Dieses Foto als Bild der Pflanze behalten</string>
+    <string name="plants_add_species">Art</string>
+    <string name="plants_add_species_hint">Nach Trivial- oder wissenschaftlichem Namen suchen</string>
+    <string name="plants_add_species_none">Nichts im Katalog passt dazu.</string>
+    <string name="plants_add_species_empty">Der Artenkatalog deiner Instanz ist leer. Lege dort zuerst eine Art an.</string>
+    <string name="plants_add_species_required">Wähle eine Art.</string>
+    <string name="plants_add_name">Name (optional)</string>
+    <string name="plants_add_instance_id">Kennung</string>
+    <string name="plants_add_instance_id_required">Eine Kennung ist erforderlich.</string>
+    <string name="plants_add_instance_id_taken">Diese Kennung ist auf deiner Instanz schon vergeben.</string>
+    <string name="plants_add_planted_on">Gepflanzt am</string>
+    <string name="plants_add_planted_on_required">Ein Pflanzdatum ist erforderlich.</string>
+    <string name="plants_add_pick_date">Datum wählen</string>
+    <string name="plants_add_date_confirm">OK</string>
+    <string name="plants_add_date_dismiss">Abbrechen</string>
+    <string name="plants_add_site">Standort (optional)</string>
+    <string name="plants_add_location">Platz (optional)</string>
+    <string name="plants_add_location_needs_site">Wähle zuerst einen Standort.</string>
+    <string name="plants_add_none">Keiner</string>
+    <string name="plants_add_submit">Pflanze anlegen</string>
+    <string name="plants_add_submitting">Wird angelegt…</string>
+    <string name="plants_add_not_permitted">Dein Konto darf auf dieser Instanz keine Pflanzen anlegen.</string>
+    <string name="plants_add_rejected">Deine Instanz hat die Pflanze nicht angenommen.</string>
+    <string name="plants_add_unreachable">Deine Instanz war nicht erreichbar. Versuch es noch einmal.</string>
+    <string name="plants_add_created_title">Pflanze angelegt</string>
+    <string name="plants_add_photo_not_saved">Die Pflanze wurde angelegt, aber ihr Foto konnte nicht gespeichert werden. Du kannst auf der Pflanzenseite eines hinzufügen.</string>
+    <string name="plants_add_open_plant">Pflanze öffnen</string>
 </resources>

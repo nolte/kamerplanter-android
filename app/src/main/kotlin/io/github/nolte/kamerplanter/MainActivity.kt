@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -39,6 +40,7 @@ import io.github.nolte.kamerplanter.feature.pestdetection.PestDetectionScreen
 import io.github.nolte.kamerplanter.feature.plants.PlantDetailScreen
 import io.github.nolte.kamerplanter.feature.plants.PlantDetailViewModel
 import io.github.nolte.kamerplanter.feature.plants.PlantsScreen
+import io.github.nolte.kamerplanter.feature.plants.capture.PlantCaptureScreen
 import io.github.nolte.kamerplanter.feature.settings.SettingsScreen
 import io.github.nolte.kamerplanter.ui.theme.KamerplanterTheme
 import kotlinx.coroutines.flow.Flow
@@ -113,6 +115,9 @@ private const val PEST_DETECTION_FOR_PLANT_ROUTE = "pest-detection/{$PLANT_KEY_A
 
 private const val PLANT_DETAIL_ROUTE = "plants/{${PlantDetailViewModel.PLANT_KEY_ARG}}"
 
+/** Adding a plant: an action on the Plants tab, pushed so Back returns to the list (R-8). */
+private const val PLANT_CAPTURE_ROUTE = "plant-capture"
+
 /** The final top-level destinations of the app shell (requirement R1). */
 enum class TopLevelDestination(
     val route: String,
@@ -165,29 +170,51 @@ fun KamerplanterApp(discoveries: Flow<Unit> = emptyFlow()) {
                     onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
                 )
             }
-            composable(TopLevelDestination.PLANTS.route) {
-                PlantsScreen(
-                    // The disconnected and credential-rejected states both point here: the
-                    // list cannot fix either, and Settings is where a connection is made.
-                    onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
-                    onOpenPlant = { navController.navigate("plants/$it") },
-                )
-            }
-            composable(
-                route = PLANT_DETAIL_ROUTE,
-                arguments = listOf(
-                    navArgument(PlantDetailViewModel.PLANT_KEY_ARG) { type = NavType.StringType },
-                ),
-            ) {
-                PlantDetailScreen(
-                    onBack = { navController.popBackStack() },
-                    // Pushed, not swapped: Back from the camera returns to the plant it was
-                    // opened for, which is where the finding belongs.
-                    onDetectPests = { navController.navigate("pest-detection/$it") },
-                )
-            }
+            plantDestinations(navController)
             composable(TopLevelDestination.SETTINGS.route) { SettingsScreen() }
         }
+    }
+}
+
+/**
+ * The Plants tab and what hangs off it: a plant's page, and the form that adds one. Together
+ * because they share the plant-detail route, which both the list and the form navigate to.
+ */
+private fun NavGraphBuilder.plantDestinations(navController: NavHostController) {
+    composable(TopLevelDestination.PLANTS.route) {
+        PlantsScreen(
+            // The disconnected and credential-rejected states both point here: the
+            // list cannot fix either, and Settings is where a connection is made.
+            onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+            onOpenPlant = { navController.navigate("plants/$it") },
+            onAddPlant = { navController.navigate(PLANT_CAPTURE_ROUTE) },
+        )
+    }
+    composable(PLANT_CAPTURE_ROUTE) {
+        PlantCaptureScreen(
+            onBack = { navController.popBackStack() },
+            onOpenSettings = { navController.navigateToTab(TopLevelDestination.SETTINGS) },
+            // The form is done with: Back from the new plant's page returns to the
+            // list, not to a form that would create the plant a second time (R32).
+            onCreated = { key ->
+                navController.navigate("plants/$key") {
+                    popUpTo(PLANT_CAPTURE_ROUTE) { inclusive = true }
+                }
+            },
+        )
+    }
+    composable(
+        route = PLANT_DETAIL_ROUTE,
+        arguments = listOf(
+            navArgument(PlantDetailViewModel.PLANT_KEY_ARG) { type = NavType.StringType },
+        ),
+    ) {
+        PlantDetailScreen(
+            onBack = { navController.popBackStack() },
+            // Pushed, not swapped: Back from the camera returns to the plant it was
+            // opened for, which is where the finding belongs.
+            onDetectPests = { navController.navigate("pest-detection/$it") },
+        )
     }
 }
 
