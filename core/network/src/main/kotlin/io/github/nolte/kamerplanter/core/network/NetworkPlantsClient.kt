@@ -295,15 +295,5 @@ class NetworkPlantsClient(
             if (!isSuccessful) throw HttpFailure(code())
             return body() ?: throw HttpFailure(code())
         }
-
-        @Suppress("TooGenericExceptionCaught")
-        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
-            try {
-                Result.success(block())
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                Result.failure(failure)
-            }
     }
 }

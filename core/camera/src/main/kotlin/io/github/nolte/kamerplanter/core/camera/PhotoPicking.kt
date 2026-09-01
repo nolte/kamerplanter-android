@@ -45,6 +45,7 @@ class PhotoPicking internal constructor(
 fun rememberPhotoPicking(
     maxBytes: Int = MAX_PHOTO_BYTES,
     maxCount: Int = MAX_PHOTOS,
+    profile: NormalizationProfile = NormalizationProfile.GALLERY,
     onPhotos: suspend (List<ByteArray>) -> Unit,
 ): PhotoPicking {
     val context = LocalContext.current
@@ -55,7 +56,7 @@ fun rememberPhotoPicking(
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            onPhotos(uris.mapNotNull { context.readUploadable(it, maxBytes) })
+            onPhotos(uris.mapNotNull { context.readUploadable(it, maxBytes, profile) })
         }
     }
 
@@ -68,7 +69,7 @@ fun rememberPhotoPicking(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         if (!saved) return@rememberLauncherForActivityResult
         scope.launch {
-            val photo = context.readUploadable(target.toUri(), maxBytes)
+            val photo = context.readUploadable(target.toUri(), maxBytes, profile)
             withContext(Dispatchers.IO) { target.delete() }
             onPhotos(listOfNotNull(photo))
         }
@@ -92,7 +93,7 @@ fun rememberPhotoPicking(
 }
 
 /** Reads a picked image and re-encodes it to something an upload can carry. */
-private suspend fun Context.readUploadable(uri: Uri, maxBytes: Int): ByteArray? =
+private suspend fun Context.readUploadable(uri: Uri, maxBytes: Int, profile: NormalizationProfile): ByteArray? =
     withContext(Dispatchers.IO) {
         // Decoding and re-encoding a multi-megapixel photo is tens of milliseconds of work per
         // image, and five of them on the main thread is a visible freeze on the screen the
@@ -100,7 +101,7 @@ private suspend fun Context.readUploadable(uri: Uri, maxBytes: Int): ByteArray? 
         val raw = runCatching {
             contentResolver.openInputStream(uri)?.use { it.readBytes() }
         }.getOrNull() ?: return@withContext null
-        JpegDownscale.toUploadable(raw, maxBytes, raw.exifRotationDegrees())
+        JpegDownscale.toUploadable(raw, maxBytes, raw.exifRotationDegrees(), profile)
     }
 
 /**

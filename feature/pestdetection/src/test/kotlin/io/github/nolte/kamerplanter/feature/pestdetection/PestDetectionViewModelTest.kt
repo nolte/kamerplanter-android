@@ -945,7 +945,7 @@ class PestDetectionViewModelTest {
         var photoOutcome: ActionOutcome = ActionOutcome.Done
         val added = mutableListOf<Pair<String, ByteArray>>()
 
-        override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome {
+        override suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean): ActionOutcome {
             added += plantKey to jpeg
             return photoOutcome
         }

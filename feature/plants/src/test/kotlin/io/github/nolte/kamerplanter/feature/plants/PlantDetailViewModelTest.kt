@@ -428,7 +428,7 @@ private class FakeActionsClient : PlantActionsClient {
     var diaryCalls = 0
         private set
 
-    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean): ActionOutcome =
         ActionOutcome.Done
     val offsets = mutableListOf<Int>()
     val added = mutableListOf<DiaryDraft>()

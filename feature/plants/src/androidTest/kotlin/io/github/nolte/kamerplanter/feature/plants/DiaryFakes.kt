@@ -67,7 +67,7 @@ internal class FakeActionsClient(private val entries: List<DiaryEntry>) : PlantA
     override suspend fun diary(plantKey: String, offset: Int, limit: Int): DiaryOutcome =
         if (offset == 0) DiaryOutcome.Loaded(entries) else DiaryOutcome.Loaded(emptyList())
 
-    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean): ActionOutcome =
         ActionOutcome.Done
 
     override suspend fun addEntry(plantKey: String, draft: DiaryDraft): ActionOutcome =

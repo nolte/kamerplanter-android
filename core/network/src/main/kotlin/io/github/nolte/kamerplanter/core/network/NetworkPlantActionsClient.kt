@@ -160,16 +160,19 @@ class NetworkPlantActionsClient @Inject constructor(
     private fun ByteArray.asJpegPart(fileName: String): MultipartBody.Part =
         MultipartBody.Part.createFormData("file", fileName, toRequestBody(MEDIA_TYPE_JPEG.toMediaType()))
 
-    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean): ActionOutcome =
         runCatchingCancellable {
             val (retrofit, tenant) = target()
+            val photos = retrofit.create(RawPlantPhotosApi::class.java)
             // Raw JSON like the diary upload, not the generated `PlantPhotoResponse`: that model
             // has five required fields and a required enum without a default, so a 201 whose
             // shape moved by one field would be reported as a failure *after* the instance
             // stored the photo — and the retry that follows would store it twice.
-            retrofit.create(RawPlantPhotosApi::class.java)
-                .upload(plantKey, tenant, jpeg.asJpegPart("detection.jpg"))
-                .bodyOrThrow()
+            val stored = photos.upload(plantKey, tenant, jpeg.asJpegPart("photo.jpg")).bodyOrThrow()
+            if (asCover) {
+                val attachmentId = (stored as? JsonObject)?.text("attachment_id") ?: throw UploadWithoutId()
+                photos.setCover(plantKey, attachmentId, tenant).bodyOrThrow()
+            }
             // The plant's page holds a photo section that just became stale.
             changes.notifyChanged()
             ActionOutcome.Done
@@ -353,6 +356,14 @@ class NetworkPlantActionsClient @Inject constructor(
             @Path("tenant_slug") tenantSlug: String,
             @Part file: MultipartBody.Part,
         ): Response<JsonElement>
+
+        /** Makes [attachmentId] the plant's cover (R29); the answer is the gallery, unread here. */
+        @PUT("api/v1/t/{tenant_slug}/plant-instances/{key}/photos/{attachment_id}/cover")
+        suspend fun setCover(
+            @Path("key") plantKey: String,
+            @Path("attachment_id") attachmentId: String,
+            @Path("tenant_slug") tenantSlug: String,
+        ): Response<JsonElement>
     }
 
     private interface RawCareApi {
@@ -456,14 +467,5 @@ class NetworkPlantActionsClient @Inject constructor(
 
         fun JsonObject.text(name: String): String? =
             (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
-            try {
-                Result.success(block())
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
-                Result.failure(failure)
-            }
     }
 }
