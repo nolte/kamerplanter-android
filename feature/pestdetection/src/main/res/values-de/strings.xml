@@ -98,4 +98,10 @@
     <string name="pest_history_not_permitted">Deine Instanz erlaubt dieser Verbindung keinen Blick in frühere Prüfungen.</string>
     <string name="pest_history_abstained">Keine sichere Erkennung</string>
     <string name="pest_history_findings">%1$d Fund(e)</string>
+
+    <string name="pest_result_language">de</string>
+
+    <string name="pest_photo_keep">Foto bei der Pflanze behalten</string>
+    <string name="pest_photo_kept">Das Foto wurde bei der Pflanze gespeichert.</string>
+    <string name="pest_photo_keep_failed">Das Foto konnte nicht bei der Pflanze gespeichert werden. Die Funde bleiben davon unberührt.</string>
 </resources>

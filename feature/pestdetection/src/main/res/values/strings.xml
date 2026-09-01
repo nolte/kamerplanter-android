@@ -121,4 +121,15 @@
     <string name="pest_history_abstained">No reliable detection</string>
     <!-- %1$d is how many findings that check produced. -->
     <string name="pest_history_findings">%1$d finding(s)</string>
+
+    <!-- The language detection answers should come back in (F-2). Resolved through the
+         resource system on purpose: whatever locale folder Android picked for this screen's
+         strings is by construction the language the UI speaks, fallbacks included. Each
+         locale names its own code here; this is data, not prose. -->
+    <string name="pest_result_language">en</string>
+
+    <!-- Keeping the captured frame with the plant (F-3). -->
+    <string name="pest_photo_keep">Keep photo with plant</string>
+    <string name="pest_photo_kept">The photo was saved to this plant.</string>
+    <string name="pest_photo_keep_failed">The photo could not be saved to this plant. The findings are unaffected.</string>
 </resources>

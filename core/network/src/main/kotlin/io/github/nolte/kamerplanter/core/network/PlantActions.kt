@@ -218,6 +218,17 @@ interface PlantActionsClient {
     suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome
 
     /**
+     * Files [jpeg] in the plant's photo gallery — `POST /plant-instances/{key}/photos`, the
+     * route a cover picture is chosen from, *not* a diary attachment (F-3).
+     *
+     * Exists for images that were captured for something else and are worth keeping: the
+     * detection upload never persists its frame, so an explicit second upload is the one and
+     * only way such a picture is ever stored — which is exactly the criterion's shape, and
+     * the same mechanism plant capture (#50) will keep an identification photo with.
+     */
+    suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome
+
+    /**
      * Records a care task as done — watering, fertilising, a pest check.
      *
      * [kind] is the backend's `reminder_type`, the same string [CareAction.kind] carries, so

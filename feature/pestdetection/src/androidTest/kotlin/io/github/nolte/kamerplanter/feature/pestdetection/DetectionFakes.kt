@@ -3,16 +3,20 @@ package io.github.nolte.kamerplanter.feature.pestdetection
 import android.content.Context
 import android.view.View
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
+import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionFeedback
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.DiaryDraft
+import io.github.nolte.kamerplanter.core.network.DiaryOutcome
 import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantActionsClient
 import io.github.nolte.kamerplanter.feature.microscope.CapturedFrame
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeButton
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
@@ -129,3 +133,31 @@ internal fun detection(
     tilesProcessed = 4,
     feedback = emptyList(),
 )
+
+/** The plant-photo seam, inert: these rendering tests never keep a photo. */
+internal class FakePlantActions : PlantActionsClient {
+
+    override suspend fun diary(plantKey: String, offset: Int, limit: Int): DiaryOutcome =
+        DiaryOutcome.Loaded(emptyList())
+
+    override suspend fun addEntry(plantKey: String, draft: DiaryDraft): ActionOutcome =
+        ActionOutcome.Done
+
+    override suspend fun updateEntry(
+        plantKey: String,
+        entryKey: String,
+        draft: DiaryDraft,
+    ): ActionOutcome = ActionOutcome.Done
+
+    override suspend fun deleteEntry(plantKey: String, entryKey: String): ActionOutcome =
+        ActionOutcome.Done
+
+    override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome =
+        ActionOutcome.Done
+
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+        ActionOutcome.Done
+
+    override suspend fun confirmCare(plantKey: String, kind: String): ActionOutcome =
+        ActionOutcome.Done
+}

@@ -4,16 +4,20 @@ import android.content.Context
 import android.view.View
 import androidx.lifecycle.SavedStateHandle
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
+import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.Detection
 import io.github.nolte.kamerplanter.core.network.DetectionFeedback
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
+import io.github.nolte.kamerplanter.core.network.DiaryDraft
+import io.github.nolte.kamerplanter.core.network.DiaryOutcome
 import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.Finding
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantActionsClient
 import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.RecordedFeedback
 import io.github.nolte.kamerplanter.core.network.RefusedReason
@@ -66,11 +70,13 @@ class PestDetectionViewModelTest {
      * can drive both.
      */
     private val changes = PlantDataChanges()
+    private val plants = FakePlantActionsClient()
 
     private fun viewModel(plantKey: String? = null) = PestDetectionViewModel(
         detections,
         camera,
         changes,
+        plants,
         SavedStateHandle(plantKey?.let { mapOf(PLANT_KEY_ARG to it) } ?: emptyMap()),
     )
 
@@ -738,6 +744,61 @@ class PestDetectionViewModelTest {
         assertFalse(state.inspectionFiled)
     }
 
+    /**
+     * F-3 acceptance-3: the detection upload never stores the image, so keeping it is this
+     * one explicit action — and it lands in the plant's photo gallery, bound to the plant
+     * the check was opened from.
+     */
+    @Test
+    fun `keeping the photo files the frame on the plant and says so`() {
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.keepPhoto()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        val (plant, jpeg) = plants.added.single()
+        assertEquals("plant-7", plant)
+        assertTrue(jpeg.contentEquals(state.frame))
+        assertTrue(state.photoKept)
+        assertEquals(R.string.pest_photo_kept, state.notice)
+    }
+
+    /** Kept once: the same photo twice in the gallery is not a feature. */
+    @Test
+    fun `keeping the photo twice uploads once`() {
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.keepPhoto()
+        model.state.settled()
+        model.keepPhoto()
+        model.state.settled()
+
+        assertEquals(1, plants.added.size)
+    }
+
+    @Test
+    fun `a failed keep leaves the result usable and the offer open`() {
+        plants.photoOutcome = ActionOutcome.Failed("nope")
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.keepPhoto()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertFalse(state.photoKept)
+        assertEquals(R.string.pest_photo_keep_failed, state.notice)
+    }
+
+    /** Nothing to keep it on: a check from the Capture tab names no plant. */
+    @Test
+    fun `an unbound detection cannot keep its photo`() {
+        val model = capturedResult(plantKey = null)
+
+        model.keepPhoto()
+        model.state.settled()
+
+        assertTrue(plants.added.isEmpty())
+    }
+
     /** Nothing to file against: a check from the Capture tab names no plant. */
     @Test
     fun `an unbound detection files no inspection`() {
@@ -835,6 +896,42 @@ class PestDetectionViewModelTest {
     private fun StateFlow<PestDetectionState>.settled(): PestDetectionState {
         dispatcher.scheduler.advanceUntilIdle()
         return value
+    }
+
+    /**
+     * Only [addPhoto] is under test here; everything else on the seam belongs to the plant
+     * page and fails loudly if the detection flow ever wanders onto it.
+     */
+    private class FakePlantActionsClient : PlantActionsClient {
+
+        var photoOutcome: ActionOutcome = ActionOutcome.Done
+        val added = mutableListOf<Pair<String, ByteArray>>()
+
+        override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome {
+            added += plantKey to jpeg
+            return photoOutcome
+        }
+
+        override suspend fun diary(plantKey: String, offset: Int, limit: Int): DiaryOutcome =
+            error("not under test")
+
+        override suspend fun addEntry(plantKey: String, draft: DiaryDraft): ActionOutcome =
+            error("not under test")
+
+        override suspend fun updateEntry(
+            plantKey: String,
+            entryKey: String,
+            draft: DiaryDraft,
+        ): ActionOutcome = error("not under test")
+
+        override suspend fun deleteEntry(plantKey: String, entryKey: String): ActionOutcome =
+            error("not under test")
+
+        override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome =
+            error("not under test")
+
+        override suspend fun confirmCare(plantKey: String, kind: String): ActionOutcome =
+            error("not under test")
     }
 
     private class FakeDetectionClient : PestDetectionClient {

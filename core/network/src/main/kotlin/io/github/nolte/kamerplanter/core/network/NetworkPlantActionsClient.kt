@@ -3,6 +3,7 @@ package io.github.nolte.kamerplanter.core.network
 import android.util.Log
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
+import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -158,6 +159,23 @@ class NetworkPlantActionsClient @Inject constructor(
         return (response as? JsonObject)?.text("attachment_id")
             ?: throw UploadWithoutId()
     }
+
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+        runCatchingCancellable {
+            val (retrofit, tenant) = target()
+            val part = MultipartBody.Part.createFormData(
+                "file",
+                // The instance keeps the name; it never reaches a filesystem here.
+                "detection.jpg",
+                jpeg.toRequestBody(MEDIA_TYPE_JPEG.toMediaType()),
+            )
+            retrofit.create(PlantPhotosApi::class.java)
+                .uploadPlantPhotoApiV1TTenantSlugPlantInstancesKeyPhotosPost(plantKey, tenant, part)
+                .bodyOrThrow()
+            // The plant's page holds a photo section that just became stale.
+            changes.notifyChanged()
+            ActionOutcome.Done
+        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
 
     private suspend fun baseUrl(): String = connections.connection.first()?.baseUrl.orEmpty()
 

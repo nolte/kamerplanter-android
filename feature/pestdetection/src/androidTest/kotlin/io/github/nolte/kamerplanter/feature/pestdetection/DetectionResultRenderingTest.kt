@@ -64,6 +64,7 @@ class DetectionResultRenderingTest {
             detections,
             FakeCamera(),
             PlantDataChanges(),
+            FakePlantActions(),
             SavedStateHandle(emptyMap()),
         )
 

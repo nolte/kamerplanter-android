@@ -83,6 +83,27 @@ class NetworkDiaryWriteTest {
 
     private fun sent(path: String) = synchronized(requests) { requests.filter { it.first == path } }
 
+    /**
+     * F-3: a kept detection frame goes into the plant's photo *gallery*, not in as a diary
+     * attachment — the two routes are different things, and the diary refuses the gallery's
+     * ids (see `upload`'s KDoc in the client).
+     */
+    @Test
+    fun `keeping a photo files it in the plant's gallery, not as a diary attachment`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        bodies[photosPath] =
+            """{"attachment_id":"att-9","byte_size":3,"is_cover":false,
+               "mime_type":"image/jpeg","uri":"/att/att-9"}"""
+
+        val outcome = client().addPhoto("p1", byteArrayOf(7, 8, 9))
+
+        assertEquals(ActionOutcome.Done, outcome)
+        val (path, body) = synchronized(requests) { requests.single() }
+        assertEquals(photosPath, path)
+        assertTrue(body.contains("name=\"file\""))
+        assertTrue(sent(attachmentsPath).isEmpty())
+    }
+
     @Test
     fun `a photo is uploaded first and the entry references what came back`() = runTest {
         val outcome = client().addEntry(

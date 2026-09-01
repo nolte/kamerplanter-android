@@ -98,6 +98,10 @@ sealed interface PestDetectionState {
         val filingInspection: Boolean = false,
         /** Filed once, and the action does not come back: a second inspection is not a fix. */
         val inspectionFiled: Boolean = false,
+        /** The frame is on its way into the plant's photo gallery (F-3). */
+        val keepingPhoto: Boolean = false,
+        /** Kept once; the offer does not come back — the same photo twice is not a feature. */
+        val photoKept: Boolean = false,
         /**
          * A sentence about what just happened — recorded, filed, or refused.
          *
@@ -124,6 +128,8 @@ sealed interface PestDetectionState {
                     recordingFor == other.recordingFor &&
                     filingInspection == other.filingInspection &&
                     inspectionFiled == other.inspectionFiled &&
+                    keepingPhoto == other.keepingPhoto &&
+                    photoKept == other.photoKept &&
                     notice == other.notice &&
                     frame.contentEquals(other.frame)
                 )
@@ -135,6 +141,8 @@ sealed interface PestDetectionState {
             result = 31 * result + recordingFor.hashCode()
             result = 31 * result + filingInspection.hashCode()
             result = 31 * result + inspectionFiled.hashCode()
+            result = 31 * result + keepingPhoto.hashCode()
+            result = 31 * result + photoKept.hashCode()
             result = 31 * result + notice.hashCode()
             return result
         }
