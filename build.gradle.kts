@@ -38,4 +38,16 @@ subprojects {
     dependencies {
         "detektPlugins"(versionCatalog.findLibrary("detekt-formatting").get())
     }
+
+    // A failed assertion on CI is worth nothing without its message. Gradle's default
+    // prints `AssertionError at Foo.kt:570` and keeps the message — which here is the very
+    // string the assertion is about — in an XML report no workflow uploads.
+    tasks.withType<Test>().configureEach {
+        testLogging {
+            events("failed")
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            showCauses = true
+            showStackTraces = false
+        }
+    }
 }
