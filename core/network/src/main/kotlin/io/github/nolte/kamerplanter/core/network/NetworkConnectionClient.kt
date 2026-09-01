@@ -410,14 +410,6 @@ class NetworkConnectionClient(
         }
 
         /**
-         * A TLS handshake the client would not complete. [SSLHandshakeException] is the
-         * validation path (untrusted chain, expired leaf); [SSLPeerUnverifiedException] is
-         * hostname verification refusing a certificate issued for another name.
-         */
-        fun Throwable.isCertificateFailure(): Boolean =
-            this is SSLHandshakeException || this is SSLPeerUnverifiedException
-
-        /**
          * These matter because the obvious reading of each is wrong: a locked-out address is
          * not an expired code, and an instance answering at all is not a wrong address.
          *
@@ -540,3 +532,19 @@ class NetworkConnectionClient(
             }
     }
 }
+
+/**
+ * A TLS handshake the client would not complete. [SSLHandshakeException] is the validation
+ * path (untrusted chain, expired leaf); [SSLPeerUnverifiedException] is hostname verification
+ * refusing a certificate issued for another name.
+ *
+ * The suppressed exceptions count too. OkHttp races the addresses a host resolves to and
+ * reports whichever attempt failed *first*, filing the others as suppressed — and a refused
+ * connection on an unrouted IPv6 address fails faster than a handshake that has to build a
+ * certificate path. Judged by the first failure alone, an instance with a bad certificate
+ * reads as unreachable on exactly the networks where the certificate is the only problem.
+ */
+internal fun Throwable.isCertificateFailure(): Boolean =
+    this is SSLHandshakeException ||
+        this is SSLPeerUnverifiedException ||
+        suppressed.any { it.isCertificateFailure() }
