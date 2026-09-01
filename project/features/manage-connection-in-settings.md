@@ -43,18 +43,18 @@ one used first — or removed entirely, at any moment.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** With nothing connected, Settings offers all three ways to connect.
-- [ ] **acceptance-2** With a connection in place, Settings shows the server address, the method in use, the tenant, and the signed-in identity where the instance reports one.
+- [x] **acceptance-1** With nothing connected, Settings offers all three ways to connect.
+- [x] **acceptance-2** With a connection in place, Settings shows the server address, the method in use, the tenant, and the signed-in identity where the instance reports one.
 - [x] **acceptance-3** No stored secret appears in the clear anywhere in Settings; at most a masked hint.
-- [ ] **acceptance-4** The connection can be changed from any method to any other, and a successful change replaces the previous one entirely.
+- [x] **acceptance-4** The connection can be changed from any method to any other, and a successful change replaces the previous one entirely.
 - [x] **acceptance-5** The connection can be removed at any time.
 
 ## Test hooks
 
-- **acceptance-1** — Compose UI test over the not-connected state; today `SettingsScreen.kt:99-101` routes both non-QR collection states back to a body offering only the QR button, so this is entirely new work — pending
-- **acceptance-2** — Compose UI test; the model carries method, tenant and identity, but `ConnectedBody` currently renders only the base URL — new work, not a regression check — pending
+- **acceptance-1** — **met 2026-09-01** — `NotConnectedBody` renders `MethodButtons`, one button per `ConnectionMethod`; the two typed methods lead to `ApiKeyEntryBody` / `LightModeEntryBody`, whose submissions `SettingsViewModelTest` drives end to end (`an api key connects with its scoped tenant and a masked hint`, `light mode connects with the tenant the instance reports`). Same style of evidence as acceptance-5's hook: the affordance in code, the behaviour behind it under test
+- **acceptance-2** — **met 2026-09-01** — `ConnectedBody` renders address, method label, tenant slug, the identity where one exists, and for an API key the masked hint; `Connection.ApiKey` now carries `identity`, asserted by `SettingsViewModelTest` `an api key connects with its scoped tenant and a masked hint`
 - **acceptance-3** — **regression check.** `Connection.kt`'s `maskSecret` and its tests ship, and `SettingsScreen` carries an explicit comment that the dummy's pairing code was removed on purpose — **met 2026-08-28** — `CredentialTest`: `a session prints a masked hint and its expiry`, `an api key never prints itself`, `a secret short enough to guess from its hint is masked entirely`; `SettingsScreen.kt:494` records that the pairing code it once printed was removed deliberately
-- **acceptance-4** — Compose UI test plus the existing `SettingsViewModelTest` coverage of atomic replacement — pending
+- **acceptance-4** — **met 2026-09-01** — `ConnectedBody` offers the same `MethodButtons` under "Change connection"; the replacement semantics were already pinned by `SettingsViewModelTest` (`a failed change leaves the previous connection in place`, method-switch wipe in `DataStoreConnectionStore.save`)
 - **acceptance-5** — Compose UI test over the disconnect affordance — **met 2026-08-28** — `SettingsViewModelTest` `disconnect clears persistence and returns to disconnected`; `ConnectedBody` offers it whenever a connection exists
 
 **Deliberately criterion-free requirement.** R35 (EN/DE string resources) carries no

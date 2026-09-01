@@ -247,6 +247,7 @@ class SettingsViewModelTest {
             baseUrl = "https://plants.example.org",
             tenantSlug = CANNED_TENANT.slug,
             keyHint = "…cdef",
+            identity = CANNED_IDENTITY,
         )
         assertEquals(ConnectionState.Connected(expected), viewModel.state.value)
         assertEquals(expected, store.saved)
@@ -570,6 +571,150 @@ class SettingsViewModelTest {
         assertTrue(store.cleared)
     }
 
+    @Test
+    fun `disconnect ends the instance-side session, after the device is already clean`() =
+        runTest(dispatcher) {
+            val credentials = InMemoryCredentialStore(initial = SESSION)
+            // Captures what the device still held at the moment the instance was told: the
+            // order is the point — local first, notify second (F-8) — and asserting it after
+            // the fact would pass for either order.
+            var storedWhenNotified: Credential? = SESSION
+            val client = SessionEndRecordingClient(
+                onEndSession = { _, _ -> storedWhenNotified = credentials.stored },
+            )
+            val viewModel = viewModel(
+                client = client,
+                store = FakeConnectionStore(initial = connection),
+                credentials = credentials,
+            )
+            advanceUntilIdle()
+
+            viewModel.disconnect()
+            advanceUntilIdle()
+
+            assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+            assertEquals(listOf(connection.baseUrl to SESSION), client.endedSessions)
+            assertEquals(Credential.None, storedWhenNotified)
+        }
+
+    @Test
+    fun `an unreachable instance does not block the local disconnect`() = runTest(dispatcher) {
+        val store = FakeConnectionStore(initial = connection)
+        val credentials = InMemoryCredentialStore(initial = SESSION)
+        val client = SessionEndRecordingClient(onEndSession = { _, _ -> error("instance gone") })
+        val viewModel = viewModel(client = client, store = store, credentials = credentials)
+        advanceUntilIdle()
+
+        viewModel.disconnect()
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+        assertTrue(store.cleared)
+        assertEquals(Credential.None, credentials.stored)
+    }
+
+    @Test
+    fun `disconnecting a credential-free connection tells the instance nothing`() =
+        runTest(dispatcher) {
+            val client = SessionEndRecordingClient()
+            val viewModel = viewModel(
+                client = client,
+                store = FakeConnectionStore(
+                    initial = Connection.LightMode(baseUrl = "https://light.example.org", tenantSlug = "demo"),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.disconnect()
+            advanceUntilIdle()
+
+            assertEquals(ConnectionState.Disconnected, viewModel.state.value)
+            assertTrue(client.endedSessions.isEmpty())
+        }
+
+    @Test
+    fun `a below-floor verification is carried onto the stored connection`() = runTest(dispatcher) {
+        val store = FakeConnectionStore()
+        val viewModel = viewModel(
+            client = StubConnectionClient(
+                verified(listOf(CANNED_TENANT)).copy(belowVersionFloor = true),
+            ),
+            store = store,
+        )
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+
+        assertTrue((store.saved as Connection.QrPairing).belowVersionFloor)
+    }
+
+    @Test
+    fun `a below-floor verification survives tenant selection`() = runTest(dispatcher) {
+        val tenants = listOf(Tenant("balcony"), Tenant("greenhouse"))
+        val store = FakeConnectionStore()
+        val viewModel = viewModel(
+            client = StubConnectionClient(verified(tenants).copy(belowVersionFloor = true)),
+            store = store,
+        )
+
+        viewModel.startConnecting(ConnectionMethod.QR_PAIRING)
+        viewModel.onQrDetected(validQr)
+        advanceUntilIdle()
+        viewModel.selectTenant(tenants[0])
+        advanceUntilIdle()
+
+        assertTrue((store.saved as Connection.QrPairing).belowVersionFloor)
+    }
+
+    /**
+     * The disconnect coroutine may finish after the user has already started something
+     * newer. Its final state write must not stomp that: here the credential read is held
+     * open while a method is tapped, and the collection step survives the write.
+     */
+    @Test
+    fun `a disconnect that finishes late does not stomp a newer collection step`() =
+        runTest(dispatcher) {
+            val credentials = GatedCredentialStore(initial = SESSION)
+            val viewModel = viewModel(
+                store = FakeConnectionStore(initial = connection),
+                credentials = credentials,
+            )
+            advanceUntilIdle()
+
+            credentials.gated = true
+            viewModel.disconnect()
+            viewModel.startConnecting(ConnectionMethod.API_KEY)
+            credentials.release()
+            advanceUntilIdle()
+
+            assertEquals(ConnectionState.Collecting.ApiKeyEntry(), viewModel.state.value)
+        }
+
+    /**
+     * The two typed entry forms hold what the user is in the middle of typing, so a link
+     * arriving mid-form waits — like it does for a verification — instead of disposing the
+     * form and discarding the input. It is offered once the form is left.
+     */
+    @Test
+    fun `a discovery link waits while an entry form is open`() = runTest(dispatcher) {
+        val viewModel = viewModel()
+        viewModel.startConnecting(ConnectionMethod.API_KEY)
+
+        discoveries.offer(discovered)
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Collecting.ApiKeyEntry(), viewModel.state.value)
+
+        viewModel.cancel()
+        advanceUntilIdle()
+
+        assertEquals(
+            ConnectionState.Discovered("https://plants.example", DiscoveredInstance.NEW),
+            viewModel.state.value,
+        )
+    }
+
     private fun verified(tenants: List<Tenant>) = ConnectionResult.Verified(
         identity = CANNED_IDENTITY,
         tenants = tenants,
@@ -852,6 +997,8 @@ private class CannedConnectionClient : ConnectionClient {
         )
     }
 
+    override suspend fun endSession(baseUrl: String, credential: Credential) = Unit
+
     private fun verify(secret: String, credential: Credential): ConnectionResult =
         if (secret.equals(CANNED_FAIL_CODE, ignoreCase = true)) {
             ConnectionResult.Failure("canned instance rejected the credential")
@@ -867,6 +1014,50 @@ private class CannedConnectionClient : ConnectionClient {
 /** A [ConnectionClient] that answers with a fixed result, without any delay. */
 private class StubConnectionClient(private val result: ConnectionResult) : ConnectionClient {
     override suspend fun connect(request: ConnectionRequest): ConnectionResult = result
+
+    override suspend fun endSession(baseUrl: String, credential: Credential) = Unit
+}
+
+/**
+ * An in-memory credential store whose [load] blocks until [release] — but only once [gated]
+ * is set, so the ViewModel's startup read completes normally and only the disconnect's read
+ * is held open for the race.
+ */
+private class GatedCredentialStore(initial: Credential) : CredentialStore {
+
+    private val delegate = InMemoryCredentialStore(initial)
+    private val gate = CompletableDeferred<Unit>()
+
+    var gated = false
+
+    override suspend fun load(): Credential {
+        if (gated) gate.await()
+        return delegate.load()
+    }
+
+    override suspend fun save(credential: Credential) = delegate.save(credential)
+
+    override suspend fun clear() = delegate.clear()
+
+    fun release() {
+        gate.complete(Unit)
+    }
+}
+
+/** Records every session it is asked to end; [onEndSession] lets a test observe or fail it. */
+private class SessionEndRecordingClient(
+    private val onEndSession: (String, Credential) -> Unit = { _, _ -> },
+) : ConnectionClient {
+
+    val endedSessions = mutableListOf<Pair<String, Credential>>()
+
+    override suspend fun connect(request: ConnectionRequest): ConnectionResult =
+        ConnectionResult.Failure("not under test")
+
+    override suspend fun endSession(baseUrl: String, credential: Credential) {
+        endedSessions += baseUrl to credential
+        onEndSession(baseUrl, credential)
+    }
 }
 
 /** A [ConnectionClient] whose answer is held until [release], so [ConnectionState.Verifying] is observable. */
@@ -877,6 +1068,8 @@ private class GatedConnectionClient(private val result: ConnectionResult) : Conn
         gate.await()
         return result
     }
+
+    override suspend fun endSession(baseUrl: String, credential: Credential) = Unit
 
     fun release() {
         gate.complete(Unit)

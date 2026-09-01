@@ -68,6 +68,14 @@ sealed interface ConnectionResult {
         val identity: String?,
         val tenants: List<Tenant>,
         val credential: Credential,
+        /**
+         * The instance answered and works, but its backend `apiVersion` sits below the
+         * floor this app was built against (F-10). Verification does not refuse it — the
+         * user still reaches their plants — but the connection carries the fact so the
+         * connected screen can warn, and so a feature may fall back where an endpoint the
+         * floor promised is missing.
+         */
+        val belowVersionFloor: Boolean = false,
     ) : ConnectionResult
 
     /** [reason] is a diagnostic string, not a user-facing message. */
@@ -104,4 +112,20 @@ interface ConnectionClient {
 
     /** Probes the instance and proves [request]; suspends for exactly one round trip. */
     suspend fun connect(request: ConnectionRequest): ConnectionResult
+
+    /**
+     * Ends the instance-side session behind [credential], where one exists (F-8).
+     *
+     * Only a paired session has one: an API key is not a session and light mode holds no
+     * credential at all, so both are a no-op. The caller clears the device *first* and then
+     * calls this best-effort — an unreachable instance must never block a local disconnect,
+     * and the reverse order would strand a user who wants out while offline.
+     *
+     * Deliberately not `/auth/logout`: that route spends the `kp_refresh` cookie a native
+     * client never holds and answers `403` (R24). The session-delete route is the instrument
+     * a bearer client is meant to use.
+     *
+     * Throws when the instance could not be told; the caller decides that this is tolerable.
+     */
+    suspend fun endSession(baseUrl: String, credential: Credential)
 }

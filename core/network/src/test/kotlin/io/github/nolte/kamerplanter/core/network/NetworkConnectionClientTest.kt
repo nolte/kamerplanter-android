@@ -10,10 +10,13 @@ import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +24,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 
 /**
  * Drives the client against canned HTTP over a real socket, because the failure modes that
@@ -39,11 +43,15 @@ class NetworkConnectionClientTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
-        client = NetworkConnectionClient(
+        client = clientOver(OkHttpClient())
+    }
+
+    private fun clientOver(httpClient: OkHttpClient) =
+        NetworkConnectionClient(
             // No refresh path here: connecting is what produces a session, so there is
             // never one to renew during it.
             apis = InstanceApiFactory(
-                httpClient = OkHttpClient(),
+                httpClient = httpClient,
                 json = NetworkModule.provideJson(),
                 tokenRefresh = TokenRefreshAuthenticator(
                     SessionRefresher(
@@ -56,7 +64,6 @@ class NetworkConnectionClientTest {
             ),
             clock = { fixedNow },
         )
-    }
 
     @After
     fun tearDown() {
@@ -117,10 +124,14 @@ class NetworkConnectionClientTest {
 
         client.connect(ConnectionRequest.LightMode(baseUrl()))
 
+        val requests = requestsMade()
         assertEquals(
             listOf("/api/health", "/api/v1/tenants"),
-            requestsMade().map { it.path },
+            requests.map { it.path },
         )
+        // F-11 acceptance-2 / R11: a light-mode instance has nothing to authenticate, so no
+        // request to it may carry a credential header.
+        requests.forEach { assertNull(it.getHeader("Authorization")) }
     }
 
     /** A full instance has accounts, so connecting to it credential-free would be a lie. */
@@ -217,6 +228,40 @@ class NetworkConnectionClientTest {
         val reason = (result as ConnectionResult.Failure).reason
         assertTrue(reason, reason.contains("locked"))
         assertFalse(reason, reason.contains("expires within two minutes"))
+    }
+
+    /** F-6 acceptance-6: where the instance says how long, the user is told how long. */
+    @Test
+    fun `a lockout names its duration when the instance sends one`() = runTest {
+        enqueueHealth()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(423)
+                .setHeader("Retry-After", "90")
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"detail":"locked"}"""),
+        )
+
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
+
+        val reason = (result as ConnectionResult.Failure).reason
+        assertTrue(reason, reason.contains("try again in 90 seconds"))
+    }
+
+    @Test
+    fun `a long lockout is described in minutes, rounded up`() = runTest {
+        enqueueHealth()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(423)
+                .setHeader("Retry-After", "150")
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"detail":"locked"}"""),
+        )
+
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
+
+        assertTrue((result as ConnectionResult.Failure).reason.contains("about 3 minutes"))
     }
 
     @Test
@@ -483,6 +528,144 @@ class NetworkConnectionClientTest {
      * R19: a diagnostic reason is written to logs and test reports. A failure that echoes
      * the pairing code or API key would put the secret in both.
      */
+    // --- compatibility (F-10) ---------------------------------------------------------
+
+    @Test
+    fun `an instance on a foreign api major is refused before anything else is called`() = runTest {
+        enqueueJson("""{"status":"healthy","version":"2.0.0","mode":"full"}""")
+
+        val result = client.connect(ConnectionRequest.QrPairing(baseUrl(), code = "ABC123"))
+
+        val failure = result as ConnectionResult.Failure
+        assertTrue(failure.reason, failure.reason.contains("no version in common"))
+        // Only the health probe went out: the pairing code was never spent on an instance
+        // the app cannot talk to.
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `an instance that reports no version connects unjudged`() = runTest {
+        enqueueJson("""{"status":"healthy","mode":"light"}""")
+        enqueueTenants()
+
+        val result = client.connect(ConnectionRequest.LightMode(baseUrl()))
+
+        assertTrue(result is ConnectionResult.Verified)
+        assertFalse((result as ConnectionResult.Verified).belowVersionFloor)
+    }
+
+    @Test
+    fun `an instance on the supported major and floor connects without a warning`() = runTest {
+        enqueueHealth(mode = "light")
+        enqueueTenants()
+
+        val result = client.connect(ConnectionRequest.LightMode(baseUrl()))
+
+        assertFalse((result as ConnectionResult.Verified).belowVersionFloor)
+    }
+
+    /**
+     * F-10 acceptance-3. The failure below is a handshake against a certificate the client
+     * does not trust — the self-signed case every self-hoster hits first. What matters is
+     * both halves of the mapping: the reason names the certificate rather than the address,
+     * and `unreachable` stays false so the screen does not offer the local-network hint for
+     * a problem that grant cannot fix.
+     */
+    @Test
+    fun `an untrusted certificate names the certificate, not the address or the app`() = runTest {
+        val certificate = HeldCertificate.Builder()
+            .addSubjectAlternativeName("localhost")
+            .build()
+        val handshake = HandshakeCertificates.Builder().heldCertificate(certificate).build()
+        server.useHttps(handshake.sslSocketFactory(), false)
+        // Dual-stack on purpose: the host resolves to an address nothing listens on *before*
+        // the one the instance answers on — a phone with an AAAA record and no IPv6 route,
+        // and CI's localhost. OkHttp reports the first failure and files the handshake
+        // behind it, and that is the shape the mapping has to see through.
+        val dualStack = Dns { host ->
+            if (host == "localhost") {
+                listOf(InetAddress.getByName("::1"), InetAddress.getByName("127.0.0.1"))
+            } else {
+                Dns.SYSTEM.lookup(host)
+            }
+        }
+        val client = clientOver(OkHttpClient.Builder().dns(dualStack).build())
+
+        val result = client.connect(ConnectionRequest.LightMode("https://localhost:${server.port}/"))
+
+        val failure = result as ConnectionResult.Failure
+        assertTrue(failure.reason, failure.reason.contains("certificate"))
+        assertFalse(failure.unreachable)
+    }
+
+    // --- session end (F-8) --------------------------------------------------------------
+
+    @Test
+    fun `ending a session revokes the one the instance marks as current`() = runTest {
+        enqueueJson(
+            """[
+              {"created_at":null,"expires_at":"2030-01-01T00:00:00Z","ip_address":null,
+               "is_current":false,"is_persistent":true,"key":"someone-elses","user_agent":null},
+              {"created_at":null,"expires_at":"2030-01-01T00:00:00Z","ip_address":null,
+               "is_current":true,"is_persistent":true,"key":"this-device","user_agent":null}
+            ]""",
+        )
+        enqueueJson("""{"message":"revoked"}""")
+
+        client.endSession(baseUrl(), SESSION)
+
+        val requests = requestsMade()
+        assertEquals("/api/v1/users/me/sessions", requests[0].path)
+        assertEquals("Bearer ${SESSION.accessToken}", requests[0].getHeader("Authorization"))
+        assertEquals("DELETE", requests[1].method)
+        assertEquals("/api/v1/users/me/sessions/this-device", requests[1].path)
+    }
+
+    @Test
+    fun `an api key has no session to end, so nothing is called`() = runTest {
+        client.endSession(baseUrl(), Credential.ApiKey("kp_sk_secret"))
+
+        assertEquals(0, server.requestCount)
+    }
+
+    /**
+     * The ordinary disconnect happens more than fifteen minutes after the last call, with
+     * the device stores already cleared — so the shared authenticator cannot renew the
+     * token. The client renews from the credential in hand instead, unauthenticated, before
+     * asking anything of the session routes.
+     */
+    @Test
+    fun `an expired session is renewed from the credential in hand before it is ended`() = runTest {
+        val expired = SESSION.copy(accessTokenExpiresAtEpochMillis = fixedNow - 1)
+        enqueueJson(
+            """{"access_token":"fresh-token","expires_in":900,"refresh_token":"rotated",
+               "token_type":"bearer"}""",
+        )
+        enqueueJson(
+            """[{"created_at":null,"expires_at":"2030-01-01T00:00:00Z","ip_address":null,
+               "is_current":true,"is_persistent":true,"key":"this-device","user_agent":null}]""",
+        )
+        enqueueJson("""{"message":"revoked"}""")
+
+        client.endSession(baseUrl(), expired)
+
+        val requests = requestsMade()
+        assertEquals("/api/v1/auth/refresh", requests[0].path)
+        // Unauthenticated, like the redeem call: the refresh token in the body is the proof.
+        assertNull(requests[0].getHeader("Authorization"))
+        assertEquals("Bearer fresh-token", requests[1].getHeader("Authorization"))
+        assertEquals("/api/v1/users/me/sessions/this-device", requests[2].path)
+    }
+
+    @Test
+    fun `no current session on the instance means nothing left to end`() = runTest {
+        enqueueJson("""[]""")
+
+        client.endSession(baseUrl(), SESSION)
+
+        assertEquals(1, server.requestCount)
+    }
+
     @Test
     fun `a failure reason never echoes the secret it failed on`() = runTest {
         val url = baseUrl()
@@ -497,6 +680,17 @@ class NetworkConnectionClientTest {
 }
 
 /** There is no connection while one is being established, which is all these tests do. */
+/**
+ * The session credential the endSession tests authenticate with. Its expiry sits *after*
+ * the client's fixed clock, so the still-valid path is what these tests exercise; the
+ * expired-token renewal has its own test with its own expiry.
+ */
+private val SESSION = Credential.Session(
+    accessToken = "access-token",
+    refreshToken = "refresh-token",
+    accessTokenExpiresAtEpochMillis = 1_760_000_900_000L,
+)
+
 private object NeverConnectedStore : ConnectionStore {
     override val connection: Flow<Connection?> = flowOf(null)
     override suspend fun save(connection: Connection) = Unit

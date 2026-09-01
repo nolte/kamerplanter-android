@@ -90,6 +90,14 @@ class SettingsViewModel @Inject constructor(
     @Volatile
     private var pendingRequest: ConnectionRequest? = null
 
+    /**
+     * Whether the attempt in flight verified against an instance below the app's version
+     * floor (F-10). Waits beside [pendingRequest] for the tenant the user still has to pick;
+     * not a secret, but state the UI has no business re-deriving.
+     */
+    @Volatile
+    private var pendingBelowVersionFloor: Boolean = false
+
     /** Where the machine rests when no attempt is in flight. */
     private val restingState: ConnectionState
         get() = established?.let { ConnectionState.Connected(it) } ?: ConnectionState.Disconnected
@@ -248,7 +256,8 @@ class SettingsViewModel @Inject constructor(
         val selecting = _state.value as? ConnectionState.SelectingTenant ?: return
         if (tenant !in selecting.tenants) return
         val request = pendingRequest ?: return
-        val connection = request.connectionFor(tenant, selecting.identity) ?: return
+        val connection =
+            request.connectionFor(tenant, selecting.identity, pendingBelowVersionFloor) ?: return
         val credential = pendingCredential
         if (!_state.compareAndSet(selecting, ConnectionState.Verifying(selecting.method))) return
         pendingRequest = null
@@ -287,23 +296,33 @@ class SettingsViewModel @Inject constructor(
         if (left) {
             pendingCredential = Credential.None
             pendingRequest = null
+            pendingBelowVersionFloor = false
         }
     }
 
     /**
      * Clears both halves of the stored connection and returns the app to the disconnected
      * state (R25, R28). The secret goes first: whatever else fails, the device must not be
-     * left holding a usable credential. Ending the session server-side is the session
-     * lifecycle's job (R24), not this state machine's.
+     * left holding a usable credential. Once the device is clean, the instance is told to
+     * end its side of the session too (F-8) — best-effort, because an unreachable instance
+     * must never block a local disconnect: clearing locally and failing to notify is the
+     * right order, and the reverse would strand a user who wants out while offline.
      *
-     * The erase runs [NonCancellable]. `viewModelScope` is cancelled the moment the user
+     * The erase runs [NonCancellable] — `viewModelScope` is cancelled the moment the user
      * navigates away, and a cancelled `DataStore.edit` writes nothing — so without this,
      * tapping Disconnect and leaving immediately would report `Disconnected` while the
-     * refresh token stayed on the device and the next launch read the connection back.
+     * refresh token stayed on the device and the next launch read the connection back. The
+     * best-effort notify rides inside the same block deliberately: a notify cancelled by
+     * leaving the screen would never fire at all, and it is bounded by the HTTP client's
+     * timeouts rather than by anything this scope does.
      */
     fun disconnect() {
         viewModelScope.launch {
             withContext(NonCancellable) {
+                // Read before the erase: ending the instance-side session needs the very
+                // credential the erase removes. It stays in this coroutine and nowhere else.
+                val connection = established
+                val credential = runCatchingCancellable { credentials.load() }.getOrNull()
                 // Storage failures are still tolerated: the next connect wipes the record
                 // before it writes, so nothing survives it either way.
                 runCatchingCancellable { credentials.clear() }
@@ -311,7 +330,25 @@ class SettingsViewModel @Inject constructor(
                 established = null
                 pendingCredential = Credential.None
                 pendingRequest = null
-                _state.value = ConnectionState.Disconnected
+                pendingBelowVersionFloor = false
+                // Not an unconditional write: the class's own rule is that transitions out
+                // of a resting state are guarded, and this coroutine may run after the user
+                // has already started something newer — a method tapped right after
+                // Disconnect, or a discovery link the collector has consumed in the
+                // meantime. Stomping either would discard input; the newer state stands,
+                // and it resolves against the now-empty stores on its own terms.
+                _state.update { current ->
+                    when (current) {
+                        is ConnectionState.Connected, ConnectionState.Loading ->
+                            ConnectionState.Disconnected
+                        else -> current
+                    }
+                }
+                // After the local clear, so a failure here changes nothing the user sees:
+                // the session then simply expires on the instance's own schedule.
+                if (connection != null && credential != null && credential != Credential.None) {
+                    runCatchingCancellable { client.endSession(connection.baseUrl, credential) }
+                }
             }
         }
     }
@@ -331,6 +368,7 @@ class SettingsViewModel @Inject constructor(
         if (!_state.compareAndSet(from, ConnectionState.Verifying(request.method))) return false
         pendingCredential = Credential.None
         pendingRequest = request
+        pendingBelowVersionFloor = false
         viewModelScope.launch {
             when (val result = client.connect(request)) {
                 is ConnectionResult.Failure -> {
@@ -362,9 +400,14 @@ class SettingsViewModel @Inject constructor(
             // Both the secret and the request wait here rather than in observable state (R19).
             pendingCredential = result.credential
             pendingRequest = request
+            pendingBelowVersionFloor = result.belowVersionFloor
             _state.value = ConnectionState.SelectingTenant(request.method, result.tenants, result.identity)
         } else {
-            val connection = request.connectionFor(result.tenants.singleOrNull(), result.identity)
+            val connection = request.connectionFor(
+                result.tenants.singleOrNull(),
+                result.identity,
+                result.belowVersionFloor,
+            )
             if (connection == null) {
                 pendingCredential = Credential.None
                 pendingRequest = null
@@ -488,11 +531,18 @@ private const val STORAGE_FAILURE_REASON = "the connection could not be stored"
  * A link can arrive at any moment — the user switches to their camera app mid-pairing and
  * scans the poster again — and discarding a verification for it would be the wrong answer to
  * the more deliberate action.
+ *
+ * The two typed entry forms wait too: their composables hold the address and the key the
+ * user is in the middle of typing, and a link replacing the state disposes them — input
+ * discarded for something less deliberate than typing. The scanner does not wait, because a
+ * viewfinder holds nothing that a return to it would not restore.
  */
 private fun ConnectionState.isRestingState(): Boolean = when (this) {
     ConnectionState.Loading,
     is ConnectionState.Verifying,
     is ConnectionState.SelectingTenant,
+    is ConnectionState.Collecting.ApiKeyEntry,
+    is ConnectionState.Collecting.LightModeEntry,
     -> false
     else -> true
 }
