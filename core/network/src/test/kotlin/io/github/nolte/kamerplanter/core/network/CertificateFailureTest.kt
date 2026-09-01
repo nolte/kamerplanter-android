@@ -36,4 +36,20 @@ class CertificateFailureTest {
 
         assertTrue(raced.isCertificateFailure())
     }
+
+    /**
+     * The shape a coroutine hands back under stack-trace recovery: a fresh copy of the raced
+     * exception, with the original — and its suppressed handshake — reachable only as the
+     * cause. This is the exact tree the connect path saw on CI.
+     */
+    @Test
+    fun `a copy that only reaches the raced exception through its cause still counts`() {
+        val original = ConnectException("Failed to connect to /[::1]:443").apply {
+            initCause(ConnectException("Connection refused"))
+            addSuppressed(SSLHandshakeException("PKIX path building failed"))
+        }
+        val recovered = ConnectException(original.message).apply { initCause(original) }
+
+        assertTrue(recovered.isCertificateFailure())
+    }
 }

@@ -538,13 +538,19 @@ class NetworkConnectionClient(
  * path (untrusted chain, expired leaf); [SSLPeerUnverifiedException] is hostname verification
  * refusing a certificate issued for another name.
  *
- * The suppressed exceptions count too. OkHttp races the addresses a host resolves to and
- * reports whichever attempt failed *first*, filing the others as suppressed — and a refused
- * connection on an unrouted IPv6 address fails faster than a handshake that has to build a
- * certificate path. Judged by the first failure alone, an instance with a bad certificate
- * reads as unreachable on exactly the networks where the certificate is the only problem.
+ * Judged over the whole tree — causes and suppressed exceptions — not the top-level type:
+ *
+ * - OkHttp races the addresses a host resolves to and reports whichever attempt failed
+ *   *first*, filing the others as suppressed. A refused connection on an unrouted IPv6
+ *   address fails faster than a handshake that has to build a certificate path, so on
+ *   exactly the networks where the certificate is the only problem it is never the top-level
+ *   failure.
+ * - A coroutine resuming with that exception may hand back a *copy* of it (stack-trace
+ *   recovery), which carries the original as its cause and none of its suppressed
+ *   exceptions.
  */
 internal fun Throwable.isCertificateFailure(): Boolean =
     this is SSLHandshakeException ||
         this is SSLPeerUnverifiedException ||
+        cause?.isCertificateFailure() == true ||
         suppressed.any { it.isCertificateFailure() }

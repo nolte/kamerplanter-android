@@ -10,6 +10,7 @@ import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -23,6 +24,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 
 /**
  * Drives the client against canned HTTP over a real socket, because the failure modes that
@@ -41,11 +43,15 @@ class NetworkConnectionClientTest {
     fun setUp() {
         server = MockWebServer()
         server.start()
-        client = NetworkConnectionClient(
+        client = clientOver(OkHttpClient())
+    }
+
+    private fun clientOver(httpClient: OkHttpClient) =
+        NetworkConnectionClient(
             // No refresh path here: connecting is what produces a session, so there is
             // never one to renew during it.
             apis = InstanceApiFactory(
-                httpClient = OkHttpClient(),
+                httpClient = httpClient,
                 json = NetworkModule.provideJson(),
                 tokenRefresh = TokenRefreshAuthenticator(
                     SessionRefresher(
@@ -58,7 +64,6 @@ class NetworkConnectionClientTest {
             ),
             clock = { fixedNow },
         )
-    }
 
     @After
     fun tearDown() {
@@ -573,8 +578,20 @@ class NetworkConnectionClientTest {
             .build()
         val handshake = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         server.useHttps(handshake.sslSocketFactory(), false)
+        // Dual-stack on purpose: the host resolves to an address nothing listens on *before*
+        // the one the instance answers on — a phone with an AAAA record and no IPv6 route,
+        // and CI's localhost. OkHttp reports the first failure and files the handshake
+        // behind it, and that is the shape the mapping has to see through.
+        val dualStack = Dns { host ->
+            if (host == "localhost") {
+                listOf(InetAddress.getByName("::1"), InetAddress.getByName("127.0.0.1"))
+            } else {
+                Dns.SYSTEM.lookup(host)
+            }
+        }
+        val client = clientOver(OkHttpClient.Builder().dns(dualStack).build())
 
-        val result = client.connect(ConnectionRequest.LightMode(baseUrl()))
+        val result = client.connect(ConnectionRequest.LightMode("https://localhost:${server.port}/"))
 
         val failure = result as ConnectionResult.Failure
         assertTrue(failure.reason, failure.reason.contains("certificate"))
