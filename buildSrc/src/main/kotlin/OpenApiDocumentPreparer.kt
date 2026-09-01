@@ -37,6 +37,11 @@ object OpenApiDocumentPreparer {
         "auth",
         "care-reminders",
         "health",
+        // Plant capture (R-8): `recognition` answers whether identification is offered at
+        // all, `identification` carries the identify → select → link path, `species` the
+        // catalogue the form searches and the create an unknown match needs, `sites` the
+        // site a location is chosen under — `GET /locations` requires one.
+        "identification",
         "locations",
         "pest-detection",
         "phases",
@@ -44,6 +49,9 @@ object OpenApiDocumentPreparer {
         "plant-instances",
         "plant-photos",
         "privacy",
+        "recognition",
+        "sites",
+        "species",
         "tenants",
         "users",
     )
