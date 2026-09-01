@@ -109,12 +109,13 @@ internal fun finding(
     label: String = "aphid",
     commonName: String = "Aphid",
     isBeneficial: Boolean = false,
+    mode: String = "direct",
 ) = Finding(
     label = label,
     commonName = commonName,
     category = if (isBeneficial) "beneficial" else "pest",
     confidence = 0.9,
-    mode = "direct",
+    mode = mode,
     boundingBox = null,
     isBeneficial = isBeneficial,
 )

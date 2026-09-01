@@ -43,19 +43,19 @@ is agreeing to text the app invented.
 ## Acceptance criteria
 
 - [x] **acceptance-1** When the instance reports detection unavailable or no adapter configured, the capture entry point is not offered.
-- [ ] **acceptance-2** When the entry point is not offered, the user is told why.
+- [x] **acceptance-2** When the entry point is not offered, the user is told why.
 - [x] **acceptance-3** On an instance too old to carry the detection endpoints at all, the entry point is likewise not offered, rather than failing on a missing route.
 - [x] **acceptance-4** When the active adapter requires cloud consent and it has not been granted, no image is captured until that consent is obtained.
-- [ ] **acceptance-5** The consent dialogue shows the purpose, description and legal basis exactly as the instance supplies them.
+- [x] **acceptance-5** The consent dialogue shows the purpose, description and legal basis exactly as the instance supplies them.
 - [x] **acceptance-6** On an instance whose detection runs locally, no consent is requested.
 
 ## Test hooks
 
 - **acceptance-1** — `NetworkPestDetectionClientTest` — four cases over `available`, `feature_enabled` and per-adapter `configured`, each asserting `NotOffered`
-- **acceptance-2** — `PestDetectionViewModelTest` pins `NotOffered` as a state of its own; that the screen renders it as an explanation rather than as an absent entry point is asserted by nothing, so the criterion is not met yet — pending
+- **acceptance-2** — `PestDetectionViewModelTest` pins `NotOffered` as a state of its own; that the screen renders it as an explanation rather than as an absent entry point — **met 2026-09-01** — `DetectionGateRenderingTest.anInstanceThatDoesNotOfferDetectionSaysWhy` (instrumented, Pixel 7a profile) asserts the reason (`pest_not_offered_body`) is on screen for a `NotOffered` readiness
 - **acceptance-3** — `NetworkPestDetectionClientTest` — `404` on `/pests/status` maps to `NotOffered`, per `R-COMPAT-3`
 - **acceptance-4** — `PestDetectionViewModelTest` — with consent outstanding, `capture()` leaves the camera untouched and uploads nothing; removing the gate turns this red
-- **acceptance-5** — `NetworkPestDetectionClientTest` pins that `label`, `description` and `legal_basis` cross the module boundary as `ConsentTerms` exactly as the instance sent them; that the dialogue *renders* them, and falls back to the app's wording only when the instance supplied none, is screen-level and unasserted — pending
+- **acceptance-5** — `NetworkPestDetectionClientTest` pins that `label`, `description` and `legal_basis` cross the module boundary as `ConsentTerms` exactly as the instance sent them; that the dialogue *renders* them, and falls back to the app's wording only when the instance supplied none — **met 2026-09-01** — `DetectionGateRenderingTest.theConsentIsWordedByTheInstanceNotByTheApp` asserts label, description and legal basis against strings the test invents, so a substituted wording fails; `anInstanceWithoutConsentWordingGetsTheAppsFallback` pins the one case the app's own text may appear
 - **acceptance-6** — `NetworkPestDetectionClientTest` — an active local adapter yields `Ready` and never reads the consent list, even with a configured cloud adapter beside it
 
 ## Consistency notes
