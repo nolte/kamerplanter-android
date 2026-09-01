@@ -10,6 +10,7 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.HealthApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.TenantsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.UsersApi
 import io.github.nolte.kamerplanter.core.network.generated.models.DevicePairingRedeemRequest
+import io.github.nolte.kamerplanter.core.network.generated.models.RefreshRequest
 import io.github.nolte.kamerplanter.core.network.generated.models.ServiceAccountValidateRequest
 import kotlinx.serialization.json.JsonPrimitive
 import retrofit2.Response
@@ -17,6 +18,8 @@ import retrofit2.Retrofit
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -49,10 +52,15 @@ class NetworkConnectionClient(
 
     override suspend fun connect(request: ConnectionRequest): ConnectionResult =
         runCatchingCancellable {
-            when (request) {
-                is ConnectionRequest.LightMode -> connectLightMode(request)
-                is ConnectionRequest.QrPairing -> connectQrPairing(request)
-                is ConnectionRequest.ApiKey -> connectApiKey(request)
+            // One probe for every path, and the compatibility gate right behind it: an
+            // instance on a foreign API major is refused before any credential is spent on
+            // it (F-10) — a pairing code redeemed against an instance the app cannot talk
+            // to would be a code destroyed for nothing.
+            val health = probeHealth(request.baseUrl)
+            health.incompatibility() ?: when (request) {
+                is ConnectionRequest.LightMode -> connectLightMode(request, health)
+                is ConnectionRequest.QrPairing -> connectQrPairing(request, health)
+                is ConnectionRequest.ApiKey -> connectApiKey(request, health)
             }
         }.getOrElse { failure ->
             // A diagnostic, never a UI string — and never one that could echo the secret it
@@ -63,12 +71,18 @@ class NetworkConnectionClient(
             // grant, and only this layer knows which happened.
             ConnectionResult.Failure(
                 reason = failure.asReason(request.baseUrl),
-                unreachable = failure is IOException,
+                // A failed TLS handshake is an IOException, but "unreachable" it is not:
+                // the instance answered, and its certificate was the problem. Reporting it
+                // as silence would surface the local-network hint — advice about precisely
+                // the wrong thing (F-10).
+                unreachable = failure is IOException && !failure.isCertificateFailure(),
             )
         }
 
-    private suspend fun connectLightMode(request: ConnectionRequest.LightMode): ConnectionResult {
-        val health = probeHealth(request.baseUrl)
+    private suspend fun connectLightMode(
+        request: ConnectionRequest.LightMode,
+        health: HealthReport,
+    ): ConnectionResult {
         if (health.mode != LIGHT_MODE) {
             return ConnectionResult.Failure(
                 "instance is not in light mode (reports '${health.mode}'); it needs a credential",
@@ -89,14 +103,17 @@ class NetworkConnectionClient(
                         identity = null,
                         tenants = it,
                         credential = Credential.None,
+                        belowVersionFloor = health.belowVersionFloor,
                     )
                 },
                 onFailure = { ConnectionResult.Failure(it.lightModeTenantsReason()) },
             )
     }
 
-    private suspend fun connectQrPairing(request: ConnectionRequest.QrPairing): ConnectionResult {
-        val health = probeHealth(request.baseUrl)
+    private suspend fun connectQrPairing(
+        request: ConnectionRequest.QrPairing,
+        health: HealthReport,
+    ): ConnectionResult {
         if (health.mode == LIGHT_MODE) return lightModeRejects("pairing")
 
         // Unauthenticated: redeeming the code is what produces the credential.
@@ -120,7 +137,7 @@ class NetworkConnectionClient(
         return runCatchingCancellable { describe(request.baseUrl, session) }
             .fold(
                 onSuccess = { (identity, tenants) ->
-                    ConnectionResult.Verified(identity, tenants, session)
+                    ConnectionResult.Verified(identity, tenants, session, health.belowVersionFloor)
                 },
                 onFailure = { failure ->
                     ConnectionResult.Failure(
@@ -132,8 +149,10 @@ class NetworkConnectionClient(
             )
     }
 
-    private suspend fun connectApiKey(request: ConnectionRequest.ApiKey): ConnectionResult {
-        val health = probeHealth(request.baseUrl)
+    private suspend fun connectApiKey(
+        request: ConnectionRequest.ApiKey,
+        health: HealthReport,
+    ): ConnectionResult {
         if (health.mode == LIGHT_MODE) return lightModeRejects("an API key")
 
         val credential = Credential.ApiKey(request.key)
@@ -170,6 +189,7 @@ class NetworkConnectionClient(
             // there would hand it tenants it was never scoped to.
             tenants = scoped ?: reachable,
             credential = credential,
+            belowVersionFloor = health.belowVersionFloor,
         )
     }
 
@@ -212,6 +232,72 @@ class NetworkConnectionClient(
 
     private data class HealthReport(val mode: String, val version: String?)
 
+    /**
+     * The one compatibility verdict that refuses a connection: no API major in common
+     * (F-10). Everything this app calls lives under `/api/v1`, so an instance whose
+     * `apiVersion` reports another major does not offer the surface the app would address —
+     * connecting anyway just moves the failure onto the first real call.
+     */
+    private fun HealthReport.incompatibility(): ConnectionResult.Failure? =
+        when (val verdict = ApiCompatibility.judge(version)) {
+            is ApiCompatibility.Verdict.NoSharedMajor -> ConnectionResult.Failure(
+                "the instance reports API version ${verdict.reported}, and this app speaks " +
+                    "only major version ${ApiCompatibility.SUPPORTED_API_MAJOR} — there is " +
+                    "no version in common. Update whichever of the two is older.",
+            )
+            else -> null
+        }
+
+    /** Same major but older than the floor: connect, and let the connection say so (F-10). */
+    private val HealthReport.belowVersionFloor: Boolean
+        get() = ApiCompatibility.judge(version) == ApiCompatibility.Verdict.BelowFloor
+
+    /**
+     * Ends the paired session on the instance via its own session-delete route (F-8).
+     *
+     * The route wants the session's document key, which the redeem response never carried —
+     * so the session list is read first and the entry the instance marks `is_current` is the
+     * one this very call authenticated with. No current entry means the instance no longer
+     * holds the session; there is nothing left to end and nothing to report.
+     */
+    override suspend fun endSession(baseUrl: String, credential: Credential) {
+        if (credential !is Credential.Session) return
+        val usable = credential.refreshedIfExpired(baseUrl)
+        val users = apis.create(baseUrl) { usable }.create(UsersApi::class.java)
+        val sessions = users.listSessionsApiV1UsersMeSessionsGet().bodyOrThrow(Call.LIST_SESSIONS)
+        val current = sessions.firstOrNull { it.isCurrent } ?: return
+        val revoked = users.revokeSessionApiV1UsersMeSessionsSessionKeyDelete(current.key)
+        if (!revoked.isSuccessful) throw HttpFailure(revoked.code(), Call.END_SESSION)
+    }
+
+    /**
+     * Renews the in-hand session when its access token has already lapsed.
+     *
+     * The common disconnect happens more than fifteen minutes after the last call — the
+     * token's whole lifetime — and by the time this runs the device stores are deliberately
+     * empty (F-8: local first). The shared authenticator cannot help with that 401: it renews
+     * from the *store*, finds nothing, and gives up — which made server-side revocation fail
+     * on exactly the ordinary path. So the token is renewed here, from the credential still
+     * in hand, before anything is asked of the session routes.
+     *
+     * The rotated pair is deliberately not persisted: the very next call deletes the session
+     * it belongs to, and nothing on the device is supposed to hold a credential any more.
+     * Like the redeem call, the refresh travels unauthenticated — the refresh token in the
+     * body is the proof.
+     */
+    private suspend fun Credential.Session.refreshedIfExpired(baseUrl: String): Credential.Session {
+        if (clock() < accessTokenExpiresAtEpochMillis) return this
+        val renewed = apis.create(baseUrl)
+            .create(AuthApi::class.java)
+            .refreshApiV1AuthRefreshPost(RefreshRequest(refreshToken = refreshToken))
+            .bodyOrThrow(Call.REFRESH_SESSION)
+        return Credential.Session(
+            accessToken = renewed.accessToken,
+            refreshToken = renewed.refreshToken,
+            accessTokenExpiresAtEpochMillis = clock() + renewed.expiresIn * MILLIS_PER_SECOND,
+        )
+    }
+
     /** Identity and tenants, both read with the credential just established. */
     private suspend fun describe(
         baseUrl: String,
@@ -245,11 +331,34 @@ class NetworkConnectionClient(
         REDEEM_PAIRING("redeeming the pairing code"),
         VALIDATE_KEY("reading the key's tenant scope"),
         LIST_TENANTS("listing the tenants this credential may address"),
+        REFRESH_SESSION("renewing the session before ending it"),
+        LIST_SESSIONS("listing this account's sessions"),
+        END_SESSION("ending the session on the instance"),
     }
 
     /** An HTTP status the caller did not expect, kept so the reason can name it. */
-    private class HttpFailure(val status: Int, val call: Call) :
-        Exception("${call.description} failed with HTTP $status")
+    private class HttpFailure(
+        val status: Int,
+        val call: Call,
+        /** Whatever the instance sent as `Retry-After`, in seconds — where it sent one. */
+        val retryAfterSeconds: Long? = null,
+    ) : Exception("${call.description} failed with HTTP $status") {
+
+        /**
+         * How long the lockout lasts, where the instance said so (F-6). "Wait before trying
+         * again" without a duration is a message, not an instruction — but when no
+         * `Retry-After` arrived, no number may be invented for it either.
+         */
+        fun waitAdvice(): String {
+            val seconds = retryAfterSeconds ?: return "; wait before trying again"
+            val wait = if (seconds >= 2 * SECONDS_PER_MINUTE) {
+                "about ${(seconds + SECONDS_PER_MINUTE - 1) / SECONDS_PER_MINUTE} minutes"
+            } else {
+                "$seconds seconds"
+            }
+            return "; try again in $wait"
+        }
+    }
 
     private companion object {
         const val LIGHT_MODE = "light"
@@ -271,7 +380,12 @@ class NetworkConnectionClient(
          * perfectly correct.
          */
         fun <T> Response<T>.bodyOrThrow(call: Call): T {
-            if (!isSuccessful) throw HttpFailure(code(), call)
+            // The delta-seconds form only. The header's other legal form is an HTTP date,
+            // which no route of this backend uses — and a guessed parse of one would put a
+            // wrong number into a sentence whose entire value is being right.
+            if (!isSuccessful) {
+                throw HttpFailure(code(), call, headers()["Retry-After"]?.trim()?.toLongOrNull())
+            }
             return body() ?: throw ConnectionFailure(
                 "the instance answered ${call.description} with an empty body",
             )
@@ -280,11 +394,28 @@ class NetworkConnectionClient(
         fun kotlinx.serialization.json.JsonElement.stringOrNull(): String? =
             (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
-        fun Throwable.asReason(baseUrl: String): String = when (this) {
-            is ConnectionFailure -> message.orEmpty()
-            is HttpFailure -> reason(baseUrl)
+        fun Throwable.asReason(baseUrl: String): String = when {
+            // Before the generic transport case: a handshake failure is an IOException, and
+            // the generic sentence would send the user to check an address that is fine and
+            // an app that is working. The certificate is the cause, and the sentence has to
+            // say so (F-10).
+            isCertificateFailure() ->
+                "the TLS certificate of $baseUrl could not be validated — the certificate " +
+                    "is the problem (expired, self-signed, or issued for another name), " +
+                    "not the address or this app. Renew or correctly install it on the " +
+                    "instance, then try again."
+            this is ConnectionFailure -> message.orEmpty()
+            this is HttpFailure -> reason(baseUrl)
             else -> "could not reach $baseUrl: ${diagnostic()}"
         }
+
+        /**
+         * A TLS handshake the client would not complete. [SSLHandshakeException] is the
+         * validation path (untrusted chain, expired leaf); [SSLPeerUnverifiedException] is
+         * hostname verification refusing a certificate issued for another name.
+         */
+        fun Throwable.isCertificateFailure(): Boolean =
+            this is SSLHandshakeException || this is SSLPeerUnverifiedException
 
         /**
          * These matter because the obvious reading of each is wrong: a locked-out address is
@@ -302,9 +433,9 @@ class NetworkConnectionClient(
                         "and can be redeemed only once"
                 HTTP_LOCKED ->
                     "the instance has temporarily locked this device out after too many " +
-                        "attempts; wait before trying again"
+                        "attempts${waitAdvice()}"
                 HTTP_TOO_MANY_REQUESTS ->
-                    "too many pairing attempts in a short time; wait before trying again"
+                    "too many pairing attempts in a short time${waitAdvice()}"
                 HTTP_UNPROCESSABLE ->
                     "the instance could not process this pairing code"
                 else -> message.orEmpty()
@@ -321,6 +452,10 @@ class NetworkConnectionClient(
                     "this credential is accepted but not allowed to read the tenant list"
                 else -> "the instance answered HTTP $status while ${call.description}"
             }
+            // Best-effort routes: the disconnect that calls them tolerates any failure, so
+            // these reasons only ever reach a log. The message already names call and
+            // status, which is all a diagnostic needs.
+            Call.REFRESH_SESSION, Call.LIST_SESSIONS, Call.END_SESSION -> message.orEmpty()
             // Unreachable: the only caller swallows every failure from this route, because
             // by then the credential has already authenticated elsewhere. Kept for
             // exhaustiveness and deliberately generic — the sentences above would both be
@@ -328,6 +463,8 @@ class NetworkConnectionClient(
             // account.
             Call.VALIDATE_KEY -> message.orEmpty()
         }
+
+        const val SECONDS_PER_MINUTE = 60L
 
         const val HTTP_UNAUTHORIZED = 401
         const val HTTP_FORBIDDEN = 403

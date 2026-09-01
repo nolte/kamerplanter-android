@@ -12,18 +12,22 @@ import io.github.nolte.kamerplanter.core.connection.maskSecret
  * failure rather than persisting half of one.
  *
  * Light mode needs a tenant like the other two, and returns `null` without one. It ignores
+ * the identity — an instance without accounts has none to report.
  *
  * Lives here rather than beside [Connection] in `:core:connection` because it reads a
  * [ConnectionRequest] — the in-flight, still-secret-bearing input of the pairing flow,
  * which is this module's concern. `:core:connection` holds what a connection *is* once it
  * has been established; how one gets composed belongs to the flow that establishes it.
  */
-internal fun ConnectionRequest.connectionFor(tenant: Tenant?, identity: String?): Connection? =
-    when (this) {
-        is ConnectionRequest.QrPairing ->
-            tenant?.let { Connection.QrPairing(baseUrl, it.slug, identity) }
-        is ConnectionRequest.ApiKey ->
-            tenant?.let { Connection.ApiKey(baseUrl, it.slug, maskSecret(key)) }
-        is ConnectionRequest.LightMode ->
-            tenant?.let { Connection.LightMode(baseUrl, it.slug) }
-    }
+internal fun ConnectionRequest.connectionFor(
+    tenant: Tenant?,
+    identity: String?,
+    belowVersionFloor: Boolean = false,
+): Connection? = when (this) {
+    is ConnectionRequest.QrPairing ->
+        tenant?.let { Connection.QrPairing(baseUrl, it.slug, identity, belowVersionFloor) }
+    is ConnectionRequest.ApiKey ->
+        tenant?.let { Connection.ApiKey(baseUrl, it.slug, maskSecret(key), identity, belowVersionFloor) }
+    is ConnectionRequest.LightMode ->
+        tenant?.let { Connection.LightMode(baseUrl, it.slug, belowVersionFloor) }
+}

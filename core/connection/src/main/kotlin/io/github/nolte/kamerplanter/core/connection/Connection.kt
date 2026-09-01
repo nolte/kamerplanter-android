@@ -59,6 +59,15 @@ sealed interface Connection {
     val method: ConnectionMethod
 
     /**
+     * Whether the instance's backend `apiVersion` sat below this app's compatibility floor
+     * when the connection was verified (F-10). Checked at connect time only — an instance
+     * upgraded afterwards keeps the flag until the next connect — and carried here rather
+     * than in UI state so the warning survives an app restart along with the connection
+     * it describes.
+     */
+    val belowVersionFloor: Boolean
+
+    /**
      * The tenant this connection addresses.
      *
      * On the interface, and non-null, because every route the app uses is scoped to one —
@@ -75,6 +84,7 @@ sealed interface Connection {
         override val tenantSlug: String,
         /** The signed-in identity where the instance reports one, for display only (R26). */
         val identity: String? = null,
+        override val belowVersionFloor: Boolean = false,
     ) : Connection {
         override val method: ConnectionMethod = ConnectionMethod.QR_PAIRING
     }
@@ -90,6 +100,13 @@ sealed interface Connection {
         override val tenantSlug: String,
         /** Masked remainder of the key — the most the UI may show of a secret (R19). */
         val keyHint: String,
+        /**
+         * The signed-in identity, where the instance reports one (R26). A service-account
+         * key usually has no user profile behind it, so this is more often null than not —
+         * absent is normal here, not a failure.
+         */
+        val identity: String? = null,
+        override val belowVersionFloor: Boolean = false,
     ) : Connection {
         override val method: ConnectionMethod = ConnectionMethod.API_KEY
     }
@@ -105,6 +122,7 @@ sealed interface Connection {
     data class LightMode(
         override val baseUrl: String,
         override val tenantSlug: String,
+        override val belowVersionFloor: Boolean = false,
     ) : Connection {
         override val method: ConnectionMethod = ConnectionMethod.LIGHT_MODE
     }

@@ -50,7 +50,7 @@ than failing every request in silence.
 - [ ] **acceptance-2** Secrets are stored encrypted under a device-backed key and are never readable in the clear from app storage.
 - [x] **acceptance-3** An expired access token is renewed without the user noticing.
 - [x] **acceptance-4** When renewal fails or the instance rejects the credential, the app returns to a disconnected state and says where to fix it.
-- [ ] **acceptance-5** Disconnecting ends the session on the instance as well, not only on the device.
+- [x] **acceptance-5** Disconnecting ends the session on the instance as well, not only on the device.
 - [x] **acceptance-6** Disconnecting removes the stored credential completely.
 
 ## Test hooks
@@ -59,7 +59,7 @@ than failing every request in silence.
 - **acceptance-2** — **on-device only.** `KeystoreSecretCipher` cannot execute under `./gradlew test`, since the JVM has no Keystore. This needs an instrumented or manual Pixel 7a step; `CredentialStoreContractTest` covers the seam's contract through an in-memory fake, not the encryption — pending
 - **acceptance-3** — unit test over the refresh path (body transport, rotated token persisted) — **met 2026-08-28** — `SessionRefreshTest`: `an expired access token is renewed and the call repeated`, `the rotated refresh token replaces the stored one`, `concurrent failures refresh once, not once each`
 - **acceptance-4** — unit test over the `401` teardown and the refresh-failure path — **met 2026-08-28** — `SessionRefreshTest` `a failed refresh clears the credential and the connection` asserts `Credential.None` and a null connection; `FailedBody` renders the reason
-- **acceptance-5** — unit test over the session-delete call; R24 forbids `/auth/logout`, which rejects native clients with `403` — pending
+- **acceptance-5** — unit test over the session-delete call; R24 forbids `/auth/logout`, which rejects native clients with `403` — **met 2026-09-01** — `NetworkConnectionClientTest` `ending a session revokes the one the instance marks as current` proves `DELETE /api/v1/users/me/sessions/{key}` is the instrument (never `/auth/logout`); `SettingsViewModelTest` `disconnect ends the instance-side session, after the device is already clean` pins the order (local erase first, notify second), and `an unreachable instance does not block the local disconnect` the tolerance
 - **acceptance-6** — **regression check.** `SettingsViewModelTest` asserts `disconnect removes the credential as well as the connection`, erasing the secret before the connection record — **met 2026-08-28** — `SettingsViewModelTest` `disconnect removes the credential as well as the connection`; `CredentialStoreContractTest` `clearing removes the secret completely`
 
 **Deliberately criterion-free requirements.** R22 (refresh-token rotation) and R34 (the

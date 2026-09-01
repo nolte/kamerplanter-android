@@ -37,14 +37,14 @@ the key, once accepted, is never shown back to them in full.
 ## Acceptance criteria
 
 - [ ] **acceptance-1** Pasting a `kp_sk_` API key together with the server address connects the app to that instance.
-- [ ] **acceptance-2** The tenant the key is scoped to becomes the connection's tenant, without the app asking which one.
-- [ ] **acceptance-3** A key the instance does not accept leaves the app unconnected, with a message that does not echo the key back.
+- [x] **acceptance-2** The tenant the key is scoped to becomes the connection's tenant, without the app asking which one.
+- [x] **acceptance-3** A key the instance does not accept leaves the app unconnected, with a message that does not echo the key back.
 
 ## Test hooks
 
-- **acceptance-1** — end-to-end on the Pixel 7a with a key issued by a real instance — pending
-- **acceptance-2** — unit test asserting the tenant is taken from the key's own `tenant_scope` rather than from a `GET /tenants` lookup — pending
-- **acceptance-3** — unit test over the rejection path, asserting the message contains no substring of the supplied key — pending
+- **acceptance-1** — end-to-end on the Pixel 7a with a key issued by a real instance — pending; the entry surface (`ApiKeyEntryBody`) ships since issue #51, so the run is no longer blocked on a missing UI
+- **acceptance-2** — unit test asserting the tenant is taken from the key's own `tenant_scope` rather than from a `GET /tenants` lookup — **met 2026-09-01** — `NetworkConnectionClientTest` `an api key takes its tenant from the key's own scope` (and `an api key falls back to the tenant list when MCP is switched off` for the 404 fallback); reachable from the UI since the method chooser and `ApiKeyEntryBody` exist
+- **acceptance-3** — unit test over the rejection path, asserting the message contains no substring of the supplied key — **met 2026-09-01** — `NetworkConnectionClientTest`: `an api key rejected by the instance is a failure`, `a failure reason never echoes the secret it failed on`
 
 **Deliberately criterion-free requirements.** R30–R32 (the `core/network/` credential seam,
 the request interceptor and tenant-scoped path handling) carry no acceptance criterion and

@@ -7,24 +7,33 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.autoSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -34,6 +43,7 @@ import io.github.nolte.kamerplanter.core.camera.rememberLocalNetworkPermission
 import io.github.nolte.kamerplanter.core.connection.Connection
 import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.connection.ConnectionMethod
+import io.github.nolte.kamerplanter.core.connection.ConnectionRequest
 import io.github.nolte.kamerplanter.core.connection.PayloadRefusal
 import io.github.nolte.kamerplanter.core.connection.Tenant
 import kotlinx.coroutines.delay
@@ -81,7 +91,10 @@ fun SettingsScreen(
         hasLocalNetworkPermission = localNetwork.isGranted,
         actions = ConnectionActions(
             onConnect = viewModel::startConnecting,
-            onSelectTenant = viewModel::selectTenant,
+            entry = EntryActions(
+                onSubmit = viewModel::submit,
+                onSelectTenant = viewModel::selectTenant,
+            ),
             onCancel = viewModel::cancel,
             onDisconnect = viewModel::disconnect,
             scanner = ScannerActions(
@@ -109,13 +122,21 @@ fun SettingsScreen(
 /** The screen's callbacks, bundled so the content stays within its parameter budget. */
 internal class ConnectionActions(
     val onConnect: (ConnectionMethod) -> Unit,
-    val onSelectTenant: (Tenant) -> Unit,
+    /** What the user hands the machine mid-attempt: a typed request, or the tenant pick. */
+    val entry: EntryActions,
     val onCancel: () -> Unit,
     val onDisconnect: () -> Unit,
     /** Everything the scanner needs, grouped: only one state uses any of it. */
     val scanner: ScannerActions,
     /** The local-network grant, for the failure screen to offer where it may be the cause. */
     val localNetwork: PermissionActions,
+)
+
+/** The mid-attempt inputs: a typed request (R13) and the tenant choice (R15). */
+internal class EntryActions(
+    /** Hands a typed request to verification; the machine ignores a stale one. */
+    val onSubmit: (ConnectionRequest) -> Unit,
+    val onSelectTenant: (Tenant) -> Unit,
 )
 
 /** The scanner's own callbacks and its camera grant. */
@@ -150,15 +171,20 @@ private fun SettingsContent(
     Box(modifier = modifier.fillMaxSize()) {
         when (state) {
             ConnectionState.Loading -> CenteredProgress()
-            // Only the QR method has a surface today, so the disconnected body offers it
-            // directly instead of a method chooser.
-            ConnectionState.Disconnected,
-            is ConnectionState.Collecting.ApiKeyEntry,
-            is ConnectionState.Collecting.LightModeEntry,
-            -> NotConnectedBody(onConnect = { actions.onConnect(ConnectionMethod.QR_PAIRING) })
+            ConnectionState.Disconnected -> NotConnectedBody(onConnect = actions.onConnect)
+            is ConnectionState.Collecting.ApiKeyEntry -> ApiKeyEntryBody(
+                prefilledBaseUrl = state.prefilledBaseUrl,
+                onSubmit = actions.entry.onSubmit,
+                onCancel = actions.onCancel,
+            )
+            is ConnectionState.Collecting.LightModeEntry -> LightModeEntryBody(
+                prefilledBaseUrl = state.prefilledBaseUrl,
+                onSubmit = actions.entry.onSubmit,
+                onCancel = actions.onCancel,
+            )
             is ConnectionState.Discovered -> DiscoveredBody(
                 state = state,
-                onContinue = { actions.onConnect(ConnectionMethod.QR_PAIRING) },
+                onConnect = actions.onConnect,
                 onDismiss = actions.onCancel,
             )
             is ConnectionState.LinkRefused -> LinkRefusedBody(
@@ -176,17 +202,14 @@ private fun SettingsContent(
             is ConnectionState.Verifying -> CenteredProgress(
                 label = stringResource(R.string.settings_verifying),
             )
-            // The picker itself is still missing (R15), but this is a *resting* state: the
-            // machine waits here until selectTenant() is called, and nothing calls it yet.
-            // Without an escape the user would be stuck on a spinner for good the first time
-            // an instance offers more than one tenant, so it says so and offers a way back.
             is ConnectionState.SelectingTenant -> TenantChoiceBody(
                 tenants = state.tenants,
-                onSelect = actions.onSelectTenant,
+                onSelect = actions.entry.onSelectTenant,
                 onCancel = actions.onCancel,
             )
             is ConnectionState.Connected -> ConnectedBody(
                 connection = state.connection,
+                onConnect = actions.onConnect,
                 onDisconnect = actions.onDisconnect,
             )
             is ConnectionState.Failed -> FailedBody(
@@ -216,13 +239,14 @@ private fun SettingsContent(
  * the one already connected: continuing from here replaces a working connection, and finding
  * that out afterwards is the wrong order.
  *
- * Only the pairing method is offered because only it has a surface today; the address the link
- * carried travels with the choice regardless, ready for the other two.
+ * All three methods are offered, the same set the disconnected screen has (R28) — the link
+ * names an instance, not a way in, and its address travels into whichever collection step the
+ * user picks.
  */
 @Composable
 private fun DiscoveredBody(
     state: ConnectionState.Discovered,
-    onContinue: () -> Unit,
+    onConnect: (ConnectionMethod) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(
@@ -254,9 +278,7 @@ private fun DiscoveredBody(
         // Nothing to do on an instance already connected — the link asked for something that is
         // already true, so the only sensible button is the one that dismisses it.
         if (state.relation != DiscoveredInstance.ALREADY_CONNECTED) {
-            Button(onClick = onContinue) {
-                Text(stringResource(R.string.settings_discovered_continue))
-            }
+            MethodButtons(onConnect = onConnect)
         }
         TextButton(onClick = onDismiss) {
             Text(stringResource(R.string.settings_discovered_dismiss))
@@ -317,8 +339,14 @@ private fun TenantChoiceBody(
     }
 }
 
+/**
+ * Nothing is connected, and the user picks one of the three ways in (R6, R28). The QR path
+ * leads with a filled button because pairing is the instance's own hand-off and the path the
+ * web UI points people to; the other two are real alternatives, not fallbacks, and sit right
+ * below it.
+ */
 @Composable
-private fun NotConnectedBody(onConnect: () -> Unit) {
+private fun NotConnectedBody(onConnect: (ConnectionMethod) -> Unit) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_pairing_title),
@@ -327,10 +355,194 @@ private fun NotConnectedBody(onConnect: () -> Unit) {
         Text(
             text = stringResource(R.string.settings_not_paired),
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
-        Button(onClick = onConnect, modifier = Modifier.padding(top = 24.dp)) {
+        MethodButtons(onConnect = onConnect)
+    }
+}
+
+/** The three ways to connect, in one place for the chooser and the discovered offer alike. */
+@Composable
+private fun MethodButtons(onConnect: (ConnectionMethod) -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(onClick = { onConnect(ConnectionMethod.QR_PAIRING) }) {
             Text(text = stringResource(R.string.settings_pair_button))
+        }
+        OutlinedButton(onClick = { onConnect(ConnectionMethod.API_KEY) }) {
+            Text(text = stringResource(R.string.settings_method_api_key))
+        }
+        OutlinedButton(onClick = { onConnect(ConnectionMethod.LIGHT_MODE) }) {
+            Text(text = stringResource(R.string.settings_method_light_mode))
+        }
+    }
+}
+
+/**
+ * Collects a base URL and a `kp_sk_…` key (F-7). The key field masks its input: the rule
+ * that no stored secret is rendered in the clear (R19) starts at the moment of typing, not
+ * at the moment of storing.
+ *
+ * The address is judged by [InstanceAddressInput] on submit, not per keystroke — an address
+ * is wrong the whole time someone is typing it, and a form that says so from the first
+ * character is a form shouting at its user. A refusal shows the same sentence the scanner
+ * would, and stays until the next submit.
+ */
+@Composable
+private fun ApiKeyEntryBody(
+    prefilledBaseUrl: String?,
+    onSubmit: (ConnectionRequest) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val form = rememberEntryFormState(prefilledBaseUrl)
+    // Plain remember on purpose: rememberSaveable writes to the Bundle, and a pasted key on
+    // its way to the Keystore has no business surviving there in the clear (R19).
+    var key by remember { mutableStateOf("") }
+    EntryForm(
+        form = form,
+        title = R.string.settings_method_api_key,
+        explanation = R.string.settings_api_key_explanation,
+        buttons = EntryFormButtons(
+            submitEnabled = form.address.isNotBlank() && key.isNotBlank(),
+            onSubmit = {
+                form.submit { address ->
+                    onSubmit(ConnectionRequest.ApiKey(address, key.trim()))
+                }
+            },
+            onCancel = onCancel,
+        ),
+    ) {
+        OutlinedTextField(
+            value = key,
+            onValueChange = { key = it },
+            label = { Text(stringResource(R.string.settings_api_key_label)) },
+            singleLine = true,
+            // Masked like a password: a pasted key on screen is a secret on screen (R19).
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** Collects the base URL of a light-mode instance — the address is all there is (F-11). */
+@Composable
+private fun LightModeEntryBody(
+    prefilledBaseUrl: String?,
+    onSubmit: (ConnectionRequest) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val form = rememberEntryFormState(prefilledBaseUrl)
+    EntryForm(
+        form = form,
+        title = R.string.settings_method_light_mode,
+        explanation = R.string.settings_light_mode_explanation,
+        buttons = EntryFormButtons(
+            submitEnabled = form.address.isNotBlank(),
+            onSubmit = {
+                form.submit { address -> onSubmit(ConnectionRequest.LightMode(address)) }
+            },
+            onCancel = onCancel,
+        ),
+    )
+}
+
+/**
+ * The live values of one typed entry form. A plain state holder rather than parameters,
+ * for the same reason [ConnectionActions] bundles callbacks: the form's shape stays within
+ * a readable parameter budget, and the address/refusal pair never travels separately.
+ */
+private class EntryFormState(addressState: MutableState<String>) {
+
+    var address by addressState
+
+    /** The last submit's verdict on [address]; `null` before the first and after a pass. */
+    var refusal by mutableStateOf<PayloadRefusal?>(null)
+        private set
+
+    /** Judges the address and hands the normalized form on only when it may be used. */
+    fun submit(onAccepted: (String) -> Unit) {
+        refusal = InstanceAddressInput.refusalFor(address)
+        if (refusal == null) onAccepted(InstanceAddressInput.normalize(address))
+    }
+}
+
+/**
+ * Both remembers are keyed on the prefill, so a transition straight from one entry state to
+ * another with a different link-supplied address cannot keep a stale form. The address also
+ * survives process recreation — it is not a secret, and retyping it after a rotation would
+ * be the screen forgetting on the user's behalf. The refusal deliberately does not: it is a
+ * verdict about a submit that has not happened in the new process.
+ */
+@Composable
+private fun rememberEntryFormState(prefilledBaseUrl: String?): EntryFormState {
+    val address = rememberSaveable(prefilledBaseUrl, stateSaver = autoSaver()) {
+        mutableStateOf(prefilledBaseUrl.orEmpty())
+    }
+    return remember(prefilledBaseUrl) { EntryFormState(address) }
+}
+
+/** The connect/cancel pair of an entry form, and whether connect may be pressed yet. */
+private class EntryFormButtons(
+    val submitEnabled: Boolean,
+    val onSubmit: () -> Unit,
+    val onCancel: () -> Unit,
+)
+
+/**
+ * The shape the two typed methods share: an explanation, the address, whatever else the
+ * method needs, the refusal where there is one, and the connect/cancel pair. Scrollable
+ * because the keyboard takes half the screen exactly while this form is in use.
+ */
+@Composable
+private fun EntryForm(
+    form: EntryFormState,
+    @StringRes title: Int,
+    @StringRes explanation: Int,
+    buttons: EntryFormButtons,
+    extraField: (@Composable () -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text = stringResource(title), style = MaterialTheme.typography.titleMedium)
+        Text(
+            text = stringResource(explanation),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = form.address,
+            onValueChange = { form.address = it },
+            label = { Text(stringResource(R.string.settings_address_label)) },
+            placeholder = { Text(stringResource(R.string.settings_address_placeholder)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        extraField?.invoke()
+        form.refusal?.let {
+            Text(
+                text = stringResource(it.explanationRes()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Button(
+            onClick = buttons.onSubmit,
+            enabled = buttons.submitEnabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(text = stringResource(R.string.settings_connect_button))
+        }
+        TextButton(onClick = buttons.onCancel) {
+            Text(text = stringResource(R.string.settings_cancel))
         }
     }
 }
@@ -491,24 +703,81 @@ internal fun PayloadRefusal.explanationRes(): Int = when (this) {
     PayloadRefusal.ADDRESS_UNUSABLE -> R.string.settings_refused_address_unusable
 }
 
-// The pairing code the dummy used to print here is gone on purpose: no stored secret is
-// ever rendered in clear text (R19). Method, tenant and identity join the base URL when
-// the connection surface gets its own step of issue #8 (R26).
+/**
+ * The established connection, described in full (R26): address, method, tenant, and the
+ * signed-in identity where the instance reported one. The pairing code the dummy used to
+ * print here stays gone — no stored secret is ever rendered in clear text (R19); the most an
+ * API-key connection shows is the masked hint composed at connect time.
+ *
+ * Below the description, the same three method buttons the disconnected screen offers: the
+ * connection can be changed from any method to any other at any time (R27), the stored one
+ * stays in place until the new attempt verifies, and cancelling returns here untouched — the
+ * state machine has guaranteed all of that for a while; this is merely the way in.
+ */
 @Composable
-private fun ConnectedBody(connection: Connection, onDisconnect: () -> Unit) {
+private fun ConnectedBody(
+    connection: Connection,
+    onConnect: (ConnectionMethod) -> Unit,
+    onDisconnect: () -> Unit,
+) {
     CenteredColumn {
         Text(
             text = stringResource(R.string.settings_paired_title),
             style = MaterialTheme.typography.headlineSmall,
         )
-        Text(
-            text = stringResource(R.string.settings_paired_base_url, connection.baseUrl),
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(top = 12.dp),
+        ) {
+            Text(text = stringResource(R.string.settings_paired_base_url, connection.baseUrl))
+            Text(text = stringResource(R.string.settings_connected_method, connection.method.label()))
+            Text(text = stringResource(R.string.settings_connected_tenant, connection.tenantSlug))
+            connection.identityOrNull()?.let {
+                Text(text = stringResource(R.string.settings_connected_identity, it))
+            }
+            if (connection is Connection.ApiKey) {
+                Text(text = stringResource(R.string.settings_connected_key_hint, connection.keyHint))
+            }
+        }
+        if (connection.belowVersionFloor) {
+            // F-10's reduced mode, said where the connection lives: the instance works, but
+            // it is older than this app was built against, and features may fall back.
+            Text(
+                text = stringResource(R.string.settings_below_version_floor),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+        Text(
+            text = stringResource(R.string.settings_change_connection),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(top = 24.dp, bottom = 8.dp),
         )
+        MethodButtons(onConnect = onConnect)
         OutlinedButton(onClick = onDisconnect, modifier = Modifier.padding(top = 24.dp)) {
             Text(text = stringResource(R.string.settings_unpair))
         }
     }
+}
+
+/** What the connected screen calls each method — the user-facing name, not the enum's. */
+@Composable
+private fun ConnectionMethod.label(): String = stringResource(
+    when (this) {
+        ConnectionMethod.QR_PAIRING -> R.string.settings_method_label_qr
+        ConnectionMethod.API_KEY -> R.string.settings_method_label_api_key
+        ConnectionMethod.LIGHT_MODE -> R.string.settings_method_label_light_mode
+    },
+)
+
+/** The identity a connection can show, for the two kinds that can carry one. */
+private fun Connection.identityOrNull(): String? = when (this) {
+    is Connection.QrPairing -> identity
+    is Connection.ApiKey -> identity
+    is Connection.LightMode -> null
 }
 
 @Composable

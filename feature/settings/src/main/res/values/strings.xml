@@ -1,29 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_pairing_title">Connect to kamerplanter</string>
-    <string name="settings_not_paired">This app is not yet paired with a kamerplanter backend. Scan the pairing QR code shown by your server to connect.</string>
+    <string name="settings_not_paired">This app is not yet connected to a kamerplanter instance. Connect with the pairing QR code your server shows, with an API key, or with the address of a light-mode instance.</string>
     <string name="settings_pair_button">Scan pairing QR code</string>
+    <string name="settings_method_api_key">Enter an API key</string>
+    <string name="settings_method_light_mode">Connect to a light-mode instance</string>
+    <string name="settings_api_key_explanation">Paste the server address and a kp_sk_… API key issued by your instance. The key is stored encrypted and never shown again in full.</string>
+    <string name="settings_light_mode_explanation">A light-mode instance has no accounts. The server address is all the app needs.</string>
+    <string name="settings_address_label">Server address</string>
+    <string name="settings_address_placeholder">https://garden.example.org</string>
+    <string name="settings_api_key_label">API key (kp_sk_…)</string>
+    <string name="settings_connect_button">Connect</string>
+    <string name="settings_change_connection">Change connection</string>
     <string name="settings_scanning_hint">Point the camera at the kamerplanter pairing QR code</string>
     <string name="settings_cancel">Cancel</string>
-    <string name="settings_verifying">Pairing…</string>
-    <string name="settings_paired_title">Paired</string>
+    <string name="settings_verifying">Connecting…</string>
+    <string name="settings_paired_title">Connected</string>
     <string name="settings_paired_base_url">Server: %1$s</string>
-    <string name="settings_unpair">Unpair</string>
-    <string name="settings_failed">Pairing failed. Please try scanning the QR code again.</string>
+    <string name="settings_connected_method">Method: %1$s</string>
+    <string name="settings_connected_tenant">Garden: %1$s</string>
+    <string name="settings_connected_identity">Signed in as %1$s</string>
+    <string name="settings_connected_key_hint">API key: %1$s</string>
+    <string name="settings_method_label_qr">QR pairing</string>
+    <string name="settings_method_label_api_key">API key</string>
+    <string name="settings_method_label_light_mode">Light mode (no account)</string>
+    <string name="settings_below_version_floor">This instance runs an older kamerplanter than this app was built for. It works, but some features may be unavailable until the instance is updated.</string>
+    <string name="settings_unpair">Disconnect</string>
+    <string name="settings_failed">The connection attempt failed.</string>
     <string name="settings_retry">Try again</string>
     <string name="settings_camera_permission">Camera access is required to scan the pairing QR code.</string>
     <string name="settings_grant_permission">Grant camera access</string>
     <string name="settings_open_app_settings">Open app settings</string>
     <string name="settings_camera_unavailable">The camera could not be opened. Make sure no other app is using it and try again.</string>
-    <string name="settings_tenant_choice_pending">This instance offers several tenants. Choosing between them is not built yet — nothing has been stored.</string>
 
     <!-- Instance discovered through a /connect link (#13). The link is credential-free:
          it names an instance and nothing else, so this is an offer, not a sign-in. -->
     <string name="settings_discovered_title">Instance found</string>
-    <string name="settings_discovered_new">Scan the pairing code of this instance to connect.</string>
+    <string name="settings_discovered_new">Connect to this instance with one of the ways below.</string>
     <string name="settings_discovered_same">You are already connected to this instance.</string>
     <string name="settings_discovered_replaces">You are connected to a different instance. Continuing replaces that connection.</string>
-    <string name="settings_discovered_continue">Connect to this instance</string>
     <string name="settings_discovered_dismiss">Not now</string>
     <string name="settings_scan_recognised">QR code recognised</string>
     <string name="settings_scan_foreign">QR code recognised, but it is not a kamerplanter code</string>

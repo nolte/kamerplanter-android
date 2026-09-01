@@ -74,6 +74,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     // The in-memory CredentialStore, so refresh and the plant list can both be driven
     // without a Keystore.
     testImplementation(testFixtures(project(":core:connection")))

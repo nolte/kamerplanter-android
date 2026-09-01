@@ -37,14 +37,14 @@ the first real call.
 ## Acceptance criteria
 
 - [ ] **acceptance-1** Pointing the app at a light-mode instance connects it with the server address alone, with no credential requested.
-- [ ] **acceptance-2** Requests to a light-mode instance carry no authorization credential.
-- [ ] **acceptance-3** An instance that is not in light mode is never connected to without a credential.
+- [x] **acceptance-2** Requests to a light-mode instance carry no authorization credential.
+- [x] **acceptance-3** An instance that is not in light mode is never connected to without a credential.
 
 ## Test hooks
 
-- **acceptance-1** — end-to-end on the Pixel 7a against an instance started with `KAMERPLANTER_MODE=light` — pending
-- **acceptance-2** — unit test over the interceptor asserting no `Authorization` header is attached while the stored connection is `Connection.LightMode`; this is R11's only verification — pending
-- **acceptance-3** — unit test asserting a full-mode `/api/health` response never yields a light-mode connection — pending
+- **acceptance-1** — end-to-end on the Pixel 7a against an instance started with `KAMERPLANTER_MODE=light` — pending; the entry surface (`LightModeEntryBody`) ships since issue #51, so the run is no longer blocked on a missing UI
+- **acceptance-2** — unit test asserting no `Authorization` header travels on the light-mode path; this is R11's only verification — **met 2026-09-01** — `NetworkConnectionClientTest` `light mode asks only about health and tenants` now also asserts every request it records carries no `Authorization` header
+- **acceptance-3** — unit test asserting a full-mode `/api/health` response never yields a light-mode connection — **met 2026-09-01** — `NetworkConnectionClientTest` `light mode refuses an instance that is not in light mode`
 
 ## Consistency notes
 

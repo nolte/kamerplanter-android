@@ -40,15 +40,15 @@ message says so in terms of the certificate rather than blaming the app.
 
 ## Acceptance criteria
 
-- [ ] **acceptance-1** An instance running a backend version below what the app needs produces a visible, localized warning and the app continues in a reduced mode rather than failing.
-- [ ] **acceptance-2** The app uses the highest API major both it and the instance support, and refuses only when there is no major in common.
-- [ ] **acceptance-3** An instance whose TLS certificate does not validate is not connected to, and the message points at the certificate rather than at the app.
+- [x] **acceptance-1** An instance running a backend version below what the app needs produces a visible, localized warning and the app continues in a reduced mode rather than failing.
+- [x] **acceptance-2** The app uses the highest API major both it and the instance support, and refuses only when there is no major in common.
+- [x] **acceptance-3** An instance whose TLS certificate does not validate is not connected to, and the message points at the certificate rather than at the app.
 
 ## Test hooks
 
-- **acceptance-1** — unit test over the `MIN_SUPPORTED` comparison using SemVer precedence with optional-`v` normalization, plus the reduced-mode transition — pending
-- **acceptance-2** — unit test over major negotiation and the downward probe, including the no-common-major refusal — pending
-- **acceptance-3** — instrumented test against an instance with a self-signed certificate; there is deliberately no bypass to disable — pending
+- **acceptance-1** — unit test over the floor comparison plus the reduced-mode transition — **met 2026-09-01** — `ApiCompatibilityTest` pins the SemVer comparison (numeric precedence, suffix tolerance, `below a raised floor is a warning, not a refusal`); `SettingsViewModelTest` `a below-floor verification is carried onto the stored connection` / `…survives tenant selection` carry the verdict onto `Connection.belowVersionFloor`, and `ConnectedBody` shows the localized warning. **Reduced mode, defined:** the connection is established and flagged; the flag persists with the connection (`DataStoreConnectionStore`) so features can fall back where an endpoint the floor promised is missing. The floor (`ApiCompatibility.MINIMUM_API_VERSION`) equals the lowest `apiVersion` ever released, so no real instance sits below it today — the mechanism is in place for the first floor raise, which is when it can no longer be retrofitted
+- **acceptance-2** — unit test over major negotiation, including the no-common-major refusal — **met 2026-09-01** — `NetworkConnectionClientTest` `an instance on a foreign api major is refused before anything else is called` (and the pairing code is not spent on it); `ApiCompatibilityTest` `a foreign major shares nothing, in either direction`. The instance reports exactly one `apiVersion` on `/api/health`, so "highest shared major" degenerates to "the shared major or none" — there is no downward probe to make until the backend advertises more than one
+- **acceptance-3** — **met 2026-09-01** — `NetworkConnectionClientTest` `an untrusted certificate names the certificate, not the address or the app` drives a real TLS handshake against a self-signed `MockWebServer` certificate over a socket: the connection is refused, the reason names the certificate, and `unreachable` stays false so the local-network hint is not offered for it. There is deliberately no bypass to disable
 
 **On R5's two-axis rule.** It gets no hook of its own, because acceptance-1 and acceptance-2
 *are* the two axes — kept apart on purpose so neither can be read as implying the other. A
