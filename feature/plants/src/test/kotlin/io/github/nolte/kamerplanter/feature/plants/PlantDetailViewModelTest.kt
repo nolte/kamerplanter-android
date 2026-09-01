@@ -320,12 +320,13 @@ class PlantDetailViewModelTest {
     }
 
     /**
-     * The page is still on the back stack while a pest check runs in front of it, holding a
-     * section that was accurate when it loaded. Coming back to a list of checks that does not
-     * include the one just made reads as the check having gone nowhere.
+     * The page is still on the back stack while a pest check runs in front of it, holding
+     * sections that were accurate when they loaded. Coming back to a list of checks that does
+     * not include the one just made reads as the check having gone nowhere — and a check can
+     * keep its frame with the plant, so the photos are stale by then as well (F-3).
      */
     @Test
-    fun `a completed pest check refreshes the checks and the care, not the photos`() =
+    fun `a change elsewhere refreshes the checks, the care and the photos`() =
         runTest(dispatcher) {
             val model = viewModel()
             advanceUntilIdle()
@@ -338,7 +339,7 @@ class PlantDetailViewModelTest {
 
             assertEquals(2, model.state.value.pestChecks.valueOrNull?.size)
             assertEquals(careLoads + 1, page.careCalls)
-            assertEquals(photoLoads, page.photoCalls)
+            assertEquals(photoLoads + 1, page.photoCalls)
         }
 
     /**

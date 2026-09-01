@@ -277,7 +277,7 @@ private fun ReportOutcome(
     snackbars: SnackbarHostState,
     onShown: () -> Unit,
 ) {
-    val failure = state.actionError
+    val failure = state.actionError ?: state.actionRefusal?.let { stringResource(it) }
     val doneMessage = state.actionDone?.let { stringResource(it.messageRes()) }
     val dismiss = stringResource(R.string.plants_dismiss)
     LaunchedEffect(failure, doneMessage) {

@@ -371,6 +371,15 @@ class PestDetectionViewModel @Inject constructor(
                     photoKept = true,
                     notice = R.string.pest_photo_kept,
                 )
+                // Same three answers as filing an inspection beside it: a refused credential
+                // ends the flow in Settings, a missing role is a sentence and no retry, and
+                // only a transient failure leaves the offer open.
+                ActionOutcome.Unauthorized -> PestDetectionState.Unauthorized
+                ActionOutcome.NotPermitted -> current.copy(
+                    keepingPhoto = false,
+                    photoKept = true,
+                    notice = R.string.pest_photo_keep_not_permitted,
+                )
                 is ActionOutcome.Failed -> current.copy(
                     keepingPhoto = false,
                     notice = R.string.pest_photo_keep_failed,

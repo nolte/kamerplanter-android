@@ -100,7 +100,10 @@ sealed interface PestDetectionState {
         val inspectionFiled: Boolean = false,
         /** The frame is on its way into the plant's photo gallery (F-3). */
         val keepingPhoto: Boolean = false,
-        /** Kept once; the offer does not come back — the same photo twice is not a feature. */
+        /**
+         * Kept once, or refused for good; the offer does not come back — the same photo twice
+         * is not a feature, and a role the instance denies is not widened by asking again.
+         */
         val photoKept: Boolean = false,
         /**
          * A sentence about what just happened — recorded, filed, or refused.

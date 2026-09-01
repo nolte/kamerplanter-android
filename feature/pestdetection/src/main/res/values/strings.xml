@@ -132,4 +132,5 @@
     <string name="pest_photo_keep">Keep photo with plant</string>
     <string name="pest_photo_kept">The photo was saved to this plant.</string>
     <string name="pest_photo_keep_failed">The photo could not be saved to this plant. The findings are unaffected.</string>
+    <string name="pest_photo_keep_not_permitted">Your instance does not let this connection add photos to plants. The findings are unaffected.</string>
 </resources>

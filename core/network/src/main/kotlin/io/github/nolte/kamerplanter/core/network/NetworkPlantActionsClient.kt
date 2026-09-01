@@ -3,7 +3,6 @@ package io.github.nolte.kamerplanter.core.network
 import android.util.Log
 import io.github.nolte.kamerplanter.core.connection.ConnectionStore
 import io.github.nolte.kamerplanter.core.connection.CredentialStore
-import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -74,7 +73,7 @@ class NetworkPlantActionsClient @Inject constructor(
                 .bodyOrThrow()
             changes.notifyChanged()
             ActionOutcome.Done
-        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+        }.getOrElse { it.asActionOutcome() }
 
     override suspend fun updateEntry(
         plantKey: String,
@@ -87,7 +86,7 @@ class NetworkPlantActionsClient @Inject constructor(
             .bodyOrThrow()
         changes.notifyChanged()
         ActionOutcome.Done
-    }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+    }.getOrElse { it.asActionOutcome() }
 
     override suspend fun deleteEntry(plantKey: String, entryKey: String): ActionOutcome =
         runCatchingCancellable {
@@ -97,7 +96,7 @@ class NetworkPlantActionsClient @Inject constructor(
             if (!response.isSuccessful) throw HttpFailure(response.code(), null)
             changes.notifyChanged()
             ActionOutcome.Done
-        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+        }.getOrElse { it.asActionOutcome() }
 
     override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome =
         runCatchingCancellable {
@@ -107,7 +106,7 @@ class NetworkPlantActionsClient @Inject constructor(
                 .bodyOrThrow()
             changes.notifyChanged()
             ActionOutcome.Done
-        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+        }.getOrElse { it.asActionOutcome() }
 
     /**
      * A draft as the endpoint takes it, uploading whatever photos are new first.
@@ -147,35 +146,34 @@ class NetworkPlantActionsClient @Inject constructor(
      * carry a category, and the diary only accepts its own.
      */
     private suspend fun Retrofit.upload(tenant: String, jpeg: ByteArray): String {
-        val part = MultipartBody.Part.createFormData(
-            "file",
-            // The instance keeps the name; it never reaches a filesystem here.
-            "diary.jpg",
-            jpeg.toRequestBody(MEDIA_TYPE_JPEG.toMediaType()),
-        )
         val response = create(RawAttachmentsApi::class.java)
-            .upload(tenant, part, CATEGORY_DIARY.toRequestBody(MEDIA_TYPE_TEXT.toMediaType()))
+            .upload(tenant, jpeg.asJpegPart("diary.jpg"), CATEGORY_DIARY.toRequestBody(MEDIA_TYPE_TEXT.toMediaType()))
             .bodyOrThrow()
         return (response as? JsonObject)?.text("attachment_id")
             ?: throw UploadWithoutId()
     }
 
+    /**
+     * The multipart `file` field both uploads send. The instance keeps the name; it never
+     * reaches a filesystem here.
+     */
+    private fun ByteArray.asJpegPart(fileName: String): MultipartBody.Part =
+        MultipartBody.Part.createFormData("file", fileName, toRequestBody(MEDIA_TYPE_JPEG.toMediaType()))
+
     override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
         runCatchingCancellable {
             val (retrofit, tenant) = target()
-            val part = MultipartBody.Part.createFormData(
-                "file",
-                // The instance keeps the name; it never reaches a filesystem here.
-                "detection.jpg",
-                jpeg.toRequestBody(MEDIA_TYPE_JPEG.toMediaType()),
-            )
-            retrofit.create(PlantPhotosApi::class.java)
-                .uploadPlantPhotoApiV1TTenantSlugPlantInstancesKeyPhotosPost(plantKey, tenant, part)
+            // Raw JSON like the diary upload, not the generated `PlantPhotoResponse`: that model
+            // has five required fields and a required enum without a default, so a 201 whose
+            // shape moved by one field would be reported as a failure *after* the instance
+            // stored the photo — and the retry that follows would store it twice.
+            retrofit.create(RawPlantPhotosApi::class.java)
+                .upload(plantKey, tenant, jpeg.asJpegPart("detection.jpg"))
                 .bodyOrThrow()
             // The plant's page holds a photo section that just became stale.
             changes.notifyChanged()
             ActionOutcome.Done
-        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+        }.getOrElse { it.asActionOutcome() }
 
     private suspend fun baseUrl(): String = connections.connection.first()?.baseUrl.orEmpty()
 
@@ -189,7 +187,7 @@ class NetworkPlantActionsClient @Inject constructor(
             // reloaded on an optimistic guess would show the old state again a moment later.
             changes.notifyChanged()
             ActionOutcome.Done
-        }.getOrElse { ActionOutcome.Failed(it.describeAndLog()) }
+        }.getOrElse { it.asActionOutcome() }
 
     /**
      * The instance to talk to, or a failure that reads like one.
@@ -252,6 +250,16 @@ class NetworkPlantActionsClient @Inject constructor(
         } catch (reportingFailed: Throwable) {
             // Nowhere left to report it — reporting is what just failed.
         }
+    }
+
+    /**
+     * A refused credential and a missing role are outcomes the caller decides on — Settings
+     * for the one, a sentence and no retry for the other — so they do not travel as text.
+     */
+    private fun Throwable.asActionOutcome(): ActionOutcome = when {
+        this is HttpFailure && status == HTTP_UNAUTHORIZED -> ActionOutcome.Unauthorized
+        this is HttpFailure && status == HTTP_FORBIDDEN -> ActionOutcome.NotPermitted
+        else -> ActionOutcome.Failed(describeAndLog())
     }
 
     private fun Throwable.describe(): String = when {
@@ -333,6 +341,17 @@ class NetworkPlantActionsClient @Inject constructor(
             @Path("tenant_slug") tenantSlug: String,
             @Part file: MultipartBody.Part,
             @Part("category") category: RequestBody,
+        ): Response<JsonElement>
+    }
+
+    private interface RawPlantPhotosApi {
+
+        @Multipart
+        @POST("api/v1/t/{tenant_slug}/plant-instances/{key}/photos")
+        suspend fun upload(
+            @Path("key") plantKey: String,
+            @Path("tenant_slug") tenantSlug: String,
+            @Part file: MultipartBody.Part,
         ): Response<JsonElement>
     }
 

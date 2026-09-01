@@ -51,6 +51,7 @@
     <string name="plants_back">Back</string>
     <string name="plants_detail_failed">This plant could not be loaded.</string>
     <string name="plants_action_done">Done</string>
+    <string name="plants_action_not_permitted">Your account may not do this on this instance.</string>
     <string name="plants_action_water">Water</string>
     <string name="plants_action_note">Diary entry</string>
     <string name="plants_action_pests">Find pests</string>

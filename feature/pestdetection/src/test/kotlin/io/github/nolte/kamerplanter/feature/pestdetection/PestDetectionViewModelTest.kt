@@ -763,6 +763,44 @@ class PestDetectionViewModelTest {
         assertEquals(R.string.pest_photo_kept, state.notice)
     }
 
+    /**
+     * The other half of F-3 acceptance-3, and the half that matters for the data: a plant-bound
+     * result stores nothing on its own. Only the explicit action does.
+     */
+    @Test
+    fun `a plant-bound result stores nothing until asked`() {
+        capturedResult(plantKey = "plant-7")
+
+        assertTrue(plants.added.isEmpty())
+    }
+
+    /** A refused credential ends the flow where the neighbouring actions end it: in Settings. */
+    @Test
+    fun `a refused credential on keeping the photo sends the user to Settings`() {
+        plants.photoOutcome = ActionOutcome.Unauthorized
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.keepPhoto()
+
+        assertEquals(PestDetectionState.Unauthorized, model.state.settled())
+    }
+
+    /** A role is a sentence and no retry: asking again cannot widen what the account may do. */
+    @Test
+    fun `a role that may not add photos is explained and the offer withdrawn`() {
+        plants.photoOutcome = ActionOutcome.NotPermitted
+        val model = capturedResult(plantKey = "plant-7")
+
+        model.keepPhoto()
+        val state = model.state.settled() as PestDetectionState.Result
+
+        assertEquals(R.string.pest_photo_keep_not_permitted, state.notice)
+        assertTrue(state.photoKept)
+        model.keepPhoto()
+        model.state.settled()
+        assertEquals(1, plants.added.size)
+    }
+
     /** Kept once: the same photo twice in the gallery is not a feature. */
     @Test
     fun `keeping the photo twice uploads once`() {

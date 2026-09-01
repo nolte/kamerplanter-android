@@ -152,6 +152,12 @@ sealed interface ActionOutcome {
 
     data object Done : ActionOutcome
 
+    /** The stored credential was refused; the way out is Settings, not a retry. */
+    data object Unauthorized : ActionOutcome
+
+    /** The credential authenticated and this account may not write here; no re-pairing widens that. */
+    data object NotPermitted : ActionOutcome
+
     data class Failed(val reason: String) : ActionOutcome
 }
 

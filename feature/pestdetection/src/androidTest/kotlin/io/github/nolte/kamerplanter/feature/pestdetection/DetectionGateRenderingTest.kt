@@ -1,6 +1,7 @@
 package io.github.nolte.kamerplanter.feature.pestdetection
 
 import android.Manifest
+import android.content.res.Configuration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -11,10 +12,12 @@ import androidx.test.rule.GrantPermissionRule
 import io.github.nolte.kamerplanter.core.network.ConsentTerms
 import io.github.nolte.kamerplanter.core.network.DetectionReadiness
 import io.github.nolte.kamerplanter.core.network.PlantDataChanges
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import java.util.Locale
 
 /** Long enough for the readiness probe against a fake, short enough to fail fast. */
 private const val WAIT_FOR_GATE_MILLIS = 5_000L
@@ -96,6 +99,25 @@ class DetectionGateRenderingTest {
         composeRule
             .onNodeWithText(resources.getString(R.string.pest_consent_basis, terms.legalBasis))
             .assertIsDisplayed()
+    }
+
+    /**
+     * F-2 acceptance-4's data half: the language the detection asks for is a per-locale
+     * resource, and this pins each shipped locale to its own code — a copied folder that kept
+     * the neighbour's value would fail here, where no lint looks.
+     */
+    @Test
+    fun theResultLanguageFollowsTheLocaleTheStringsResolvedIn() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        fun languageIn(locale: Locale): String {
+            val configuration = Configuration(context.resources.configuration).apply { setLocale(locale) }
+            return context.createConfigurationContext(configuration).getString(R.string.pest_result_language)
+        }
+
+        assertEquals("en", languageIn(Locale.ENGLISH))
+        assertEquals("de", languageIn(Locale.GERMAN))
+        // A locale the app does not ship falls back to the default strings — and to their language.
+        assertEquals("en", languageIn(Locale("nl")))
     }
 
     /** Only where the instance supplied no wording at all does the app fall back to its own. */

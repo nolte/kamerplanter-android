@@ -145,9 +145,27 @@ class NetworkDiaryWriteTest {
 
         val outcome = client().addEntry("p1", DiaryDraft(text = "Spider mites"))
 
-        val reason = (outcome as ActionOutcome.Failed).reason
-        assertTrue(reason, reason.contains("account"))
-        assertFalse("re-pairing is not the way out of a 403: $reason", reason.contains("reconnect"))
+        assertEquals(ActionOutcome.NotPermitted, outcome)
+    }
+
+    /** The same distinction on the photo route: 401 is a credential, 403 a role. */
+    @Test
+    fun `keeping a photo tells a refused credential from a missing role`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        statuses[photosPath] = 403
+        assertEquals(ActionOutcome.NotPermitted, client().addPhoto("p1", byteArrayOf(1)))
+
+        statuses[photosPath] = 401
+        assertEquals(ActionOutcome.Unauthorized, client().addPhoto("p1", byteArrayOf(1)))
+    }
+
+    /** The photo is stored on a 201 whatever shape the answer takes: raw JSON, no strict model. */
+    @Test
+    fun `a stored photo is done even when the answer carries fields this build does not know`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        bodies[photosPath] = """{"attachment_id":"att-9","quality_assessment":{"rating":"brand-new"}}"""
+
+        assertEquals(ActionOutcome.Done, client().addPhoto("p1", byteArrayOf(1)))
     }
 
     @Test

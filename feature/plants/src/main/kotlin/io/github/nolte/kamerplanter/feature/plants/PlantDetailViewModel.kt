@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.plants
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -98,6 +99,8 @@ data class PlantDetailUiState(
      * the user is about to try again, and blanking the plant they were looking at is not help.
      */
     val actionError: String? = null,
+    /** A refusal with wording of the app's own: a role the instance denies, which no retry widens. */
+    @StringRes val actionRefusal: Int? = null,
     /** A completed action, for the confirmation the user needs in order to stop pressing. */
     val actionDone: PlantAction? = null,
 ) {
@@ -206,13 +209,15 @@ class PlantDetailViewModel @Inject constructor(
 
     init {
         load()
-        // What a completed pest check changed, this page has to show. Only the sections a
-        // check can touch are reloaded: the photos and the master data are the same as they
-        // were, and re-fetching them would blank half the page for news about the other half.
+        // What a write elsewhere changed, this page has to show. Only the sections a write can
+        // touch are reloaded: a pest check adds to the checks and the care state, and keeping
+        // its frame with the plant adds to the photos (F-3). The master data is the same as it
+        // was, and re-fetching it would blank half the page for news about the other half.
         viewModelScope.launch {
             changes.changes.collect {
                 reload(PlantSection.PEST_CHECKS)
                 reload(PlantSection.CARE)
+                reload(PlantSection.PHOTOS)
             }
         }
     }
@@ -397,7 +402,7 @@ class PlantDetailViewModel @Inject constructor(
     }
 
     /** Dismisses whichever of the two messages is showing, so it does not outlive its moment. */
-    fun clearMessages() = _state.update { it.copy(actionError = null, actionDone = null) }
+    fun clearMessages() = _state.update { it.copy(actionError = null, actionRefusal = null, actionDone = null) }
 
     /**
      * Runs one action and reloads.
@@ -409,7 +414,7 @@ class PlantDetailViewModel @Inject constructor(
     private fun act(action: PlantAction, block: suspend () -> ActionOutcome) {
         if (_state.value.isWorking) return
         viewModelScope.launch {
-            _state.update { it.copy(isWorking = true, actionError = null, actionDone = null) }
+            _state.update { it.copy(isWorking = true, actionError = null, actionRefusal = null, actionDone = null) }
             when (val outcome = block()) {
                 ActionOutcome.Done -> {
                     _state.update { it.copy(isWorking = false, actionDone = action) }
@@ -419,6 +424,12 @@ class PlantDetailViewModel @Inject constructor(
                     reload(PlantSection.CARE)
                     reload(PlantSection.DIARY)
                 }
+                // The same answer the page gives a refused read: the way out is Settings.
+                ActionOutcome.Unauthorized ->
+                    _state.update { it.copy(isWorking = false, credentialRefused = true) }
+                // A role, not a connection (#12): a sentence, and no reconnect offered.
+                ActionOutcome.NotPermitted ->
+                    _state.update { it.copy(isWorking = false, actionRefusal = R.string.plants_action_not_permitted) }
                 is ActionOutcome.Failed ->
                     _state.update { it.copy(isWorking = false, actionError = outcome.reason) }
             }
