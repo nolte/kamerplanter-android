@@ -50,6 +50,7 @@
     <string name="plants_back">Zurück</string>
     <string name="plants_detail_failed">Diese Pflanze konnte nicht geladen werden.</string>
     <string name="plants_action_done">Erledigt</string>
+    <string name="plants_action_not_permitted">Dein Konto darf das auf dieser Instanz nicht.</string>
     <string name="plants_action_water">Gießen</string>
     <string name="plants_action_note">Tagebuch</string>
     <string name="plants_action_pests">Schädlinge</string>

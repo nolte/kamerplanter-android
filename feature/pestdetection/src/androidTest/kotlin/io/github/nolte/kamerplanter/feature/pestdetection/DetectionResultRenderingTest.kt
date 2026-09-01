@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import io.github.nolte.kamerplanter.core.network.DetectionOutcome
 import io.github.nolte.kamerplanter.core.network.PlantDataChanges
+import io.github.nolte.kamerplanter.core.network.RefusedReason
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,6 +65,7 @@ class DetectionResultRenderingTest {
             detections,
             FakeCamera(),
             PlantDataChanges(),
+            FakePlantActions(),
             SavedStateHandle(emptyMap()),
         )
 
@@ -139,5 +141,50 @@ class DetectionResultRenderingTest {
         )
 
         composeRule.onNodeWithText(disclaimer).assertIsDisplayed()
+    }
+
+    /**
+     * F-5 acceptance-2: a finding says whether it is the animal itself or the damage it left.
+     *
+     * The two are acted on differently — a damage pattern is evidence of a pest that may
+     * have moved on — so the mode is a sentence beside the finding, not a field the reader
+     * has to know the wire value of. Both modes are rendered in one list so a screen that
+     * showed the same wording for both would fail here.
+     */
+    @Test
+    fun aFindingSaysWhetherItIsTheAnimalOrTheDamageItLeft() {
+        val direct = resources.getString(R.string.pest_mode_direct)
+        val symptom = resources.getString(R.string.pest_mode_symptom)
+        showResult(
+            outcome = DetectionOutcome.Completed(
+                detection(
+                    findings = listOf(
+                        finding(label = "aphid", commonName = "Aphid", mode = "direct"),
+                        finding(label = "leaf-miner", commonName = "Leaf miner", mode = "symptom"),
+                    ),
+                ),
+            ),
+            awaitText = symptom,
+        )
+
+        composeRule.onNodeWithText(direct).assertIsDisplayed()
+        composeRule.onNodeWithText(symptom).assertIsDisplayed()
+    }
+
+    /**
+     * F-2 acceptance-5: an image the instance refuses as the wrong kind is answered with the
+     * kinds it takes, not with a bare failure.
+     */
+    @Test
+    fun aRefusedImageFormatNamesTheFormatsTheInstanceAccepts() {
+        val message = resources.getString(R.string.pest_failed_unsupported_type)
+        showResult(
+            outcome = DetectionOutcome.Refused(RefusedReason.UNSUPPORTED_TYPE),
+            awaitText = message,
+        )
+
+        composeRule.onNodeWithText(message).assertIsDisplayed()
+        // The sentence is worth nothing unless it names what would have worked.
+        check("JPEG" in message && "PNG" in message) { "the message names no format: $message" }
     }
 }

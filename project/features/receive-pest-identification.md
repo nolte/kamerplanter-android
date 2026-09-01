@@ -56,16 +56,16 @@ disclaimer are readable to the person holding the phone.
 - [ ] **acceptance-1** An image captured through the USB microscope at the device's largest offered mode is identified by the connected instance, and at least one finding is listed on the phone.
 - [x] **acceptance-2** An image captured with the phone camera is identified the same way.
 - [ ] **acceptance-3** A capture started from a plant is identified against that plant; a standalone capture is not bound to one.
-- [ ] **acceptance-4** Findings and the disclaimer come back in the language the app's interface speaks, not the raw device locale.
-- [ ] **acceptance-5** When the instance rejects the image, the message names the formats it accepts.
+- [x] **acceptance-4** Findings and the disclaimer come back in the language the app's interface speaks, not the raw device locale.
+- [x] **acceptance-5** When the instance rejects the image, the message names the formats it accepts.
 
 ## Test hooks
 
 - **acceptance-1** — `NetworkPestDetectionClientTest` covers the upload and the response mapping; the end-to-end capture against a live instance is still outstanding — pending
 - **acceptance-2** — `PestDetectionViewModelTest` — a phone capture reaches the same upload as a microscope one, and one that cannot be brought under the limit fails before spending it
 - **acceptance-3** — `NetworkPestDetectionClientTest` pins that a plant key routes to the plant-bound endpoint and its absence to the standalone one; the app only reaches the standalone path so far — pending
-- **acceptance-4** — `PestDetectionViewModelTest` pins the language reaching the client, and `NetworkPestDetectionClientTest` that it arrives as an unquoted form field; the screen takes it from the configuration that resolved its own strings — pending
-- **acceptance-5** — the unsupported-media-type message names JPEG and PNG; no assertion yet — pending
+- **acceptance-4** — `PestDetectionViewModelTest` pins the language reaching the client, and `NetworkPestDetectionClientTest` that it arrives as an unquoted form field; the screen takes it from its own string resources — **met 2026-09-01** — the language is `stringResource(R.string.pest_result_language)` (`PestDetectionScreen.kt`), a per-locale resource (`values/` → `en`, `values-de/` → `de`), so by construction it is whichever language Android resolved the surrounding strings in, fallbacks included; the raw `locales[0]` of the configuration is no longer consulted, which is what separated the two for a device set to a language the app does not ship
+- **acceptance-5** — the unsupported-media-type message names JPEG and PNG — **met 2026-09-01** — `DetectionResultRenderingTest.aRefusedImageFormatNamesTheFormatsTheInstanceAccepts` (instrumented, Pixel 7a profile) drives a `Refused(UNSUPPORTED_TYPE)` outcome to the screen and asserts the rendered sentence names both formats
 
 **Deliberately criterion-free requirements.** R10 (the 8 MB and MIME limits) and R25 (EN/DE
 resources) carry no acceptance criterion and therefore no hook — a hook keyed to a

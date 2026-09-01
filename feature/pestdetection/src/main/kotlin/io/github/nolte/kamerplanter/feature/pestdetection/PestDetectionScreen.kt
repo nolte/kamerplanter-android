@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -74,10 +73,13 @@ fun PestDetectionScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val camera by viewModel.cameraState.collectAsStateWithLifecycle()
-    // The language the instance should answer in, taken from the configuration that picked
-    // this screen's own strings — so a finding's name is in the language the rest of the
-    // screen is written in, whether that came from the system or from a per-app override.
-    val language = LocalConfiguration.current.locales[0].language
+    // The language the instance should answer in — resolved through this screen's own string
+    // resources, so it is by construction the language the surrounding UI actually speaks
+    // (F-2). The configuration's raw locale is not that: a device set to a language this app
+    // does not ship falls back to English on screen, while `locales[0]` still names the
+    // device language — and the findings would arrive in a language the rest of the screen
+    // is not written in.
+    val language = stringResource(R.string.pest_result_language)
     val permission = rememberCameraPermission()
 
     // Only while a capture could actually follow. USB monitoring asks the user for device
@@ -219,6 +221,7 @@ private fun PestDetectionViewModel.actions(onOpenSettings: () -> Unit) = PestDet
     result = ResultActions(
         onFeedback = ::recordFeedback,
         onFileInspection = ::fileInspection,
+        onKeepPhoto = ::keepPhoto,
         onShowHistory = ::showHistory,
     ),
     capture = CaptureActions(
@@ -269,6 +272,7 @@ private class PestDetectionActions(
 private class ResultActions(
     val onFeedback: (findingLabel: String, verdict: FeedbackVerdict) -> Unit,
     val onFileInspection: () -> Unit,
+    val onKeepPhoto: () -> Unit,
     val onShowHistory: () -> Unit,
 )
 
@@ -498,6 +502,19 @@ private fun ResultFooter(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+
+    // Only on the plant-bound path: keeping the photo files it on *a* plant, and a capture
+    // from the Capture tab has none. The offer disappears once taken — the same photo twice
+    // is not a feature — and the notice above says what became of it.
+    if (state.plantBound) {
+        OutlinedButton(
+            onClick = actions.onKeepPhoto,
+            enabled = !state.keepingPhoto && !state.photoKept,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.pest_photo_keep))
+        }
     }
 
     // Only on the plant-bound path, and only for a detection the instance kept: the endpoint

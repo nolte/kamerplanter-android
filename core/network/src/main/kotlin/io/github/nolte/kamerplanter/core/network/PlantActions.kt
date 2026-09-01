@@ -152,6 +152,12 @@ sealed interface ActionOutcome {
 
     data object Done : ActionOutcome
 
+    /** The stored credential was refused; the way out is Settings, not a retry. */
+    data object Unauthorized : ActionOutcome
+
+    /** The credential authenticated and this account may not write here; no re-pairing widens that. */
+    data object NotPermitted : ActionOutcome
+
     data class Failed(val reason: String) : ActionOutcome
 }
 
@@ -216,6 +222,17 @@ interface PlantActionsClient {
      * where [DiaryEntry.canRequestAnalysis] says this reader may.
      */
     suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome
+
+    /**
+     * Files [jpeg] in the plant's photo gallery — `POST /plant-instances/{key}/photos`, the
+     * route a cover picture is chosen from, *not* a diary attachment (F-3).
+     *
+     * Exists for images that were captured for something else and are worth keeping: the
+     * detection upload never persists its frame, so an explicit second upload is the one and
+     * only way such a picture is ever stored — which is exactly the criterion's shape, and
+     * the same mechanism plant capture (#50) will keep an identification photo with.
+     */
+    suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome
 
     /**
      * Records a care task as done — watering, fertilising, a pest check.

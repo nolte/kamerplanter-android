@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.nolte.kamerplanter.core.camera.PhoneCameraShutter
+import io.github.nolte.kamerplanter.core.network.ActionOutcome
 import io.github.nolte.kamerplanter.core.network.ConsentOutcome
 import io.github.nolte.kamerplanter.core.network.DetectionFeedback
 import io.github.nolte.kamerplanter.core.network.DetectionHistoryOutcome
@@ -13,6 +14,7 @@ import io.github.nolte.kamerplanter.core.network.DetectionReadiness
 import io.github.nolte.kamerplanter.core.network.FeedbackOutcome
 import io.github.nolte.kamerplanter.core.network.InspectionOutcome
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
+import io.github.nolte.kamerplanter.core.network.PlantActionsClient
 import io.github.nolte.kamerplanter.core.network.PlantDataChanges
 import io.github.nolte.kamerplanter.core.network.RefusedReason
 import io.github.nolte.kamerplanter.feature.microscope.MicroscopeCamera
@@ -46,6 +48,13 @@ class PestDetectionViewModel @Inject constructor(
      * come back (#11).
      */
     private val changes: PlantDataChanges,
+    /**
+     * Where a kept frame goes (F-3). The detection endpoint deliberately never persists the
+     * image, so keeping it is a second, explicit upload into the plant's photo gallery —
+     * plant business, not detection business, which is why it is this client and not
+     * [PestDetectionClient].
+     */
+    private val plants: PlantActionsClient,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -334,6 +343,47 @@ class PestDetectionViewModel @Inject constructor(
                 InspectionOutcome.Unauthorized -> PestDetectionState.Unauthorized
                 is InspectionOutcome.Failed ->
                     current.copy(filingInspection = false, notice = R.string.pest_inspection_failed)
+            }
+        }
+    }
+
+    /**
+     * Keeps the captured frame as a photo of the plant (F-3).
+     *
+     * Offered only on the plant-bound path and only as an explicit action: the detection
+     * upload does not store the image, so this second upload is the one and only way the
+     * frame is ever persisted — nothing is kept without the user asking for it.
+     */
+    fun keepPhoto() {
+        val shown = _state.value as? PestDetectionState.Result ?: return
+        val plant = plantKey ?: return
+        if (shown.keepingPhoto || shown.photoKept) return
+        _state.value = shown.copy(keepingPhoto = true, notice = null)
+        viewModelScope.launch {
+            val outcome = plants.addPhoto(plant, shown.frame)
+            val current = _state.value as? PestDetectionState.Result ?: return@launch
+            // A new capture may have replaced the result while the upload ran; its frame is
+            // not the one that was kept, and it must not inherit this one's verdict.
+            if (!current.frame.contentEquals(shown.frame)) return@launch
+            _state.value = when (outcome) {
+                ActionOutcome.Done -> current.copy(
+                    keepingPhoto = false,
+                    photoKept = true,
+                    notice = R.string.pest_photo_kept,
+                )
+                // Same three answers as filing an inspection beside it: a refused credential
+                // ends the flow in Settings, a missing role is a sentence and no retry, and
+                // only a transient failure leaves the offer open.
+                ActionOutcome.Unauthorized -> PestDetectionState.Unauthorized
+                ActionOutcome.NotPermitted -> current.copy(
+                    keepingPhoto = false,
+                    photoKept = true,
+                    notice = R.string.pest_photo_keep_not_permitted,
+                )
+                is ActionOutcome.Failed -> current.copy(
+                    keepingPhoto = false,
+                    notice = R.string.pest_photo_keep_failed,
+                )
             }
         }
     }

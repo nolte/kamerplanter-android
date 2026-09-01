@@ -83,6 +83,27 @@ class NetworkDiaryWriteTest {
 
     private fun sent(path: String) = synchronized(requests) { requests.filter { it.first == path } }
 
+    /**
+     * F-3: a kept detection frame goes into the plant's photo *gallery*, not in as a diary
+     * attachment — the two routes are different things, and the diary refuses the gallery's
+     * ids (see `upload`'s KDoc in the client).
+     */
+    @Test
+    fun `keeping a photo files it in the plant's gallery, not as a diary attachment`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        bodies[photosPath] =
+            """{"attachment_id":"att-9","byte_size":3,"is_cover":false,
+               "mime_type":"image/jpeg","uri":"/att/att-9"}"""
+
+        val outcome = client().addPhoto("p1", byteArrayOf(7, 8, 9))
+
+        assertEquals(ActionOutcome.Done, outcome)
+        val (path, body) = synchronized(requests) { requests.single() }
+        assertEquals(photosPath, path)
+        assertTrue(body.contains("name=\"file\""))
+        assertTrue(sent(attachmentsPath).isEmpty())
+    }
+
     @Test
     fun `a photo is uploaded first and the entry references what came back`() = runTest {
         val outcome = client().addEntry(
@@ -124,9 +145,27 @@ class NetworkDiaryWriteTest {
 
         val outcome = client().addEntry("p1", DiaryDraft(text = "Spider mites"))
 
-        val reason = (outcome as ActionOutcome.Failed).reason
-        assertTrue(reason, reason.contains("account"))
-        assertFalse("re-pairing is not the way out of a 403: $reason", reason.contains("reconnect"))
+        assertEquals(ActionOutcome.NotPermitted, outcome)
+    }
+
+    /** The same distinction on the photo route: 401 is a credential, 403 a role. */
+    @Test
+    fun `keeping a photo tells a refused credential from a missing role`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        statuses[photosPath] = 403
+        assertEquals(ActionOutcome.NotPermitted, client().addPhoto("p1", byteArrayOf(1)))
+
+        statuses[photosPath] = 401
+        assertEquals(ActionOutcome.Unauthorized, client().addPhoto("p1", byteArrayOf(1)))
+    }
+
+    /** The photo is stored on a 201 whatever shape the answer takes: raw JSON, no strict model. */
+    @Test
+    fun `a stored photo is done even when the answer carries fields this build does not know`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        bodies[photosPath] = """{"attachment_id":"att-9","quality_assessment":{"rating":"brand-new"}}"""
+
+        assertEquals(ActionOutcome.Done, client().addPhoto("p1", byteArrayOf(1)))
     }
 
     @Test

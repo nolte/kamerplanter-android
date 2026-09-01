@@ -39,20 +39,20 @@ must not turn an estimate into something that reads like a diagnosis.
 ## Acceptance criteria
 
 - [x] **acceptance-1** A finding's marked region sits over the right part of the captured image, with coordinates read as normalized `0..1` of the full image.
-- [ ] **acceptance-2** A finding states whether it is the animal itself or the damage pattern it left.
+- [x] **acceptance-2** A finding states whether it is the animal itself or the damage pattern it left.
 - [x] **acceptance-3** A finding matched as a beneficial carries an explicit do-not-treat note and never appears as something to act against.
 - [x] **acceptance-4** An unconfident result renders the abstention state instead of a findings list.
 - [x] **acceptance-5** A confident result carrying no findings renders an explicit "nothing found" state, worded distinctly from the abstention state.
-- [ ] **acceptance-6** The instance's disclaimer appears verbatim, with no paraphrase.
+- [x] **acceptance-6** The instance's disclaimer appears verbatim, with no paraphrase.
 
 ## Test hooks
 
 - **acceptance-1** — `OverlayGeometryTest` — five cases over `overlayRect`, including letterboxed and pillarboxed fits and a subsampled bitmap
-- **acceptance-2** — screen-level `mode` mapping in place; no assertion yet — pending
+- **acceptance-2** — screen-level `mode` mapping — **met 2026-09-01** — `DetectionResultRenderingTest.aFindingSaysWhetherItIsTheAnimalOrTheDamageItLeft` (instrumented, Pixel 7a profile) renders a `direct` and a `symptom` finding in one list and asserts both wordings are on screen
 - **acceptance-3** — `NetworkPestDetectionClientTest` pins `isBeneficial` off `matched_beneficial_key` rather than the category string; the do-not-treat note itself is screen-level — **met 2026-08-28** — the screen-level half now ships: `PestDetectionScreen.kt:627-629` renders `pest_beneficial_note` ("This is a beneficial insect. Do not treat it.") and `:607-609` the badge beside the finding. Backed by `PestDetectionViewModelTest` `a beneficial is reported as one rather than as a plain mistake` and `NetworkPestDetectionClientTest` `maps findings, their boxes and the beneficial flag`
 - **acceptance-4** — `DetectionShapeTest` — `is_confident: false` abstains, and still abstains when findings are listed below the threshold
 - **acceptance-5** — `DetectionShapeTest` — `is_confident: true` with an empty `findings` array is a distinct `NOTHING_FOUND` outcome, worded separately from the abstention
-- **acceptance-6** — the `disclaimer` is rendered from the response with no transformation; no assertion yet — pending
+- **acceptance-6** — the `disclaimer` is rendered from the response with no transformation — **met 2026-08-21** — `DetectionResultRenderingTest.theInstancesDisclaimerIsShownWordForWord` asserts against a disclaimer the test invents, so a paraphrase fails; shipped with the verification harness (#49) and recorded here on 2026-09-01
 
 ## Consistency notes
 
