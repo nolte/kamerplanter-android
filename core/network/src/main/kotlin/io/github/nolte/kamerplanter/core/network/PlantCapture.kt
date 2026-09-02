@@ -117,6 +117,9 @@ data class SpeciesDraft(
 sealed interface SpeciesCreateOutcome {
     data class Created(val key: String) : SpeciesCreateOutcome
 
+    /** The instance objected to a field; [reason] names it in the instance's words. */
+    data class Rejected(val reason: String) : SpeciesCreateOutcome
+
     /** The route's own 409 — a unique constraint other than the normalised name (R26). */
     data object Conflict : SpeciesCreateOutcome
 

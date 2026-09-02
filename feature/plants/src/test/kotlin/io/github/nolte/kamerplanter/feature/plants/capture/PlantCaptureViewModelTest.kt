@@ -22,6 +22,7 @@ import io.github.nolte.kamerplanter.core.network.SpeciesDraft
 import io.github.nolte.kamerplanter.core.network.SpeciesEntry
 import io.github.nolte.kamerplanter.core.network.Suggestion
 import io.github.nolte.kamerplanter.feature.plants.R
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -169,9 +170,9 @@ class PlantCaptureViewModelTest {
         model.chooseSpecies(MONSTERA)
         assertEquals("SPM_02", model.form().inputs.instanceId)
 
-        model.choosePlace("site-1", null)
+        model.chooseSite("site-1")
         model.form()
-        model.choosePlace("site-1", "loc-1")
+        model.chooseLocation("loc-1")
         assertEquals("loc-1_SPM_01", model.form().inputs.instanceId)
     }
 
@@ -194,14 +195,30 @@ class PlantCaptureViewModelTest {
         val model = viewModel()
         model.form()
 
-        model.choosePlace("site-1", null)
+        model.chooseSite("site-1")
         assertEquals(listOf("loc-1"), model.form().locations?.map { it.key })
-        model.choosePlace("site-1", "loc-1")
+        model.chooseLocation("loc-1")
         assertEquals("loc-1", model.form().inputs.locationKey)
 
-        model.choosePlace(null, null)
+        model.chooseSite(null)
         assertNull(model.form().inputs.locationKey)
         assertNull(model.form().locations)
+    }
+
+    @Test
+    fun `choosing the same site again keeps its location, and a location needs a site`() {
+        val model = viewModel()
+        model.form()
+        model.chooseSite("site-1")
+        model.form()
+        model.chooseLocation("loc-1")
+
+        model.chooseSite("site-1")
+        assertEquals("loc-1", model.form().inputs.locationKey)
+
+        model.chooseSite(null)
+        model.chooseLocation("loc-1")
+        assertNull(model.form().inputs.locationKey)
     }
 
     // --- refusing and creating (R22, R29–R32) ------------------------------------------------
@@ -240,9 +257,9 @@ class PlantCaptureViewModelTest {
         model.form()
         model.chooseSpecies(MONSTERA)
         model.editPlantName("  Fenster  ")
-        model.choosePlace("site-1", null)
+        model.chooseSite("site-1")
         model.form()
-        model.choosePlace("site-1", "loc-1")
+        model.chooseLocation("loc-1")
         model.setPhoto(byteArrayOf(1, 2, 3))
 
         model.submit()
@@ -298,6 +315,27 @@ class PlantCaptureViewModelTest {
         val form = model.form()
         assertEquals(R.string.plants_add_rejected, form.notice)
         assertEquals("instance_id: already in use", form.noticeDetail)
+        assertFalse(form.submitting)
+    }
+
+    @Test
+    fun `what is edited while the instance answers survives its refusal`() {
+        capture.createOutcome = PlantCreateOutcome.Rejected("instance_id: taken")
+        capture.hold = CompletableDeferred()
+        val model = viewModel()
+        model.form()
+        model.chooseSpecies(MONSTERA)
+
+        model.submit()
+        model.form()
+        model.editPlantName("Corrected while adding")
+        model.keepPhoto(false)
+        capture.hold!!.complete(Unit)
+
+        val form = model.form()
+        assertEquals(R.string.plants_add_rejected, form.notice)
+        assertEquals("Corrected while adding", form.inputs.plantName)
+        assertFalse(form.keepPhoto)
         assertFalse(form.submitting)
     }
 
@@ -424,6 +462,43 @@ class PlantCaptureViewModelTest {
         model.leaveIdentification()
         assertNull(model.step())
         assertEquals("Fenster", model.form().inputs.plantName)
+        assertNull(model.form().photo)
+    }
+
+    @Test
+    fun `an answer arriving after the route was left neither reopens it nor touches the form`() {
+        capture.hold = CompletableDeferred()
+        val model = previewing()
+        model.sendForIdentification()
+        model.form()
+        assertTrue(model.step() is IdentificationStep.Identifying)
+
+        model.leaveIdentification()
+        model.editPlantName("typed after leaving")
+        capture.hold!!.complete(Unit)
+        model.form()
+
+        assertNull(model.step())
+        assertEquals("typed after leaving", model.form().inputs.plantName)
+        assertNull(model.form().photo)
+    }
+
+    @Test
+    fun `a choice still on its way when the user leaves does not fill the form later`() {
+        val model = previewing()
+        model.sendForIdentification()
+        model.form()
+        capture.hold = CompletableDeferred()
+        model.chooseSuggestion(MONSTERA_GUESS)
+        model.form()
+
+        model.leaveIdentification()
+        model.chooseSpecies(FICUS)
+        capture.hold!!.complete(Unit)
+        model.form()
+
+        assertEquals("sp-ficus", model.form().inputs.speciesKey)
+        assertNull(model.form().identificationRequestKey)
         assertNull(model.form().photo)
     }
 
@@ -610,6 +685,24 @@ class PlantCaptureViewModelTest {
     }
 
     @Test
+    fun `a species the instance rejects is named in its words, and no plant is created`() {
+        capture.identifyOutcome = answer(isPlant = true, suggestions = listOf(UNKNOWN_GUESS))
+        capture.speciesOutcome = SpeciesCreateOutcome.Rejected("scientific_name: not a name")
+        val model = previewing()
+        model.sendForIdentification()
+        model.form()
+        model.chooseSuggestion(UNKNOWN_GUESS)
+        model.form()
+
+        model.submit()
+
+        val form = model.form()
+        assertEquals(R.string.plants_add_species_rejected, form.notice)
+        assertEquals("scientific_name: not a name", form.noticeDetail)
+        assertTrue(capture.created.isEmpty())
+    }
+
+    @Test
     fun `a species created before the plant was refused is not created twice`() {
         capture.identifyOutcome = answer(isPlant = true, suggestions = listOf(UNKNOWN_GUESS))
         capture.createOutcome = PlantCreateOutcome.Rejected("instance_id: taken")
@@ -677,6 +770,14 @@ class PlantCaptureViewModelTest {
         var speciesOutcome: SpeciesCreateOutcome = SpeciesCreateOutcome.Created("sp-created")
         val speciesCreated = mutableListOf<SpeciesDraft>()
 
+        /** Set to keep the next identify, select or create waiting until the test lets it go. */
+        var hold: CompletableDeferred<Unit>? = null
+
+        private suspend fun held() {
+            hold?.await()
+            hold = null
+        }
+
         override suspend fun identificationReadiness(): IdentificationReadiness = readiness
         override suspend fun grantIdentificationConsent(): ConsentOutcome {
             if (consentOutcome == ConsentOutcome.Granted) consentsGranted++
@@ -684,10 +785,12 @@ class PlantCaptureViewModelTest {
         }
         override suspend fun identify(jpeg: ByteArray, organ: String, language: String): IdentifyOutcome {
             identified += Triple(jpeg, organ, language)
+            held()
             return identifyOutcome
         }
         override suspend fun selectSuggestion(requestKey: String, rank: Int): ActionOutcome {
             selected += requestKey to rank
+            held()
             return ActionOutcome.Done
         }
         override suspend fun linkIdentification(requestKey: String, plantKey: String): ActionOutcome {
@@ -704,6 +807,7 @@ class PlantCaptureViewModelTest {
         override suspend fun instanceIds(): Fetched<Set<String>> = taken
         override suspend fun createPlant(draft: PlantDraft): PlantCreateOutcome {
             created += draft
+            held()
             return createOutcome
         }
     }

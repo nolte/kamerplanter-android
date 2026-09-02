@@ -169,9 +169,16 @@ class NetworkPlantActionsClient @Inject constructor(
             // shape moved by one field would be reported as a failure *after* the instance
             // stored the photo — and the retry that follows would store it twice.
             val stored = photos.upload(plantKey, tenant, jpeg.asJpegPart("photo.jpg")).bodyOrThrow()
+            // The photo is on the instance from here on, whatever the cover call does: a
+            // failure after this line must not read as "not saved", or the retry it invites
+            // stores the same picture twice. `cover_photo_ref` resolves to the first photo
+            // anyway; what a failed cover call costs is the explicit flag, and that is a log
+            // line, not a message (R30).
             if (asCover) {
-                val attachmentId = (stored as? JsonObject)?.text("attachment_id") ?: throw UploadWithoutId()
-                photos.setCover(plantKey, attachmentId, tenant).bodyOrThrow()
+                runCatchingCancellable {
+                    val attachmentId = (stored as? JsonObject)?.text("attachment_id") ?: throw UploadWithoutId()
+                    photos.setCover(plantKey, attachmentId, tenant).bodyOrThrow()
+                }.onFailure { it.asActionOutcome() }
             }
             // The plant's page holds a photo section that just became stale.
             changes.notifyChanged()

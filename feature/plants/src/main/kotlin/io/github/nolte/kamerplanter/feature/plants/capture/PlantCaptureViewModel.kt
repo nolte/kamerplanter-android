@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.plants.capture
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +24,9 @@ import io.github.nolte.kamerplanter.core.network.Suggestion
 import io.github.nolte.kamerplanter.feature.plants.R
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,9 +98,17 @@ class PlantCaptureViewModel(
         val readiness = async { capture.identificationReadiness() }
         val loadedCatalogue = when (val outcome = catalogue.await()) {
             is Fetched.Loaded -> outcome.value
-            Fetched.NotConnected -> return@coroutineScope PlantCaptureState.NotConnected
-            Fetched.Unauthorized -> return@coroutineScope PlantCaptureState.Unauthorized
-            is Fetched.Failed -> return@coroutineScope PlantCaptureState.Failed(R.string.plants_add_failed_body)
+            // Without the catalogue there is no form; the siblings are not worth waiting for,
+            // and `coroutineScope` would otherwise hold the failure screen back until the
+            // slowest of them — up to 25 pages of plants — has answered.
+            else -> {
+                coroutineContext.cancelChildren()
+                return@coroutineScope when (outcome) {
+                    Fetched.NotConnected -> PlantCaptureState.NotConnected
+                    Fetched.Unauthorized -> PlantCaptureState.Unauthorized
+                    else -> PlantCaptureState.Failed(R.string.plants_add_failed_body)
+                }
+            }
         }
         // Sites and the identifiers are conveniences: a form without them still creates a
         // plant, so their failure is a notice on the form rather than the form's absence.
@@ -133,13 +144,13 @@ class PlantCaptureViewModel(
     fun editPlantedOn(date: LocalDate?) = updateInputs { copy(plantedOn = date) }
 
     /**
-     * Site and location together, because the second depends on the first (R23): a new site
-     * clears the location and loads the site's own; a location is only ever one of those.
+     * The site; the location depends on it (R23). A *different* site clears the location and
+     * loads its own; the same site chosen again changes nothing — a dropdown offers the
+     * chosen entry too, and picking it must not cost the location under it.
      */
-    fun choosePlace(siteKey: String?, locationKey: String?) {
-        val siteChanged = (_state.value as? PlantCaptureState.Form)?.inputs?.siteKey != siteKey
-        updateInputs { copy(siteKey = siteKey, locationKey = locationKey.takeUnless { siteChanged }) }
-        if (!siteChanged) return
+    fun chooseSite(siteKey: String?) {
+        if ((_state.value as? PlantCaptureState.Form)?.inputs?.siteKey == siteKey) return
+        updateInputs { copy(siteKey = siteKey, locationKey = null) }
         updateForm { copy(locations = null) }
         if (siteKey == null) return
         viewModelScope.launch {
@@ -153,6 +164,11 @@ class PlantCaptureViewModel(
                 }
             }
         }
+    }
+
+    /** One of the chosen site's locations, or `null` for none; meaningless without a site. */
+    fun chooseLocation(locationKey: String?) = updateInputs {
+        copy(locationKey = locationKey.takeIf { siteKey != null })
     }
 
     // --- the photo (R8, R28) -----------------------------------------------------------------
@@ -175,15 +191,30 @@ class PlantCaptureViewModel(
         }
     }
 
-    /** Back to the form, whatever was on the route; nothing captured there is kept. */
-    fun leaveIdentification() = updateForm { copy(step = null) }
+    /**
+     * Back to the form, whatever was on the route; nothing captured there is kept. Whatever
+     * the route still had in flight is cancelled with it — an answer arriving after the user
+     * left must not reopen the route, nor overwrite what they typed in the meantime.
+     */
+    fun leaveIdentification() {
+        routeJob?.cancel()
+        updateForm { copy(step = null) }
+    }
+
+    /** The one call the route has in flight; a new one replaces it, leaving cancels it. */
+    private var routeJob: Job? = null
+
+    private fun launchOnRoute(block: suspend () -> Unit) {
+        routeJob?.cancel()
+        routeJob = viewModelScope.launch { block() }
+    }
 
     /** Records the consent on the instance (R6), then opens the source choice. */
     fun grantIdentificationConsent() {
         val consent = step<IdentificationStep.Consent>() ?: return
         if (consent.granting) return
         updateForm { copy(step = consent.copy(granting = true, failed = false)) }
-        viewModelScope.launch {
+        launchOnRoute {
             when (capture.grantIdentificationConsent()) {
                 ConsentOutcome.Granted -> updateForm {
                     copy(identification = IdentificationReadiness.Ready, step = IdentificationStep.ChooseSource)
@@ -202,7 +233,7 @@ class PlantCaptureViewModel(
      */
     fun identify(image: CapturedImage) {
         if (step<IdentificationStep.ChooseSource>() == null && step<IdentificationStep.Unusable>() == null) return
-        viewModelScope.launch {
+        launchOnRoute {
             val recognition = withContext(work) {
                 image.normalized(NormalizationProfile.RECOGNITION, IDENTIFY_MAX_BYTES)
             }
@@ -234,7 +265,7 @@ class PlantCaptureViewModel(
             else -> return
         }
         updateForm { copy(step = IdentificationStep.Identifying(image, organ)) }
-        viewModelScope.launch {
+        launchOnRoute {
             val outcome = capture.identify(image.recognitionJpeg, organ.wire, language())
             answered(image, organ, outcome)
         }
@@ -281,7 +312,7 @@ class PlantCaptureViewModel(
         val step = step<IdentificationStep.Suggestions>() ?: return
         if (step.selecting != null) return
         updateForm { copy(step = step.copy(selecting = suggestion.rank)) }
-        viewModelScope.launch {
+        launchOnRoute {
             // Best effort, like the link: the selection is the instance's record of what the
             // user chose, and a form that refused to fill in because that record failed would
             // cost the user the answer they were given.
@@ -314,7 +345,7 @@ class PlantCaptureViewModel(
             leaveIdentification()
             return
         }
-        viewModelScope.launch {
+        launchOnRoute {
             val gallery = withContext(work) { image.original.normalized(NormalizationProfile.GALLERY, MAX_PHOTO_BYTES) }
             updateForm { copy(step = null, photo = gallery?.let(::CapturedPhoto) ?: photo, keepPhoto = true) }
         }
@@ -352,60 +383,68 @@ class PlantCaptureViewModel(
         }
         _state.value = form.copy(submitting = true, errors = emptySet(), notice = null, noticeDetail = null)
         viewModelScope.launch {
-            val settled = form.withSpeciesCreated() ?: return@launch
+            // Read again after every await rather than carried from the tap: the fields stay
+            // editable while the instance answers, and a refusal that wrote the tapped-on
+            // snapshot back would undo whatever the user corrected in the meantime.
+            if (!createPendingSpecies()) return@launch
+            val settled = _state.value as? PlantCaptureState.Form ?: return@launch
             val outcome = capture.createPlant(settled.draft())
-            _state.value = when (outcome) {
+            when (outcome) {
                 is PlantCreateOutcome.Created -> {
                     settled.identificationRequestKey?.let { linkBestEffort(it, outcome.plantKey) }
-                    PlantCaptureState.Created(
+                    _state.value = PlantCaptureState.Created(
                         plantKey = outcome.plantKey,
                         photoSaved = settled.photo?.takeIf { settled.keepPhoto }?.let { keep(outcome.plantKey, it) },
                     )
                 }
-                PlantCreateOutcome.Unauthorized -> PlantCaptureState.Unauthorized
+                PlantCreateOutcome.Unauthorized -> _state.value = PlantCaptureState.Unauthorized
                 // A role, not a connection: asking again cannot widen it, so no retry (R33).
-                PlantCreateOutcome.NotPermitted -> PlantCaptureState.Failed(
+                PlantCreateOutcome.NotPermitted -> _state.value = PlantCaptureState.Failed(
                     R.string.plants_add_not_permitted,
                     canRetry = false,
                 )
-                is PlantCreateOutcome.Rejected -> settled.copy(
-                    submitting = false,
-                    notice = R.string.plants_add_rejected,
-                    noticeDetail = outcome.reason,
-                )
-                is PlantCreateOutcome.Failed ->
-                    settled.copy(submitting = false, notice = R.string.plants_add_unreachable)
+                is PlantCreateOutcome.Rejected -> settle(R.string.plants_add_rejected, outcome.reason)
+                is PlantCreateOutcome.Failed -> settle(R.string.plants_add_unreachable)
             }
         }
     }
 
+    /** The submission is over and the form stays, with a sentence about why. */
+    private fun settle(@StringRes notice: Int, detail: String? = null) =
+        updateForm { copy(submitting = false, notice = notice, noticeDetail = detail) }
+
     /**
-     * The species first, where the catalogue lacked it (R25): the form with its key settled,
-     * or `null` after this has already put the refusal on screen. A species that was created
-     * stays chosen even when the plant is then refused — the create is idempotent upstream
-     * (R26), and a second submission must not make a second one.
+     * The species first, where the catalogue lacked it (R25). `true` when the form now holds a
+     * key to create the plant against; `false` after this has already put the refusal on
+     * screen. A species that was created stays chosen even when the plant is then refused —
+     * the create is idempotent upstream (R26), and a second submission must not make a second
+     * one.
      */
-    private suspend fun PlantCaptureState.Form.withSpeciesCreated(): PlantCaptureState.Form? {
-        val pending = inputs.pendingSpecies ?: return this
+    private suspend fun createPendingSpecies(): Boolean {
+        val pending = (_state.value as? PlantCaptureState.Form)?.inputs?.pendingSpecies ?: return true
         return when (val outcome = capture.createSpecies(pending)) {
-            is SpeciesCreateOutcome.Created -> copy(
-                catalogue = catalogue + SpeciesEntry(outcome.key, pending.scientificName, pending.commonNames),
-                inputs = inputs.copy(speciesKey = outcome.key, pendingSpecies = null),
-            ).also { _state.value = it }
-            SpeciesCreateOutcome.Unauthorized -> null.also { _state.value = PlantCaptureState.Unauthorized }
+            is SpeciesCreateOutcome.Created -> {
+                updateForm {
+                    copy(
+                        catalogue = catalogue + SpeciesEntry(outcome.key, pending.scientificName, pending.commonNames),
+                        inputs = inputs.copy(speciesKey = outcome.key, pendingSpecies = null),
+                    )
+                }
+                true
+            }
+            SpeciesCreateOutcome.Unauthorized -> false.also { _state.value = PlantCaptureState.Unauthorized }
             // A role the account lacks (R27) — the whole form is refused with it, because the
             // plant cannot be created without the species, and no retry widens a role.
-            SpeciesCreateOutcome.NotPermitted -> null.also {
+            SpeciesCreateOutcome.NotPermitted -> false.also {
                 _state.value = PlantCaptureState.Failed(R.string.plants_add_species_not_permitted, canRetry = false)
             }
             // The route's own 409 (R26): something other than the name collided. Its own
             // sentence, and the form stays for the user to pick a catalogue entry instead.
-            SpeciesCreateOutcome.Conflict -> null.also {
-                _state.value = copy(submitting = false, notice = R.string.plants_add_species_conflict)
+            SpeciesCreateOutcome.Conflict -> false.also { settle(R.string.plants_add_species_conflict) }
+            is SpeciesCreateOutcome.Rejected -> false.also {
+                settle(R.string.plants_add_species_rejected, outcome.reason)
             }
-            is SpeciesCreateOutcome.Failed -> null.also {
-                _state.value = copy(submitting = false, notice = R.string.plants_add_unreachable)
-            }
+            is SpeciesCreateOutcome.Failed -> false.also { settle(R.string.plants_add_unreachable) }
         }
     }
 

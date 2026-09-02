@@ -55,6 +55,15 @@ internal fun String?.instanceErrorDetail(): String? {
     }
 }
 
+/**
+ * The envelope's `error_code`, or `null` when the body is not one.
+ *
+ * Parsed leniently on purpose: a reverse proxy in front of the instance can answer a 403
+ * with HTML, and the call must fail as itself rather than as a parse error.
+ */
+internal fun String?.instanceErrorCode(): String? =
+    (runCatching { Json.parseToJsonElement(this.orEmpty()) }.getOrNull() as? JsonObject)?.text("error_code")
+
 /** FastAPI's own shape, for a failure that never reached the envelope. */
 private fun JsonObject.rawDetail(): String? {
     val detail = this["detail"] ?: return null

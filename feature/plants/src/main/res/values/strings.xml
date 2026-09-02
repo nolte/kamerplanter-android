@@ -236,5 +236,6 @@
     <string name="plants_add_identify_retry">Try again</string>
     <string name="plants_add_species_pending">Not in your catalogue yet. It will be created when you add the plant.</string>
     <string name="plants_add_species_not_permitted">Your account may not create species on this instance, and this plant\'s species is not in the catalogue yet.</string>
+    <string name="plants_add_species_rejected">Your instance did not accept the species.</string>
     <string name="plants_add_species_conflict">Your instance could not create this species because it collides with an existing record. Choose one from the catalogue instead.</string>
 </resources>

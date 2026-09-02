@@ -172,16 +172,16 @@ class NetworkDiaryWriteTest {
         assertEquals(listOf(photosPath, coverPath), synchronized(requests) { requests.map { it.first } })
     }
 
-    /** R30: a cover call that fails after a successful upload is a failure the caller words; the photo is kept. */
+    /** R30: a cover call that fails after a successful upload is not a failed photo — the photo is stored once. */
     @Test
-    fun `a failed cover call after a stored photo is reported, not retried`() = runTest {
+    fun `a failed cover call after a stored photo is done, not retried`() = runTest {
         val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
         bodies[photosPath] = """{"attachment_id":"att-9"}"""
         statuses["/api/v1/t/demo/plant-instances/p1/photos/att-9/cover"] = 500
 
         val outcome = client().addPhoto("p1", byteArrayOf(1), asCover = true)
 
-        assertTrue(outcome is ActionOutcome.Failed)
+        assertEquals(ActionOutcome.Done, outcome)
         assertEquals(1, sent(photosPath).size)
     }
 

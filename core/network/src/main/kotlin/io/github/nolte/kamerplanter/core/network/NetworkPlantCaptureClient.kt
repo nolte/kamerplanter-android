@@ -13,10 +13,10 @@ import io.github.nolte.kamerplanter.core.network.generated.models.LinkInstanceRe
 import io.github.nolte.kamerplanter.core.network.generated.models.PlantCreate
 import io.github.nolte.kamerplanter.core.network.generated.models.SpeciesCreate
 import io.github.nolte.kamerplanter.core.network.generated.models.SuggestionResponse
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -107,7 +107,7 @@ class NetworkPlantCaptureClient @Inject constructor(
             when {
                 failure is HttpFailure && failure.status == HTTP_UNAUTHORIZED -> IdentifyOutcome.Unauthorized
                 failure is HttpFailure && failure.status == HTTP_FORBIDDEN ->
-                    if (failure.body.errorCode() == CONSENT_REQUIRED_CODE) {
+                    if (failure.body.instanceErrorCode() == CONSENT_REQUIRED_CODE) {
                         IdentifyOutcome.ConsentMissing
                     } else {
                         IdentifyOutcome.NotPermitted
@@ -144,18 +144,27 @@ class NetworkPlantCaptureClient @Inject constructor(
     override suspend fun catalogue(): Fetched<List<SpeciesEntry>> = fetched {
         val species = create(SpeciesApi::class.java)
         // The route paginates and offers nothing else, so the search the form needs happens
-        // over the whole catalogue on the phone (R18). Paged until the instance's own `total`
-        // is reached, with a ceiling so a misreported total cannot loop.
-        val all = mutableListOf<SpeciesEntry>()
-        var offset = 0
-        do {
-            val page = species.listSpeciesApiV1SpeciesGet(offset = offset, limit = PAGE_SIZE, xActiveTenant = tenant)
-                .bodyOrThrow()
-            all += page.items.map { SpeciesEntry(it.key, it.scientificName, it.commonNames) }
-            offset += page.items.size
-            val exhausted = page.items.isEmpty() || offset >= page.total
-        } while (!exhausted && offset < PAGE_SIZE * MAX_PAGES)
-        all
+        // over the whole catalogue on the phone (R18). The first page says how many there
+        // are; the rest are fetched side by side rather than one after another, with a
+        // ceiling so a misreported total cannot run away.
+        val first = species.listSpeciesApiV1SpeciesGet(offset = 0, limit = PAGE_SIZE, xActiveTenant = tenant)
+            .bodyOrThrow()
+        val remaining = ((first.total - first.items.size).coerceAtLeast(0) + PAGE_SIZE - 1) / PAGE_SIZE
+        val rest = coroutineScope {
+            (1..remaining.coerceAtMost(MAX_PAGES - 1)).map { page ->
+                async {
+                    species
+                        .listSpeciesApiV1SpeciesGet(
+                            offset = page * PAGE_SIZE,
+                            limit = PAGE_SIZE,
+                            xActiveTenant = tenant,
+                        )
+                        .bodyOrThrow()
+                        .items
+                }
+            }.awaitAll()
+        }
+        (first.items + rest.flatten()).map { SpeciesEntry(it.key, it.scientificName, it.commonNames) }
     }
 
     override suspend fun createSpecies(draft: SpeciesDraft): SpeciesCreateOutcome = runCatchingCancellable {
@@ -176,6 +185,10 @@ class NetworkPlantCaptureClient @Inject constructor(
             failure is HttpFailure && failure.status == HTTP_UNAUTHORIZED -> SpeciesCreateOutcome.Unauthorized
             failure is HttpFailure && failure.status == HTTP_FORBIDDEN -> SpeciesCreateOutcome.NotPermitted
             failure is HttpFailure && failure.status == HTTP_CONFLICT -> SpeciesCreateOutcome.Conflict
+            // A field the instance would not take: its own words, not "unreachable" — a retry
+            // of the same payload cannot help, and the user has to see what was refused.
+            failure is HttpFailure && failure.status == HTTP_UNPROCESSABLE ->
+                SpeciesCreateOutcome.Rejected(failure.body.instanceErrorDetail() ?: "the instance rejected the species")
             else -> SpeciesCreateOutcome.Failed(failure.describeAndLog())
         }
     }
@@ -310,13 +323,6 @@ class NetworkPlantCaptureClient @Inject constructor(
 
         /** Too large, not an image type the instance takes, or not decodable. */
         val REFUSED_IMAGE = setOf(HTTP_PAYLOAD_TOO_LARGE, HTTP_UNSUPPORTED_MEDIA_TYPE, HTTP_UNPROCESSABLE)
-
-        fun String?.errorCode(): String? =
-            (runCatching { Json.parseToJsonElement(this.orEmpty()) }.getOrNull() as? JsonObject)
-                ?.get("error_code")
-                ?.let { it as? JsonPrimitive }
-                ?.takeIf { it.isString }
-                ?.content
 
         fun SuggestionResponse.toSuggestion() = Suggestion(
             rank = rank,

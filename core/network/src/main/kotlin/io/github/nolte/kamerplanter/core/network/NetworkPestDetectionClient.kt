@@ -8,9 +8,6 @@ import io.github.nolte.kamerplanter.core.network.generated.models.FindingSchema
 import io.github.nolte.kamerplanter.core.network.generated.models.PestDetectionResponse
 import io.github.nolte.kamerplanter.core.network.generated.models.PestDetectionStatusResponse
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -34,7 +31,6 @@ class NetworkPestDetectionClient @Inject constructor(
     private val apis: InstanceApiFactory,
     private val connections: ConnectionStore,
     private val credentials: CredentialStore,
-    private val json: Json,
 ) : PestDetectionClient {
 
     override suspend fun readiness(): DetectionReadiness = runCatchingCancellable {
@@ -348,16 +344,7 @@ class NetworkPestDetectionClient @Inject constructor(
         return body() ?: throw HttpFailure(code(), null)
     }
 
-    /**
-     * The `error_code` out of an error envelope, or `null` when the body is not one.
-     *
-     * Parsed leniently on purpose: a reverse proxy in front of the instance can answer a 403
-     * with HTML, and a detection must fail as a detection rather than as a parse error.
-     */
-    private fun Response<*>.errorCode(): String? = runCatchingCancellable {
-        val body = errorBody()?.string()?.takeIf { it.isNotBlank() } ?: return null
-        ((json.parseToJsonElement(body) as? JsonObject)?.get("error_code") as? JsonPrimitive)
-            ?.takeIf { it.isString }
-            ?.content
-    }.getOrNull()
+    /** The `error_code` out of an error envelope, or `null` when the body is not one. */
+    private fun Response<*>.errorCode(): String? =
+        runCatchingCancellable { errorBody()?.string() }.getOrNull().instanceErrorCode()
 }

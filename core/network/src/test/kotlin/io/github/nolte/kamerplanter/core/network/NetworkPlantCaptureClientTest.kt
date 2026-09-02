@@ -286,6 +286,18 @@ class NetworkPlantCaptureClientTest {
         assertEquals(SpeciesCreateOutcome.NotPermitted, client().createSpecies(SpeciesDraft("A b", emptyList(), null)))
     }
 
+    /** A 422 is the instance's objection to a field, in its words — not an unreachable instance. */
+    @Test
+    fun `a rejected species carries the instance's reason`() = runTest {
+        statuses[speciesPath] = 422
+        bodies[speciesPath] = """{"error_code":"VALIDATION_ERROR","message":"The input data is invalid.",
+            "details":[{"field":"body.scientific_name","reason":"authorship is not part of the name"}]}"""
+
+        val outcome = client().createSpecies(SpeciesDraft("Pilea peperomioides Diels", emptyList(), null))
+
+        assertEquals(SpeciesCreateOutcome.Rejected("scientific_name: authorship is not part of the name"), outcome)
+    }
+
     // --- creating the plant (R22, R24, R32) --------------------------------------------------
 
     @Test

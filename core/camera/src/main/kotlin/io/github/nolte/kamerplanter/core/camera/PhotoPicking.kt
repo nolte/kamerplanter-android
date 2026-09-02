@@ -47,34 +47,56 @@ fun rememberPhotoPicking(
     maxCount: Int = MAX_PHOTOS,
     profile: NormalizationProfile = NormalizationProfile.GALLERY,
     onPhotos: suspend (List<ByteArray>) -> Unit,
-): PhotoPicking = rememberImagePicking(maxCount) { images ->
-    // Decoding and re-encoding a multi-megapixel photo is tens of milliseconds of work per
-    // image, and five of them on the main thread is a visible freeze on the screen the user
-    // just tapped.
-    onPhotos(withContext(Dispatchers.Default) { images.mapNotNull { it.normalized(profile, maxBytes) } })
-}
+): PhotoPicking = rememberPicking(
+    maxCount = maxCount,
+    // Normalised as each is read, so five picked photos never sit in memory as five raw
+    // sensor frames at once: one original at a time, dropped before the next is opened.
+    read = { uri -> readImage(uri)?.normalized(profile, maxBytes) },
+    onPicked = onPhotos,
+)
 
 /**
  * Image picking that hands over the originals, for a caller that needs more than one upload
  * from one capture (R10): the species recogniser gets a smaller cut than the plant's gallery
  * keeps, and neither may be derived from the other's bytes. Most callers want
- * [rememberPhotoPicking], which normalises on the spot.
+ * [rememberPhotoPicking], which normalises on the spot and holds no original.
  */
 @Composable
 fun rememberImagePicking(
     maxCount: Int = MAX_PHOTOS,
     onImages: suspend (List<CapturedImage>) -> Unit,
+): PhotoPicking = rememberPicking(maxCount = maxCount, read = { uri -> readImage(uri) }, onPicked = onImages)
+
+/**
+ * The launcher pair under both pickings: library and camera, each handing back a `content://`
+ * URI that [read] turns into whatever the caller keeps, one URI at a time and off the main
+ * thread.
+ */
+@Composable
+private fun <T : Any> rememberPicking(
+    maxCount: Int,
+    read: suspend Context.(Uri) -> T?,
+    onPicked: suspend (List<T>) -> Unit,
 ): PhotoPicking {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val library = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(maxCount),
+    suspend fun deliver(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        onPicked(withContext(Dispatchers.IO) { uris.mapNotNull { context.read(it) } })
+    }
+
+    // Two contracts, because the multi-item one refuses a maximum of one: its constructor
+    // requires `maxItems > 1` and throws otherwise — on first composition of a screen that
+    // wants a single picture, which is how the add-a-plant form crashed before it was ever
+    // drawn. Both launchers are created; only the one the caller asked for is ever launched.
+    val single = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        scope.launch { deliver(listOfNotNull(uri)) }
+    }
+    val several = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(maxCount.coerceAtLeast(MINIMUM_FOR_MULTIPLE)),
     ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            onImages(uris.mapNotNull { context.readImage(it) })
-        }
+        scope.launch { deliver(uris) }
     }
 
     // One fixed name, not a fresh temp file. `createTempFile` per composition left a new empty
@@ -86,18 +108,17 @@ fun rememberImagePicking(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         if (!saved) return@rememberLauncherForActivityResult
         scope.launch {
-            val image = context.readImage(target.toUri())
+            val picked = withContext(Dispatchers.IO) { context.read(target.toUri()) }
             withContext(Dispatchers.IO) { target.delete() }
-            onImages(listOfNotNull(image))
+            onPicked(listOfNotNull(picked))
         }
     }
 
-    return remember(library, camera, target, context) {
+    return remember(single, several, camera, target, context, maxCount) {
         PhotoPicking(
             pickFromLibrary = {
-                library.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
+                val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                if (maxCount <= 1) single.launch(request) else several.launch(request)
             },
             takePhoto = {
                 // Created here, not in the composition: a dialogue whose user never reaches
@@ -109,12 +130,12 @@ fun rememberImagePicking(
     }
 }
 
-/** Reads a picked image as it is, with the rotation its metadata asks for. */
-private suspend fun Context.readImage(uri: Uri): CapturedImage? = withContext(Dispatchers.IO) {
+/** Reads a picked image as it is, with the rotation its metadata asks for. Call on IO. */
+private fun Context.readImage(uri: Uri): CapturedImage? {
     val raw = runCatching {
         contentResolver.openInputStream(uri)?.use { it.readBytes() }
-    }.getOrNull() ?: return@withContext null
-    PickedImage(raw, raw.exifRotationDegrees())
+    }.getOrNull() ?: return null
+    return PickedImage(raw, raw.exifRotationDegrees())
 }
 
 /**
@@ -148,6 +169,8 @@ private fun Context.captureFile(): File = File(File(cacheDir, "captures"), "capt
 private fun Context.uriFor(file: File): Uri =
     FileProvider.getUriForFile(this, "$packageName.camera.fileprovider", file)
 
+/** What `PickMultipleVisualMedia` insists on; a caller wanting one picture gets the single-item contract. */
+private const val MINIMUM_FOR_MULTIPLE = 2
 private const val QUARTER_TURN = 90
 private const val HALF_TURN = 180
 private const val THREE_QUARTER_TURN = 270

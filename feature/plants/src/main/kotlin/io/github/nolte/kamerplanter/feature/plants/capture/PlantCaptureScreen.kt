@@ -154,10 +154,8 @@ private fun PlantCaptureViewModel.actions(
         onEditInstanceId = ::editInstanceId,
         onEditPlantName = ::editPlantName,
         onEditPlantedOn = ::editPlantedOn,
-        onChooseSite = { choosePlace(it, null) },
-        onChooseLocation = { location ->
-            choosePlace((state.value as? PlantCaptureState.Form)?.inputs?.siteKey, location)
-        },
+        onChooseSite = ::chooseSite,
+        onChooseLocation = ::chooseLocation,
         onSubmit = ::submit,
         photo = PhotoActions(
             sources = photos,

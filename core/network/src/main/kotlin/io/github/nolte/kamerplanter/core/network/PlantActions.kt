@@ -235,8 +235,9 @@ interface PlantActionsClient {
      * [asCover] follows the upload with `PUT …/photos/{id}/cover` (R29). The explicit call is
      * kept although `cover_photo_ref` already resolves to the first photo: without it
      * `is_cover` stays `false`, and a client reading that flag would show a plant with no
-     * cover. A cover call that fails after a successful upload is still [ActionOutcome.Failed]
-     * — the photo is kept either way, and the caller words the difference.
+     * cover. A cover call that fails after a successful upload is still [ActionOutcome.Done]:
+     * the photo is on the instance and resolves to the cover by position, and a failure that
+     * read as "not saved" would invite the retry that stores it twice. The miss is logged.
      */
     suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean = false): ActionOutcome
 

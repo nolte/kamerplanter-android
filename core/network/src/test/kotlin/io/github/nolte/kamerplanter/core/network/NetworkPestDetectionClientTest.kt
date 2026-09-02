@@ -82,7 +82,6 @@ class NetworkPestDetectionClientTest {
             ).takeIf { connected },
         ),
         credentials = InMemoryCredentialStore(Credential.ApiKey("kp_sk_x")),
-        json = NetworkModule.provideJson(),
     )
 
     private fun givenStatus(
