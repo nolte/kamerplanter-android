@@ -54,6 +54,9 @@ Usable against a self-hosted instance, and not yet released. The tech stack is d
   the app renders the findings over the frame, tells a beneficial from a pest, says when the
   recogniser abstained, and takes your verdict back to the instance.
 - **A diary** per plant, with photos from either camera, editable and paged.
+- **Add a plant** by hand from the instance's species catalogue, or from a photo the instance
+  identifies — consent first, candidates ranked with their confidence, the form pre-filled and
+  fully editable, nothing created until it is confirmed, and the photo kept as the plant's cover.
 
 Not verified end to end on hardware yet: the microscope capture against the reference device
 (issue #1) and the device-level criteria of issues #9, #10 and #12.

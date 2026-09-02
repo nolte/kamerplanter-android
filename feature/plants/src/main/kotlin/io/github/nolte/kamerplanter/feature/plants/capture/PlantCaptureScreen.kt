@@ -1,5 +1,6 @@
 package io.github.nolte.kamerplanter.feature.plants.capture
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -42,16 +44,19 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import io.github.nolte.kamerplanter.core.camera.CameraPermission
 import io.github.nolte.kamerplanter.core.camera.NormalizationProfile
+import io.github.nolte.kamerplanter.core.camera.PhotoPicking
 import io.github.nolte.kamerplanter.core.camera.rememberCameraPermission
+import io.github.nolte.kamerplanter.core.camera.rememberImagePicking
 import io.github.nolte.kamerplanter.core.camera.rememberPhotoPicking
 import io.github.nolte.kamerplanter.feature.plants.CenteredMessage
 import io.github.nolte.kamerplanter.feature.plants.R
 import io.github.nolte.kamerplanter.feature.plants.rememberCameraGate
 
 /**
- * Adding a plant (R-8, issue #50): one form, reached by hand today and from an
- * identification tomorrow, that creates nothing until it is confirmed.
+ * Adding a plant (R-8, issue #50): one form, reached by hand or through an identification,
+ * that creates nothing until it is confirmed.
  *
  * [onCreated] is called with the new plant's key once it exists and its photo — where one
  * was to be kept — is saved; the screen lands on the plant's page (R32). A photo that could
@@ -72,13 +77,17 @@ fun PlantCaptureScreen(
         if (created != null && created.photoSaved != false) onCreated(created.plantKey)
     }
     val photos = rememberPhotoSources(viewModel)
+    // On the identification route, back means "back to the form" — what was typed there is
+    // still waiting — and only from the form does it mean leaving the screen.
+    val onRoute = (state as? PlantCaptureState.Form)?.step != null
+    BackHandler(enabled = onRoute, onBack = viewModel::leaveIdentification)
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.plants_add_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = if (onRoute) viewModel::leaveIdentification else onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.plants_back),
@@ -101,6 +110,10 @@ fun PlantCaptureScreen(
 /**
  * Camera and library, each asked for only when reached for (R8). A permanently denied camera
  * grant leads to system settings rather than to a button that does nothing.
+ *
+ * Two pickings over one permission: the manual route takes its photo at the gallery profile
+ * on the spot, the identification route takes the original, because two cuts come from it
+ * (R10). The launcher pair is the same either way.
  */
 @Composable
 private fun rememberPhotoSources(viewModel: PlantCaptureViewModel): PhotoSources {
@@ -110,14 +123,21 @@ private fun rememberPhotoSources(viewModel: PlantCaptureViewModel): PhotoSources
     val picking = rememberPhotoPicking(maxCount = 1, profile = NormalizationProfile.GALLERY) { picked ->
         picked.firstOrNull()?.let(viewModel::setPhoto)
     }
-    return remember(permission, gate, picking) {
+    val identifying = rememberImagePicking(maxCount = 1) { images ->
+        images.firstOrNull()?.let(viewModel::identify)
+    }
+    return remember(permission, gate, picking, identifying) {
         PhotoSources(
-            onCamera = {
-                if (!permission.isGranted && !permission.canAsk) permission.openSettings() else gate(picking.takePhoto)
-            },
+            onCamera = permission.guarded(gate, picking),
             onLibrary = picking.pickFromLibrary,
+            onIdentifyCamera = permission.guarded(gate, identifying),
+            onIdentifyLibrary = identifying.pickFromLibrary,
         )
     }
+}
+
+private fun CameraPermission.guarded(gate: (() -> Unit) -> Unit, picking: PhotoPicking): () -> Unit = {
+    if (!isGranted && !canAsk) openSettings() else gate(picking.takePhoto)
 }
 
 private fun PlantCaptureViewModel.actions(
@@ -144,6 +164,17 @@ private fun PlantCaptureViewModel.actions(
             onRemove = { setPhoto(null) },
             onKeep = ::keepPhoto,
         ),
+    ),
+    identification = IdentificationActions(
+        onStart = ::startIdentification,
+        onLeave = ::leaveIdentification,
+        onGrantConsent = ::grantIdentificationConsent,
+        onCamera = photos.onIdentifyCamera,
+        onLibrary = photos.onIdentifyLibrary,
+        onRetake = ::retakeIdentification,
+        onSend = ::sendForIdentification,
+        onChoose = ::chooseSuggestion,
+        onContinueByHand = ::continueByHand,
     ),
 )
 
@@ -177,7 +208,10 @@ internal fun PlantCaptureBody(
                 actionLabel = stringResource(R.string.plants_failed_retry).takeIf { state.canRetry },
                 onAction = actions.onRetry.takeIf { state.canRetry },
             )
-            is PlantCaptureState.Form -> CaptureForm(state, actions.form)
+            is PlantCaptureState.Form -> when (val step = state.step) {
+                null -> CaptureForm(state, actions)
+                else -> IdentificationFlow(step, actions.identification)
+            }
             is PlantCaptureState.Created -> CreatedBody(state, actions.onOpenPlant)
         }
     }
@@ -201,7 +235,7 @@ private fun CreatedBody(state: PlantCaptureState.Created, onOpenPlant: (String) 
 }
 
 @Composable
-private fun CaptureForm(form: PlantCaptureState.Form, actions: FormActions) {
+private fun CaptureForm(form: PlantCaptureState.Form, actions: PlantCaptureActions) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -209,19 +243,37 @@ private fun CaptureForm(form: PlantCaptureState.Form, actions: FormActions) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        PhotoSection(form, actions.photo)
-        SpeciesField(form, actions)
-        NameField(form, actions)
-        InstanceIdField(form, actions)
-        PlantedOnField(form, actions)
-        PlaceFields(form, actions)
+        if (form.identificationOffered) IdentificationEntry(actions.identification.onStart)
+        PhotoSection(form, actions.form.photo)
+        SpeciesField(form, actions.form)
+        NameField(form, actions.form)
+        InstanceIdField(form, actions.form)
+        PlantedOnField(form, actions.form)
+        PlaceFields(form, actions.form)
         FormNotice(form)
         Button(
-            onClick = actions.onSubmit,
-            enabled = !form.submitting && form.catalogue.isNotEmpty(),
+            onClick = actions.form.onSubmit,
+            // A species about to be created is a species; an empty catalogue only bars the
+            // manual route, and the identification route fills the gap it leaves.
+            enabled = !form.submitting && (form.catalogue.isNotEmpty() || form.inputs.pendingSpecies != null),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(if (form.submitting) R.string.plants_add_submitting else R.string.plants_add_submit))
+        }
+    }
+}
+
+/**
+ * The other route (R1): shown only while the instance offers a recogniser (R3). The manual
+ * form below it is always there, so this is an offer, never a gate.
+ */
+@Composable
+private fun IdentificationEntry(onStart: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.plants_add_identify_title), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.plants_add_identify_body), style = MaterialTheme.typography.bodySmall)
+            Button(onClick = onStart) { Text(stringResource(R.string.plants_add_identify_action)) }
         }
     }
 }
@@ -292,6 +344,7 @@ internal data class PlantCaptureActions(
     val onOpenSettings: () -> Unit,
     val onOpenPlant: (plantKey: String) -> Unit,
     val form: FormActions,
+    val identification: IdentificationActions,
 )
 
 internal data class FormActions(
@@ -315,4 +368,7 @@ internal data class PhotoActions(
 internal data class PhotoSources(
     val onCamera: () -> Unit,
     val onLibrary: () -> Unit,
+    /** The same two, handing over the original for the identification route (R10). */
+    val onIdentifyCamera: () -> Unit,
+    val onIdentifyLibrary: () -> Unit,
 )

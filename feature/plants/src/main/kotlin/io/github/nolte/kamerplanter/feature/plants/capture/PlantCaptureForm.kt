@@ -58,6 +58,8 @@ internal fun SpeciesField(form: PlantCaptureState.Form, actions: FormActions) {
             supportingText = {
                 when {
                     FormField.SPECIES in form.errors -> Text(stringResource(R.string.plants_add_species_required))
+                    // Named by the recogniser, absent from the catalogue: created with the plant (R25).
+                    form.inputs.pendingSpecies != null -> Text(stringResource(R.string.plants_add_species_pending))
                     form.species != null -> Text(form.species?.commonNames?.joinToString().orEmpty())
                 }
             },
@@ -71,6 +73,7 @@ internal fun SpeciesField(form: PlantCaptureState.Form, actions: FormActions) {
 private fun SpeciesMatches(form: PlantCaptureState.Form, onChoose: (SpeciesEntry) -> Unit) {
     val query = form.inputs.speciesQuery.trim()
     when {
+        form.inputs.pendingSpecies != null -> Unit
         form.catalogue.isEmpty() -> Text(
             text = stringResource(R.string.plants_add_species_empty),
             style = MaterialTheme.typography.bodySmall,

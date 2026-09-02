@@ -47,6 +47,23 @@ fun rememberPhotoPicking(
     maxCount: Int = MAX_PHOTOS,
     profile: NormalizationProfile = NormalizationProfile.GALLERY,
     onPhotos: suspend (List<ByteArray>) -> Unit,
+): PhotoPicking = rememberImagePicking(maxCount) { images ->
+    // Decoding and re-encoding a multi-megapixel photo is tens of milliseconds of work per
+    // image, and five of them on the main thread is a visible freeze on the screen the user
+    // just tapped.
+    onPhotos(withContext(Dispatchers.Default) { images.mapNotNull { it.normalized(profile, maxBytes) } })
+}
+
+/**
+ * Image picking that hands over the originals, for a caller that needs more than one upload
+ * from one capture (R10): the species recogniser gets a smaller cut than the plant's gallery
+ * keeps, and neither may be derived from the other's bytes. Most callers want
+ * [rememberPhotoPicking], which normalises on the spot.
+ */
+@Composable
+fun rememberImagePicking(
+    maxCount: Int = MAX_PHOTOS,
+    onImages: suspend (List<CapturedImage>) -> Unit,
 ): PhotoPicking {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -56,7 +73,7 @@ fun rememberPhotoPicking(
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            onPhotos(uris.mapNotNull { context.readUploadable(it, maxBytes, profile) })
+            onImages(uris.mapNotNull { context.readImage(it) })
         }
     }
 
@@ -69,9 +86,9 @@ fun rememberPhotoPicking(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         if (!saved) return@rememberLauncherForActivityResult
         scope.launch {
-            val photo = context.readUploadable(target.toUri(), maxBytes, profile)
+            val image = context.readImage(target.toUri())
             withContext(Dispatchers.IO) { target.delete() }
-            onPhotos(listOfNotNull(photo))
+            onImages(listOfNotNull(image))
         }
     }
 
@@ -92,17 +109,13 @@ fun rememberPhotoPicking(
     }
 }
 
-/** Reads a picked image and re-encodes it to something an upload can carry. */
-private suspend fun Context.readUploadable(uri: Uri, maxBytes: Int, profile: NormalizationProfile): ByteArray? =
-    withContext(Dispatchers.IO) {
-        // Decoding and re-encoding a multi-megapixel photo is tens of milliseconds of work per
-        // image, and five of them on the main thread is a visible freeze on the screen the
-        // user just tapped.
-        val raw = runCatching {
-            contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return@withContext null
-        JpegDownscale.toUploadable(raw, maxBytes, raw.exifRotationDegrees(), profile)
-    }
+/** Reads a picked image as it is, with the rotation its metadata asks for. */
+private suspend fun Context.readImage(uri: Uri): CapturedImage? = withContext(Dispatchers.IO) {
+    val raw = runCatching {
+        contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    }.getOrNull() ?: return@withContext null
+    PickedImage(raw, raw.exifRotationDegrees())
+}
 
 /**
  * How far the photo has to turn to sit upright.
@@ -142,4 +155,9 @@ private const val THREE_QUARTER_TURN = 270
 /** The endpoint's own ceiling: a diary entry references at most five photos. */
 const val MAX_PHOTOS: Int = 5
 
-private const val MAX_PHOTO_BYTES = 4 * 1024 * 1024
+/**
+ * What one uploaded photo may weigh after re-encoding, where the endpoint names no ceiling of
+ * its own: the diary and the plant's gallery. Large enough that a leaf's underside is legible,
+ * small enough that five of them do not time out on a phone connection.
+ */
+const val MAX_PHOTO_BYTES: Int = 4 * 1024 * 1024

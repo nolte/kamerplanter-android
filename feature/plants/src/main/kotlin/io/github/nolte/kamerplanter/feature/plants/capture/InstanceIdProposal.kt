@@ -10,7 +10,9 @@ package io.github.nolte.kamerplanter.feature.plants.capture
  * this form makes the location optional where the planting run does not (R20).
  *
  * `null` while there is no species to derive a prefix from; the field stays editable either
- * way, and a proposal never overwrites what the user typed.
+ * way, and a proposal never overwrites what the user typed. [speciesKey] may also be a
+ * scientific name, for a species the recogniser named and the instance has not created yet
+ * (R25): the instance derives its keys from that name, so the leading letters agree.
  */
 internal fun proposeInstanceId(speciesKey: String?, locationKey: String?, taken: Set<String>): String? {
     val letters = speciesKey.orEmpty().filter { it in 'a'..'z' || it in 'A'..'Z' }.uppercase()
