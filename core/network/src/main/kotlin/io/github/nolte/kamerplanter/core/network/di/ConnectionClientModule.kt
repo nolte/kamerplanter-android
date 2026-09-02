@@ -8,10 +8,12 @@ import io.github.nolte.kamerplanter.core.connection.ConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkConnectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkPestDetectionClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantActionsClient
+import io.github.nolte.kamerplanter.core.network.NetworkPlantCaptureClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantPageClient
 import io.github.nolte.kamerplanter.core.network.NetworkPlantsClient
 import io.github.nolte.kamerplanter.core.network.PestDetectionClient
 import io.github.nolte.kamerplanter.core.network.PlantActionsClient
+import io.github.nolte.kamerplanter.core.network.PlantCaptureClient
 import io.github.nolte.kamerplanter.core.network.PlantPageClient
 import io.github.nolte.kamerplanter.core.network.PlantsClient
 import javax.inject.Singleton
@@ -49,4 +51,9 @@ internal interface ConnectionClientModule {
     @Binds
     @Singleton
     fun bindPestDetectionClient(impl: NetworkPestDetectionClient): PestDetectionClient
+
+    /** Adds a plant, by photo or by hand (R-8). */
+    @Binds
+    @Singleton
+    fun bindPlantCaptureClient(impl: NetworkPlantCaptureClient): PlantCaptureClient
 }

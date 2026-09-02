@@ -20,7 +20,6 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Renews an expired access token (R21, R22).
@@ -197,15 +196,5 @@ class SessionRefresher(
         /** Same instance, whatever path the failing endpoint happened to sit under. */
         fun HttpUrl.sameInstanceAs(other: HttpUrl): Boolean =
             scheme == other.scheme && host == other.host && port == other.port
-
-        @Suppress("TooGenericExceptionCaught")
-        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
-            try {
-                Result.success(block())
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                Result.failure(failure)
-            }
     }
 }

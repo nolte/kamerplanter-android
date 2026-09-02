@@ -15,11 +15,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Yard
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +63,7 @@ import java.time.ZoneId
 fun PlantsScreen(
     onOpenSettings: () -> Unit,
     onOpenPlant: (plantKey: String) -> Unit,
+    onAddPlant: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlantListViewModel = hiltViewModel(),
 ) {
@@ -77,6 +80,7 @@ fun PlantsScreen(
             onOpenSettings = onOpenSettings,
             onOpenPlant = onOpenPlant,
             onFilterChange = viewModel::filterBy,
+            onAddPlant = onAddPlant,
         ),
         imageLoader = imageLoader,
         modifier = modifier,
@@ -123,6 +127,21 @@ internal fun PlantsContent(
                 )
             }
             is PlantListState.Content -> PlantList(state, imageLoader, actions)
+        }
+        // Offered while connected and nowhere else (R2): an empty tenant is the first place a
+        // plant gets added, so the empty state carries it as well as the list.
+        if (state is PlantListState.Content || state == PlantListState.Empty) {
+            FloatingActionButton(
+                onClick = actions.onAddPlant,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = stringResource(R.string.plants_add_action),
+                )
+            }
         }
     }
 }
@@ -404,7 +423,7 @@ private val CARE_LABELS = mapOf(
 )
 
 @Composable
-private fun CenteredMessage(
+internal fun CenteredMessage(
     title: String,
     body: String? = null,
     actionLabel: String? = null,
@@ -455,4 +474,5 @@ data class PlantListActions(
     val onOpenSettings: () -> Unit,
     val onOpenPlant: (plantKey: String) -> Unit,
     val onFilterChange: (PlantFilter) -> Unit,
+    val onAddPlant: () -> Unit = {},
 )

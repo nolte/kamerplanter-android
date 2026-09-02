@@ -230,9 +230,16 @@ interface PlantActionsClient {
      * Exists for images that were captured for something else and are worth keeping: the
      * detection upload never persists its frame, so an explicit second upload is the one and
      * only way such a picture is ever stored — which is exactly the criterion's shape, and
-     * the same mechanism plant capture (#50) will keep an identification photo with.
+     * the same mechanism plant capture (#50) keeps its photo with.
+     *
+     * [asCover] follows the upload with `PUT …/photos/{id}/cover` (R29). The explicit call is
+     * kept although `cover_photo_ref` already resolves to the first photo: without it
+     * `is_cover` stays `false`, and a client reading that flag would show a plant with no
+     * cover. A cover call that fails after a successful upload is still [ActionOutcome.Done]:
+     * the photo is on the instance and resolves to the cover by position, and a failure that
+     * read as "not saved" would invite the retry that stores it twice. The miss is logged.
      */
-    suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome
+    suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean = false): ActionOutcome
 
     /**
      * Records a care task as done — watering, fertilising, a pest check.

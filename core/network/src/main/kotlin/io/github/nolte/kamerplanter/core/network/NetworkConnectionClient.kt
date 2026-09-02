@@ -20,7 +20,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The real [ConnectionClient], replacing the debug fake and the release placeholder that
@@ -515,21 +514,6 @@ class NetworkConnectionClient(
             is ConnectionFailure -> message.orEmpty()
             else -> this::class.simpleName.orEmpty()
         }
-
-        /**
-         * [runCatching], minus the throwable it must never swallow. Catching
-         * [CancellationException] would turn "the user navigated away" into an ordinary
-         * connection failure and report it as one.
-         */
-        @Suppress("TooGenericExceptionCaught")
-        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
-            try {
-                Result.success(block())
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                Result.failure(failure)
-            }
     }
 }
 

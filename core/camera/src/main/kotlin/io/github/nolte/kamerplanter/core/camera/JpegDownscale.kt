@@ -22,7 +22,7 @@ import java.io.ByteArrayOutputStream
 object JpegDownscale {
 
     /**
-     * The longest edge worth sending.
+     * The longest edge worth sending, for the profile every caller had before there were two.
      *
      * The backend's own `pest_detection_max_image_dimension` defaults to 2048 and it downscales
      * to that before tiling, so anything beyond is discarded on arrival. Matching it exactly
@@ -31,8 +31,6 @@ object JpegDownscale {
      */
     const val MAX_EDGE_PX = 2048
 
-    /** Where quality starts. Below this a mite a few pixels across stops being resolvable. */
-    private const val INITIAL_QUALITY = 90
     private const val MINIMUM_QUALITY = 60
     private const val QUALITY_STEP = 10
 
@@ -42,17 +40,22 @@ object JpegDownscale {
      * `null` rather than a best effort: an image that still exceeds the limit would be refused
      * by the instance anyway, and the caller can say so before spending the upload.
      */
-    fun toUploadable(jpeg: ByteArray, maxBytes: Int, rotationDegrees: Int = 0): ByteArray? {
-        val decoded = decode(jpeg) ?: return null
+    fun toUploadable(
+        jpeg: ByteArray,
+        maxBytes: Int,
+        rotationDegrees: Int = 0,
+        profile: NormalizationProfile = NormalizationProfile.GALLERY,
+    ): ByteArray? {
+        val decoded = decode(jpeg, profile.maxEdgePx) ?: return null
         // Each stage releases the one before it. The decode can be ~48 MB for a sensor whose
         // width sits just under twice the cap, and holding all three at once on a low-RAM
         // device is the difference between a photo and an OutOfMemoryError. `recycle` on a
         // bitmap that was returned unchanged would destroy the one still in use, so each is
         // only freed when the next stage actually produced something else.
-        val scaled = decoded.scaledToFit(MAX_EDGE_PX).also { if (it !== decoded) decoded.recycle() }
+        val scaled = decoded.scaledToFit(profile.maxEdgePx).also { if (it !== decoded) decoded.recycle() }
         val upright = scaled.rotated(rotationDegrees).also { if (it !== scaled) scaled.recycle() }
 
-        var quality = INITIAL_QUALITY
+        var quality = profile.initialQuality
         while (true) {
             val encoded = upright.encode(quality)
             if (encoded.size <= maxBytes || quality <= MINIMUM_QUALITY) {
@@ -63,14 +66,14 @@ object JpegDownscale {
         }
     }
 
-    private fun decode(jpeg: ByteArray): Bitmap? {
+    private fun decode(jpeg: ByteArray, maxEdgePx: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         // Subsampled on the way in, so a 50-megapixel capture never becomes 200 MB of
         // ARGB_8888 in the first place — the scale below would be too late.
         val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSizeFor(maxOf(bounds.outWidth, bounds.outHeight), MAX_EDGE_PX)
+            inSampleSize = sampleSizeFor(maxOf(bounds.outWidth, bounds.outHeight), maxEdgePx)
         }
         return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, options)
     }
@@ -103,6 +106,28 @@ object JpegDownscale {
 
     private const val FULL_TURN = 360
 }
+
+/**
+ * How far an image is brought down before it is sent — the one place these numbers live (R12).
+ *
+ * Two uploads can come from one capture: the recogniser gets less than the gallery keeps,
+ * and neither may be derived from the other's bytes (R10). [maxEdgePx] caps the long edge;
+ * [initialQuality] is where JPEG quality starts before the byte cap steps it down.
+ */
+enum class NormalizationProfile(val maxEdgePx: Int, val initialQuality: Int) {
+    /**
+     * What a plant's own gallery keeps, and what pest detection sends: 2048 px, quality 90 —
+     * below 90 a mite a few pixels across stops being resolvable.
+     */
+    GALLERY(JpegDownscale.MAX_EDGE_PX, GALLERY_QUALITY),
+
+    /** What the species recogniser is given: 1280 px, quality 85 (`REQ-052` §3). */
+    RECOGNITION(RECOGNITION_EDGE_PX, RECOGNITION_QUALITY),
+}
+
+private const val GALLERY_QUALITY = 90
+private const val RECOGNITION_EDGE_PX = 1280
+private const val RECOGNITION_QUALITY = 85
 
 /**
  * The subsampling factor that keeps [sourceEdge] at or **above** [target].

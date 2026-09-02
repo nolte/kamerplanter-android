@@ -159,6 +159,32 @@ class NetworkDiaryWriteTest {
         assertEquals(ActionOutcome.Unauthorized, client().addPhoto("p1", byteArrayOf(1)))
     }
 
+    /** R29: the cover is set explicitly, after the upload, against the id the upload returned. */
+    @Test
+    fun `a cover photo is uploaded first and then named the cover`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        val coverPath = "/api/v1/t/demo/plant-instances/p1/photos/att-9/cover"
+        bodies[photosPath] = """{"attachment_id":"att-9"}"""
+
+        val outcome = client().addPhoto("p1", byteArrayOf(1), asCover = true)
+
+        assertEquals(ActionOutcome.Done, outcome)
+        assertEquals(listOf(photosPath, coverPath), synchronized(requests) { requests.map { it.first } })
+    }
+
+    /** R30: a cover call that fails after a successful upload is not a failed photo — the photo is stored once. */
+    @Test
+    fun `a failed cover call after a stored photo is done, not retried`() = runTest {
+        val photosPath = "/api/v1/t/demo/plant-instances/p1/photos"
+        bodies[photosPath] = """{"attachment_id":"att-9"}"""
+        statuses["/api/v1/t/demo/plant-instances/p1/photos/att-9/cover"] = 500
+
+        val outcome = client().addPhoto("p1", byteArrayOf(1), asCover = true)
+
+        assertEquals(ActionOutcome.Done, outcome)
+        assertEquals(1, sent(photosPath).size)
+    }
+
     /** The photo is stored on a 201 whatever shape the answer takes: raw JSON, no strict model. */
     @Test
     fun `a stored photo is done even when the answer carries fields this build does not know`() = runTest {

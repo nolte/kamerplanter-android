@@ -156,7 +156,7 @@ internal class FakePlantActions : PlantActionsClient {
     override suspend fun requestAnalysis(plantKey: String, entryKey: String): ActionOutcome =
         ActionOutcome.Done
 
-    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray): ActionOutcome =
+    override suspend fun addPhoto(plantKey: String, jpeg: ByteArray, asCover: Boolean): ActionOutcome =
         ActionOutcome.Done
 
     override suspend fun confirmCare(plantKey: String, kind: String): ActionOutcome =

@@ -1197,7 +1197,7 @@ private fun NoteDialogBody(
  * asked for.
  */
 @Composable
-private fun rememberCameraGate(permission: CameraPermission): (() -> Unit) -> Unit {
+internal fun rememberCameraGate(permission: CameraPermission): (() -> Unit) -> Unit {
     var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
     LaunchedEffect(permission.isGranted) {
         if (permission.isGranted) {

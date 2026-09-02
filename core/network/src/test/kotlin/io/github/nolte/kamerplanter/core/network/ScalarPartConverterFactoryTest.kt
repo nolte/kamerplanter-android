@@ -4,6 +4,7 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.AttachmentsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.AuthApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.CareRemindersApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.HealthApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.IdentificationApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.LocationsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PestDetectionApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PhasesApi
@@ -11,6 +12,9 @@ import io.github.nolte.kamerplanter.core.network.generated.apis.PlantDiaryApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantInstancesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PlantPhotosApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.PrivacyApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.RecognitionApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.SitesApi
+import io.github.nolte.kamerplanter.core.network.generated.apis.SpeciesApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.TenantsApi
 import io.github.nolte.kamerplanter.core.network.generated.apis.UsersApi
 import okhttp3.MultipartBody
@@ -49,6 +53,7 @@ class ScalarPartConverterFactoryTest {
         AuthApi::class.java,
         CareRemindersApi::class.java,
         HealthApi::class.java,
+        IdentificationApi::class.java,
         LocationsApi::class.java,
         PestDetectionApi::class.java,
         PhasesApi::class.java,
@@ -56,6 +61,9 @@ class ScalarPartConverterFactoryTest {
         PlantInstancesApi::class.java,
         PlantPhotosApi::class.java,
         PrivacyApi::class.java,
+        RecognitionApi::class.java,
+        SitesApi::class.java,
+        SpeciesApi::class.java,
         TenantsApi::class.java,
         UsersApi::class.java,
     )

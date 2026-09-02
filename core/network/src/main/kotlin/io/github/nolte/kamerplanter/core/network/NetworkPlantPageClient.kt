@@ -14,7 +14,6 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Reads one plant's page from the connected instance, a section at a time.
@@ -203,15 +202,5 @@ class NetworkPlantPageClient @Inject constructor(
             if (!isSuccessful) throw HttpFailure(code())
             return body() ?: throw HttpFailure(code())
         }
-
-        @Suppress("TooGenericExceptionCaught")
-        inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
-            try {
-                Result.success(block())
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (failure: Throwable) {
-                Result.failure(failure)
-            }
     }
 }

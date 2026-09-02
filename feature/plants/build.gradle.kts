@@ -73,6 +73,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.navigation.compose)
+    // `BackHandler`: on the identification route, back returns to the form, not to the list.
+    implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)
 
     // Thumbnails. The OkHttp-backed loader is what lets the stored credential reach an
