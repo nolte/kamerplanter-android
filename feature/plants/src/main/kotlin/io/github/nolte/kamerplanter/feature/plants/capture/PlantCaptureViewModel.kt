@@ -54,6 +54,8 @@ class PlantCaptureViewModel(
     /** Where a kept photo goes: the plant's own gallery, as its cover (R29). */
     private val plants: PlantActionsClient,
     private val today: () -> LocalDate,
+    /** The clock the identifier's suffix is taken from, as the web UI takes it (R19). */
+    private val nowMillis: () -> Long,
     /** The language the interface speaks, which is what the recogniser names species in. */
     private val language: () -> String,
     /** Where images are re-encoded: decoding a sensor's frame is not main-thread work. */
@@ -70,6 +72,7 @@ class PlantCaptureViewModel(
         capture = capture,
         plants = plants,
         today = LocalDate::now,
+        nowMillis = System::currentTimeMillis,
         language = { Locale.getDefault().language },
         work = Dispatchers.Default,
     )
@@ -115,7 +118,11 @@ class PlantCaptureViewModel(
         val loadedSites = (sites.await() as? Fetched.Loaded)?.value
         val takenIds = (taken.await() as? Fetched.Loaded)?.value.orEmpty()
         PlantCaptureState.Form(
-            inputs = FormInputs(plantedOn = today()),
+            // Proposed from the start, `PLANT-` until a species names it — as the web UI does.
+            inputs = FormInputs(
+                plantedOn = today(),
+                instanceId = proposeInstanceId(null, today(), nowMillis(), takenIds),
+            ),
             catalogue = loadedCatalogue,
             sites = loadedSites.orEmpty(),
             locations = null,
@@ -482,23 +489,22 @@ class PlantCaptureViewModel(
     }
 
     /**
-     * Applies an edit and re-derives the identifier proposal from it (R19) — unless the user
-     * has taken the field over, in which case what they typed stands.
+     * Applies an edit and re-derives the identifier proposal when the species changed (R19) —
+     * unless the user has taken the field over, in which case what they typed stands.
      */
     private inline fun updateInputs(change: FormInputs.() -> FormInputs) = updateForm { withInputs(change) }
 
     private inline fun PlantCaptureState.Form.withInputs(change: FormInputs.() -> FormInputs): PlantCaptureState.Form {
         val edited = inputs.change()
-        val proposed = if (edited.instanceIdEdited) {
+        val speciesChanged = edited.speciesKey != inputs.speciesKey || edited.pendingSpecies != inputs.pendingSpecies
+        val proposed = if (edited.instanceIdEdited || !speciesChanged) {
             edited
         } else {
-            // A species still to be created has no key yet; its scientific name carries the
-            // same leading letters the instance would derive the key from.
-            val prefixSource = edited.speciesKey ?: edited.pendingSpecies?.scientificName
-            edited.copy(
-                instanceId = proposeInstanceId(prefixSource, edited.locationKey, takenIds)
-                    ?: edited.instanceId.takeIf { edited.hasSpecies }.orEmpty(),
-            )
+            // The prefix comes from the scientific name, as in the web UI: the instance's
+            // keys are numbers, and a species still to be created has no key at all.
+            val speciesName = catalogue.firstOrNull { it.key == edited.speciesKey }?.scientificName
+                ?: edited.pendingSpecies?.scientificName
+            edited.copy(instanceId = proposeInstanceId(speciesName, today(), nowMillis(), takenIds))
         }
         return copy(inputs = proposed, errors = emptySet())
     }

@@ -62,6 +62,7 @@ class PlantCaptureViewModelTest {
         capture = capture,
         plants = plants,
         today = { today },
+        nowMillis = { CLOCK },
         language = { "de" },
         work = dispatcher,
     )
@@ -102,7 +103,8 @@ class PlantCaptureViewModelTest {
 
         assertEquals(today, form.inputs.plantedOn)
         assertNull(form.inputs.speciesKey)
-        assertEquals("", form.inputs.instanceId)
+        // Proposed before a species is chosen, with the web UI's placeholder prefix.
+        assertEquals("PLANT-0902-FLS", form.inputs.instanceId)
         assertEquals(2, form.catalogue.size)
         assertEquals(1, form.sites.size)
     }
@@ -161,19 +163,34 @@ class PlantCaptureViewModelTest {
 
     // --- the identifier (R19–R21) -------------------------------------------------------------
 
+    /** R19: the web UI's shape, from the scientific name; R21: stepped past what is taken. */
     @Test
-    fun `the identifier is proposed from species and location and skips what is taken`() {
-        capture.taken = Fetched.Loaded(setOf("SPM_01"))
+    fun `the identifier is proposed from the species in the web UI's shape and skips what is taken`() {
+        capture.taken = Fetched.Loaded(setOf("MONST-0902-FLS"))
         val model = viewModel()
         model.form()
 
         model.chooseSpecies(MONSTERA)
-        assertEquals("SPM_02", model.form().inputs.instanceId)
+        assertEquals("MONST-0902-FLT", model.form().inputs.instanceId)
 
+        // The location is no part of it, as in the web UI — and re-choosing nothing keeps it.
         model.chooseSite("site-1")
         model.form()
         model.chooseLocation("loc-1")
-        assertEquals("loc-1_SPM_01", model.form().inputs.instanceId)
+        assertEquals("MONST-0902-FLT", model.form().inputs.instanceId)
+    }
+
+    /** Found on the device: the instance's keys are numbers, so nothing may be derived from them. */
+    @Test
+    fun `a numeric species key still yields a proposal, from the scientific name`() {
+        val numeric = SpeciesEntry("8271634", "Monstera adansonii", listOf("Monkey Mask"))
+        capture.catalogue = Fetched.Loaded(listOf(numeric))
+        val model = viewModel()
+        model.form()
+
+        model.chooseSpecies(numeric)
+
+        assertEquals("MONST-0902-FLS", model.form().inputs.instanceId)
     }
 
     @Test
@@ -266,7 +283,7 @@ class PlantCaptureViewModelTest {
 
         assertEquals(PlantCaptureState.Created("p-9", photoSaved = true), model.state.settled())
         val draft = capture.created.single()
-        assertEquals(PlantDraft("loc-1_SPM_01", "sp-monstera", today, "Fenster", "site-1", "loc-1"), draft)
+        assertEquals(PlantDraft("MONST-0902-FLS", "sp-monstera", today, "Fenster", "site-1", "loc-1"), draft)
         val (plantKey, jpeg, asCover) = plants.photos.single()
         assertEquals("p-9", plantKey)
         assertTrue(jpeg.contentEquals(byteArrayOf(1, 2, 3)))
@@ -561,7 +578,7 @@ class PlantCaptureViewModelTest {
         assertNull(form.step)
         assertEquals("sp-monstera", form.inputs.speciesKey)
         assertEquals("Monstera deliciosa", form.inputs.speciesQuery)
-        assertEquals("SPM_01", form.inputs.instanceId)
+        assertEquals("MONST-0902-FLS", form.inputs.instanceId)
         assertEquals("req", form.identificationRequestKey)
         // The plant's picture is the gallery cut of the original, never the recogniser's bytes (R10).
         assertTrue(form.photo!!.jpeg.contentEquals(GALLERY_BYTES))
@@ -644,7 +661,7 @@ class PlantCaptureViewModelTest {
         val expected = SpeciesDraft("Pilea peperomioides", listOf("Chinese money plant"), "Pilea")
         assertEquals(expected, form.inputs.pendingSpecies)
         assertEquals("Pilea peperomioides", form.inputs.speciesQuery)
-        assertEquals("PIL_01", form.inputs.instanceId)
+        assertEquals("PILEA-0902-FLS", form.inputs.instanceId)
         assertTrue(capture.speciesCreated.isEmpty())
 
         model.submit()
@@ -838,6 +855,8 @@ class PlantCaptureViewModelTest {
     }
 
     private companion object {
+        /** `1_000_000 % 46656 = 20224` — `FLS` in base 36, the suffix every proposal here ends in. */
+        const val CLOCK = 1_000_000L
         val MONSTERA = SpeciesEntry("sp-monstera", "Monstera deliciosa", listOf("Swiss cheese plant"))
         val FICUS = SpeciesEntry("sp-ficus", "Ficus lyrata", listOf("Fiddle-leaf fig"))
         val CATALOGUE = listOf(MONSTERA, FICUS)
