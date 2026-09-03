@@ -1,8 +1,10 @@
 package io.github.nolte.kamerplanter.feature.plants.capture
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
+import java.util.Locale
 
 /**
  * The identifier proposal, held against the web UI's `idGenerator.ts` (R19): the same input
@@ -11,9 +13,11 @@ import java.time.LocalDate
 class InstanceIdProposalTest {
 
     private val today = LocalDate.of(2026, 7, 13)
+    private val clock = TEST_CLOCK
+    private val defaultLocale = Locale.getDefault()
 
-    /** `1_000_000 % 46656 = 20224`, which is `FLS` in base 36. */
-    private val clock = 1_000_000L
+    @After
+    fun restoreLocale() = Locale.setDefault(defaultLocale)
 
     @Test
     fun `follows the web UI's shape, prefix from the scientific name`() {
@@ -44,6 +48,19 @@ class InstanceIdProposalTest {
     fun `the suffix wraps at 36 cubed and is padded to three characters`() {
         assertEquals("MONST-0713-000", proposeInstanceId("Monstera", today, 46656L, emptySet()))
         assertEquals("MONST-0713-001", proposeInstanceId("Monstera", today, 46657L, emptySet()))
+    }
+
+    /** A clock before 1970 is exotic, but the suffix must not carry its sign. */
+    @Test
+    fun `a negative clock still gives three characters`() {
+        assertEquals("MONST-0713-ZZZ", proposeInstanceId("Monstera", today, -1L, emptySet()))
+    }
+
+    /** The digits are the identifier's, not the device language's. */
+    @Test
+    fun `the date keeps ASCII digits under a locale with its own digit set`() {
+        Locale.setDefault(Locale.forLanguageTag("ar-EG"))
+        assertEquals("MONST-0713-FLS", proposeInstanceId("Monstera deliciosa", today, clock, emptySet()))
     }
 
     /** R21: what the web UI leaves to the clock, the form steps past. */

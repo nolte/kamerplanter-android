@@ -55,7 +55,7 @@ class PlantCaptureViewModel(
     private val plants: PlantActionsClient,
     private val today: () -> LocalDate,
     /** The clock the identifier's suffix is taken from, as the web UI takes it (R19). */
-    private val nowMillis: () -> Long,
+    private val clock: () -> Long,
     /** The language the interface speaks, which is what the recogniser names species in. */
     private val language: () -> String,
     /** Where images are re-encoded: decoding a sensor's frame is not main-thread work. */
@@ -72,7 +72,7 @@ class PlantCaptureViewModel(
         capture = capture,
         plants = plants,
         today = LocalDate::now,
-        nowMillis = System::currentTimeMillis,
+        clock = System::currentTimeMillis,
         language = { Locale.getDefault().language },
         work = Dispatchers.Default,
     )
@@ -117,12 +117,10 @@ class PlantCaptureViewModel(
         // plant, so their failure is a notice on the form rather than the form's absence.
         val loadedSites = (sites.await() as? Fetched.Loaded)?.value
         val takenIds = (taken.await() as? Fetched.Loaded)?.value.orEmpty()
+        val date = today()
         PlantCaptureState.Form(
             // Proposed from the start, `PLANT-` until a species names it — as the web UI does.
-            inputs = FormInputs(
-                plantedOn = today(),
-                instanceId = proposeInstanceId(null, today(), nowMillis(), takenIds),
-            ),
+            inputs = FormInputs(plantedOn = date, instanceId = proposal(null, date, takenIds)),
             catalogue = loadedCatalogue,
             sites = loadedSites.orEmpty(),
             locations = null,
@@ -488,26 +486,27 @@ class PlantCaptureViewModel(
         _state.update { current -> (current as? PlantCaptureState.Form)?.change() ?: current }
     }
 
-    /**
-     * Applies an edit and re-derives the identifier proposal when the species changed (R19) —
-     * unless the user has taken the field over, in which case what they typed stands.
-     */
     private inline fun updateInputs(change: FormInputs.() -> FormInputs) = updateForm { withInputs(change) }
 
+    /**
+     * Applies an edit and re-derives the identifier proposal when the species changed (R19) —
+     * unless the user has taken the field over, in which case what they typed stands. Other
+     * edits leave the identifier alone: a fresh suffix on every keystroke would be a field
+     * that never holds still.
+     */
     private inline fun PlantCaptureState.Form.withInputs(change: FormInputs.() -> FormInputs): PlantCaptureState.Form {
         val edited = inputs.change()
+        val next = copy(inputs = edited, errors = emptySet())
         val speciesChanged = edited.speciesKey != inputs.speciesKey || edited.pendingSpecies != inputs.pendingSpecies
-        val proposed = if (edited.instanceIdEdited || !speciesChanged) {
-            edited
-        } else {
-            // The prefix comes from the scientific name, as in the web UI: the instance's
-            // keys are numbers, and a species still to be created has no key at all.
-            val speciesName = catalogue.firstOrNull { it.key == edited.speciesKey }?.scientificName
-                ?: edited.pendingSpecies?.scientificName
-            edited.copy(instanceId = proposeInstanceId(speciesName, today(), nowMillis(), takenIds))
-        }
-        return copy(inputs = proposed, errors = emptySet())
+        if (edited.instanceIdEdited || !speciesChanged) return next
+        // The prefix comes from the scientific name, as in the web UI: the instance's keys
+        // are numbers, and a species still to be created has no key at all.
+        val speciesName = next.species?.scientificName ?: edited.pendingSpecies?.scientificName
+        return next.copy(inputs = edited.copy(instanceId = proposal(speciesName, today(), takenIds)))
     }
+
+    private fun proposal(speciesName: String?, date: LocalDate, taken: Set<String>): String =
+        proposeInstanceId(speciesName, date, clock(), taken)
 
     private companion object {
         /** The `/identify` route's own ceiling. */

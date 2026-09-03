@@ -39,8 +39,8 @@ sealed interface PlantCaptureState {
      * The capture form (R17–R24, R28).
      *
      * [inputs] is what the user typed or chose; the rest is what the instance offered. The
-     * identifier proposal (R19) is derived into [inputs] whenever species or location change
-     * and the user has not taken the field over.
+     * identifier proposal (R19) is derived into [inputs] whenever the species changes and the
+     * user has not taken the field over.
      */
     data class Form(
         val inputs: FormInputs,

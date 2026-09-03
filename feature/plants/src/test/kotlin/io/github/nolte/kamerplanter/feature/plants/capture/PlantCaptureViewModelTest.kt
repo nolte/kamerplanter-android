@@ -62,7 +62,7 @@ class PlantCaptureViewModelTest {
         capture = capture,
         plants = plants,
         today = { today },
-        nowMillis = { CLOCK },
+        clock = { TEST_CLOCK },
         language = { "de" },
         work = dispatcher,
     )
@@ -159,6 +159,8 @@ class PlantCaptureViewModelTest {
 
         model.searchSpecies("Monstera d")
         assertNull(model.form().inputs.speciesKey)
+        // No species any more, so the proposal falls back to the web UI's placeholder prefix.
+        assertEquals("PLANT-0902-FLS", model.form().inputs.instanceId)
     }
 
     // --- the identifier (R19–R21) -------------------------------------------------------------
@@ -855,8 +857,6 @@ class PlantCaptureViewModelTest {
     }
 
     private companion object {
-        /** `1_000_000 % 46656 = 20224` — `FLS` in base 36, the suffix every proposal here ends in. */
-        const val CLOCK = 1_000_000L
         val MONSTERA = SpeciesEntry("sp-monstera", "Monstera deliciosa", listOf("Swiss cheese plant"))
         val FICUS = SpeciesEntry("sp-ficus", "Ficus lyrata", listOf("Fiddle-leaf fig"))
         val CATALOGUE = listOf(MONSTERA, FICUS)
