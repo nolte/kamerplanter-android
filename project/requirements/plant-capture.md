@@ -172,16 +172,21 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   catalogue is empty". The search SHALL be client-side: `GET /api/v1/species` accepts
   `offset`/`limit` and nothing else.
   - _dimension_: `constraints` · _status_: `confirmed` · _source_: pinned schema; `src/backend/app/api/v1/species/router.py` declares no `/search` route either, so `REQ-021` §3.8's assumed `GET /species/search?q=…` does not exist; teach-back
-- **R19** — The app SHALL pre-fill `instance_id` following the upstream convention
-  `{LOCATION_KEY}_{PREFIX}_{SEQ:02d}`, with `PREFIX` derived from the species key as its
-  first three `A`–`Z` letters (minimum two), and SHALL keep the field visible and editable.
-  - _dimension_: `domain_objects` · _status_: `confirmed` · _source_: `src/backend/app/domain/engines/planting_run_engine.py:34`; prefix rule `src/backend/app/domain/engines/succession_plan_engine.py:78`, pattern `^[A-Z]{2,5}$` from `domain/models/planting_run.py:36`; Q3; teach-back
-- **R20** — WHEN no location is chosen, the app SHALL omit the location segment of that
-  identifier. This is a deliberate deviation: the upstream rule assumes a location, and this
-  form makes it optional.
-  - _dimension_: `domain_objects` · _status_: `confirmed` · _source_: `PlantCreate.location_key` is nullable in the pinned schema while `planting_run_engine.py:34` always has one; teach-back
+- **R19** — The app SHALL pre-fill `instance_id` with the **web UI's own rule for a single
+  plant**, `{PREFIX}-{MMDD}-{SUFFIX}`: `PREFIX` is the first five `A`–`Z`/`0`–`9` characters
+  of the species' scientific name after folding diacritics and dropping everything else,
+  upper-cased, or `PLANT` while no species is chosen; `MMDD` is today's month and day; `SUFFIX`
+  is the current time in milliseconds modulo 36³ as three base-36 characters. The field SHALL
+  stay visible and editable, and SHALL be re-proposed when the species changes unless the user
+  has edited it.
+  - _dimension_: `domain_objects` · _status_: `confirmed` · _source_: `src/frontend/src/utils/idGenerator.ts` `generateInstanceId` and its call sites in `src/frontend/src/pages/pflanzen/PlantInstanceCreateDialog.tsx`; the plants observed on the operator's instance (`MONST-0713-WG7`, `AGLAO-0617-RB5`, `DAHLI-0710-3LN`); operator decision 2026-09-03 "UI und App sollten den selben Regeln folgen"
+- **R20** — The location SHALL NOT be part of the identifier. (Superseded: the earlier text
+  omitted the *location segment* of the planting-run convention when no location was chosen;
+  the web UI's rule has no location segment at all.)
+  - _dimension_: `domain_objects` · _status_: `confirmed` · _source_: `idGenerator.ts` reads only the species name and the clock; operator decision 2026-09-03
 - **R21** — The app SHALL check the proposed identifier for uniqueness against the plant
-  list it has loaded, and SHALL treat that check as best-effort. `GET /plant-instances` is
+  list it has loaded — stepping the suffix past any identifier in use, which the web UI
+  leaves to the clock — and SHALL treat that check as best-effort. `GET /plant-instances` is
   paginated (default 50, maximum 200) and `POST /plant-instances` declares no `409`, so a
   collision is neither fully detectable client-side nor refused server-side.
   - _dimension_: `edge_cases` · _status_: `confirmed` · _source_: pinned schema, both routes; teach-back
@@ -278,11 +283,10 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
 - **`429` is undeclared.** `REQ-029` §3.7 raises `RateLimitError` as a `429`, but the pinned
   schema declares only `401/403/404/422` on `/identify`. R33 requires it to read as its own
   outcome; until the schema declares it, the app recognizes it by status code alone.
-- **The web UI's own `instance_id` rule for single plants was not located.** R19 adopts the
-  planting-run convention, which is the only generation rule found in the backend. Whether
-  the web UI's single-plant create form does the same is unestablished — the observation
-  that would settle it is reading that form's submit path, which was not made because the
-  route was not located in `src/frontend/src/pages/pflanzen/`.
+- ~~**The web UI's own `instance_id` rule for single plants was not located.**~~ Located on
+  2026-09-03 (`src/frontend/src/utils/idGenerator.ts`) after the first device run showed the
+  planting-run prefix could not be derived at all — see the correction record. R19/R20 now
+  follow it.
 - **Deviation from `REQ-021` §3.8.** The Quick-Add flow specifies four fields — species,
   nickname, site, location. This form carries the same four plus `instance_id` and
   `planted_on`, which are mandatory on `PlantCreate` and which that flow does not name.
@@ -297,6 +301,17 @@ Self-consistency (`k ≥ 2`) was decisive on two dimensions:
   been removed: the route declares `401/403/404/422` and never `400`.
 
 ## Correction record
+
+- **2026-09-03 — R19/R20 re-decided after the first device run.** The planting-run convention
+  derives its prefix from the *species key*, and the instance's species keys are plain numbers
+  (`8271634`): on the Pixel 7a the identifier field stayed empty after every species choice.
+  Looking for the rule the web UI applies instead — the observation the artefact had recorded
+  as "not made" — found `generateInstanceId` in `src/frontend/src/utils/idGenerator.ts`, and
+  every plant on the operator's instance carries its shape (`MONST-0713-WG7`). The operator
+  decided that app and web UI follow one rule; R19 now cites the web UI's, R20's location
+  segment is gone, and R21 keeps the app's one addition, the step past a taken identifier.
+  The planting-run reading is kept here because it is the only rule the *backend* has, and
+  the next reader will find it first, as this one did.
 
 - **2026-08-22 — the species gap was re-decided after the first teach-back.** The interview
   first settled on refusing creation and pointing at the web UI, on the stated grounds that

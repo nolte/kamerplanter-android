@@ -75,10 +75,16 @@ class PlantCaptureFormTest {
     @Test
     fun theProposedIdentifierAndDateArePreFilled() {
         show(
-            form(inputs = FormInputs(speciesKey = "sp-1", speciesQuery = "Monstera deliciosa", instanceId = "MON_01")),
+            form(
+                inputs = FormInputs(
+                    speciesKey = "sp-1",
+                    speciesQuery = "Monstera deliciosa",
+                    instanceId = "MONST-0902-FLS",
+                ),
+            ),
         )
 
-        composeRule.onNodeWithText("MON_01").assertIsDisplayed()
+        composeRule.onNodeWithText("MONST-0902-FLS").assertIsDisplayed()
         composeRule.onNodeWithText("Monstera deliciosa").assertIsDisplayed()
     }
 
@@ -253,7 +259,7 @@ class PlantCaptureFormTest {
                 inputs = FormInputs(
                     pendingSpecies = SpeciesDraft("Pilea peperomioides", listOf("Chinese money plant"), "Pilea"),
                     speciesQuery = "Pilea peperomioides",
-                    instanceId = "PIL_01",
+                    instanceId = "PILEA-0902-FLS",
                 ),
             ),
         )
